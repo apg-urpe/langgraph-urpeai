@@ -1500,15 +1500,51 @@ async def kapso_inbound(
         # Aplica a cualquier canal (WhatsApp, webhook, etc.).
         # is_active = None (campo no seteado) NO bloquea — solo False explícito.
         if contacto and contacto.get("is_active") is False:
+            contacto_id_blocked = int(contacto["id"]) if contacto.get("id") is not None else None
+            conversacion_db_id_blocked = int(conversacion_db["id"]) if conversacion_db and conversacion_db.get("id") is not None else None
             logger.info(
                 "kapso.inbound_blocked contacto_id=%s is_active=False — sin respuesta",
-                contacto.get("id"),
+                contacto_id_blocked,
             )
             add_kapso_debug_event(
                 "fastapi",
                 "inbound_blocked",
-                {"reason": "contacto_inactivo", "contacto_id": contacto.get("id")},
+                {"reason": "contacto_inactivo", "contacto_id": contacto_id_blocked},
             )
+            # Persistir mensajes para trazabilidad aunque no se responda
+            if conversacion_db_id_blocked:
+                user_message_blocked = request.text or ""
+                message_parts_blocked = _separate_message_parts(request)
+                metadata_blocked = {
+                    "message_id": request.message_id,
+                    "contact_name": request.contact_name,
+                    "message_type": request.message_type,
+                    "has_media": request.has_media,
+                    "blocked_reason": "contacto_inactivo",
+                }
+                try:
+                    for part in message_parts_blocked or [{"contenido": user_message_blocked, "tipo": "texto"}]:
+                        await db.insertar_mensaje(
+                            conversacion_id=conversacion_db_id_blocked,
+                            contenido=part["contenido"],
+                            remitente="usuario",
+                            tipo=part["tipo"],
+                            status="bloqueado",
+                            metadata=metadata_blocked,
+                            empresa_id=empresa_id,
+                        )
+                    await db.insertar_mensaje(
+                        conversacion_id=conversacion_db_id_blocked,
+                        contenido="❌ Mensaje no procesado — contacto inactivo",
+                        remitente="agente",
+                        tipo="texto",
+                        status="bloqueado",
+                        metadata=metadata_blocked,
+                        empresa_id=empresa_id,
+                    )
+                    logger.info("kapso.inbound_blocked: mensajes persistidos para trazabilidad (conversacion_id=%s)", conversacion_db_id_blocked)
+                except Exception as exc:
+                    logger.warning("kapso.inbound_blocked: no se pudo persistir mensajes: %s", exc)
             return _build_command_response(
                 request=request,
                 conversation_id=conversation_id,
