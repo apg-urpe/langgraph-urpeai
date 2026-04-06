@@ -20,18 +20,10 @@ jobs:
           script: |
             set -euo pipefail
 
-            echo "==> Locating aguapp project directory..."
-            REPO_DIR=$(docker inspect aguapp --format '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}')
+            REPO_DIR=/opt/aguapp
 
-            if [ -z "$REPO_DIR" ]; then
-              echo "ERROR: Could not determine project directory from container labels"
-              exit 1
-            fi
-
-            echo "==> Found project at: $REPO_DIR"
+            echo "==> Pulling latest code in $REPO_DIR..."
             cd "$REPO_DIR"
-
-            echo "==> Pulling latest code..."
             git pull origin main
 
             echo "==> Building and restarting container..."
