@@ -1,14 +1,19 @@
 services:
   aguapp:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: aguapp
     restart: unless-stopped
-    ports:
-      - "3009:3000"
     env_file:
       - .env
+    ports:
+      - "${HOST_NODE_BRIDGE_PORT:-3001}:3001"
+    expose:
+      - "8000"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health || exit 1"]
       interval: 30s
       timeout: 10s
-      retries: 3
+      retries: 5
+      start_period: 45s

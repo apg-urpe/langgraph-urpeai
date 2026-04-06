@@ -1491,7 +1491,6 @@ async def kapso_inbound(
         # Si is_active es explícitamente False, no se procesa ni responde.
         # Aplica a cualquier canal (WhatsApp, webhook, etc.).
         # is_active = None (campo no seteado) NO bloquea — solo False explícito.
-        # El mensaje del usuario se guarda con status "enviado" aunque no se responda.
         if contacto and contacto.get("is_active") is False:
             logger.info(
                 "kapso.inbound_blocked contacto_id=%s is_active=False — sin respuesta",
@@ -1502,37 +1501,6 @@ async def kapso_inbound(
                 "inbound_blocked",
                 {"reason": "contacto_inactivo", "contacto_id": contacto.get("id")},
             )
-            if conversacion_db and conversacion_db.get("id") is not None:
-                metadata_base = {
-                    "canal": str(numero.get("canal") or channel_message.channel or "whatsapp"),
-                    "channel_provider": channel_message.provider,
-                    "channel_account_id": channel_message.channel_account_id,
-                    "external_conversation_id": channel_message.external_conversation_id,
-                    "external_message_id": channel_message.external_message_id,
-                    "phone_number_id": request.phone_number_id,
-                    "kapso_conversation_id": request.kapso_conversation_id,
-                    "kapso_message_id": request.message_id,
-                    "contact_name": request.contact_name,
-                    "message_type": request.message_type,
-                    "has_media": request.has_media,
-                }
-                fallback_content = request.text or f"[{request.message_type or 'mensaje'}]"
-                for part in message_parts or [{"contenido": fallback_content, "tipo": "texto"}]:
-                    try:
-                        await db.insertar_mensaje(
-                            conversacion_id=int(conversacion_db["id"]),
-                            contenido=part["contenido"],
-                            remitente="usuario",
-                            tipo=part["tipo"],
-                            status="enviado",
-                            metadata=metadata_base,
-                            empresa_id=empresa_id,
-                        )
-                    except Exception:
-                        logger.exception(
-                            "kapso.inbound_blocked: error guardando mensaje para contacto inactivo %s",
-                            contacto.get("id"),
-                        )
             return _build_command_response(
                 request=request,
                 conversation_id=conversation_id,

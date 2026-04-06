@@ -6321,25 +6321,19 @@ app.post('/webhook/kapso', async (req, res) => {
 
           );
 
-          // Llamar al agente primero, sin enviar ninguna señal de presencia.
-          // Si la respuesta viene suprimida (contacto inactivo u otra razón),
-          // el usuario no verá visto ni "escribiendo" en ningún momento.
+          await markKapsoAsRead(sqlPayload.phone_number_id, sqlPayload.message_id);
+
+          const typingKeepalive = startTypingKeepalive(sqlPayload.phone_number_id, sqlPayload.message_id);
+
           let reply;
 
           try {
 
             reply = await withTimeout(callInternalAgent(sqlPayload), PROCESS_TIMEOUT_MS);
 
-          } catch (err) {
+          } finally {
 
-            throw err;
-
-          }
-
-          // Solo enviar seen si realmente vamos a responder.
-          if (!shouldSuppressKapsoSend(reply)) {
-
-            await markKapsoAsRead(sqlPayload.phone_number_id, sqlPayload.message_id);
+            typingKeepalive.abort();
 
           }
 
