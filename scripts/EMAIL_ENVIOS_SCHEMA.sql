@@ -1,0 +1,72 @@
+-- ============================================================================
+-- EMAIL ENVIO SCHEMA - Historial de envíos de campañas
+-- ============================================================================
+-- NOTA: Esta tabla YA EXISTE en producción como wp_email_envio (singular)
+-- Este archivo documenta su estructura real.
+-- ============================================================================
+
+-- Tabla principal de envíos (YA EXISTE - NO EJECUTAR CREATE)
+-- CREATE TABLE public.wp_email_envio (
+--   id BIGSERIAL NOT NULL,
+--   campana_id BIGINT NOT NULL,
+--   contacto_id BIGINT NOT NULL,
+--   secuencia INTEGER NOT NULL DEFAULT 1,
+--   estado TEXT NOT NULL DEFAULT 'pendiente',
+--   enviado_en TIMESTAMPTZ NULL,
+--   abierto_en TIMESTAMPTZ NULL,
+--   asunto TEXT NULL,
+--   cuerpo_html TEXT NULL,
+--   cuerpo_texto TEXT NULL,
+--   metadata JSONB NULL DEFAULT '{}',
+--   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+--   thread_id TEXT NULL,
+--   email_id TEXT NULL,
+--   remitente_team_humano BIGINT NULL,
+--   
+--   CONSTRAINT wp_email_envio_pkey PRIMARY KEY (id),
+--   CONSTRAINT wp_email_envio_campana_id_fkey FOREIGN KEY (campana_id) 
+--     REFERENCES wp_email_campanas(id) ON DELETE CASCADE,
+--   CONSTRAINT wp_email_envio_contacto_id_fkey FOREIGN KEY (contacto_id) 
+--     REFERENCES wp_contactos(id) ON DELETE CASCADE,
+--   CONSTRAINT wp_email_envio_remitente_team_humano_fkey FOREIGN KEY (remitente_team_humano) 
+--     REFERENCES wp_team_humano(id),
+--   CONSTRAINT check_estado_envio CHECK (
+--     estado = ANY(ARRAY['pendiente', 'programado', 'enviado', 'abierto', 'clic', 'fallido', 'cancelado'])
+--   ),
+--   CONSTRAINT check_secuencia CHECK (secuencia > 0)
+-- );
+
+-- ============================================================================
+-- ESTADOS VÁLIDOS
+-- ============================================================================
+-- pendiente   - Email creado, pendiente de envío
+-- programado  - Programado para envío futuro
+-- enviado     - Email enviado exitosamente
+-- abierto     - Email abierto por el destinatario
+-- clic        - Destinatario hizo clic en un enlace
+-- fallido     - Error al enviar
+-- cancelado   - Envío cancelado manualmente
+
+-- ============================================================================
+-- ÍNDICES EXISTENTES
+-- ============================================================================
+-- idx_wp_email_envio_campana_contacto (campana_id, contacto_id, secuencia)
+-- idx_wp_email_envio_contacto_estado (contacto_id, estado)
+-- idx_envio_campana_estado (campana_id, estado)
+-- idx_envio_contacto (contacto_id)
+-- idx_email_envio_contacto (contacto_id)
+
+-- ============================================================================
+-- TRIGGER EXISTENTE
+-- ============================================================================
+-- update_wp_email_envio_timestamp - Actualiza updated_at automáticamente
+
+-- ============================================================================
+-- NOTAS DE ARQUITECTURA
+-- ============================================================================
+-- - NO tiene empresa_id directo
+-- - Filtrar por empresa vía: contacto_id -> wp_contactos.empresa_id
+-- - Usar !inner join en queries de Supabase:
+--   .select('*, contacto:contacto_id!inner(empresa_id)')
+--   .eq('contacto.empresa_id', enterpriseId)

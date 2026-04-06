@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data Catalog — Monica Inteligén (Supabase)</title>
+<style>
+:root{--bg:#0b0d12;--bg2:#12151d;--bg3:#181c28;--bg4:#1e2333;--border:#252a3a;--border2:#303752;--text:#c8d0e0;--text2:#8892a8;--text3:#5a637a;--accent:#4f8ef7;--green:#34d399;--yellow:#fbbf24;--red:#f87171;--orange:#fb923c;--purple:#a78bfa;--teal:#2dd4bf;--pink:#f472b6;--cyan:#22d3ee}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;line-height:1.55}
+a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+
+/* NAV */
+.topbar{position:sticky;top:0;z-index:100;background:rgba(11,13,18,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:4px;overflow-x:auto}
+.topbar .brand{font-weight:700;color:var(--accent);font-size:14px;white-space:nowrap;margin-right:12px;padding:12px 0}
+.topbar a{color:var(--text2);padding:12px 10px;font-size:12px;white-space:nowrap;border-bottom:2px solid transparent;transition:.15s}
+.topbar a:hover{color:var(--text);text-decoration:none}
+.topbar a.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.page{max-width:1500px;margin:0 auto;padding:28px 20px}
+section{margin-bottom:48px;scroll-margin-top:56px}
+h1{font-size:26px;font-weight:700;color:#fff;margin-bottom:4px}
+h2{font-size:18px;font-weight:700;color:#fff;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--border)}
+h3{font-size:14px;font-weight:600;color:#e0e4ec;margin-bottom:8px}
+.sub{color:var(--text2);font-size:13px;margin-bottom:24px}
+
+/* STATS */
+.stats{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:28px}
+.stat{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 18px;min-width:140px;flex:1}
+.stat-val{font-size:28px;font-weight:700;color:#fff}
+.stat-label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+/* BADGES */
+.b{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;border-radius:14px;font-size:10px;font-weight:600;letter-spacing:.02em;vertical-align:middle}
+.b-blue{background:rgba(79,142,247,.12);color:#93c5fd}
+.b-green{background:rgba(52,211,153,.12);color:var(--green)}
+.b-yellow{background:rgba(251,191,36,.12);color:var(--yellow)}
+.b-red{background:rgba(248,113,113,.12);color:var(--red)}
+.b-orange{background:rgba(251,146,60,.12);color:var(--orange)}
+.b-purple{background:rgba(167,139,250,.12);color:var(--purple)}
+.b-teal{background:rgba(45,212,191,.12);color:var(--teal)}
+.b-pink{background:rgba(244,114,182,.12);color:var(--pink)}
+.b-gray{background:rgba(148,163,184,.1);color:var(--text2)}
+.b-cyan{background:rgba(34,211,238,.12);color:var(--cyan)}
+
+/* TABLE CARD */
+.tcard{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:20px;overflow:hidden}
+.tcard-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;cursor:pointer;user-select:none}
+.tcard-head:hover{background:rgba(255,255,255,.015)}
+.tcard-name{font-weight:700;color:#fff;font-size:14px;font-family:'Consolas',monospace}
+.tcard-desc{color:var(--text2);font-size:12px;flex:1}
+.tcard-meta{display:flex;gap:6px;flex-wrap:wrap}
+.tcard-toggle{color:var(--text3);font-size:16px;transition:.2s;width:20px;text-align:center}
+.tcard.open .tcard-toggle{transform:rotate(90deg)}
+.tcard-body{display:none;padding:0}
+.tcard.open .tcard-body{display:block}
+
+/* COLUMNS TABLE */
+.ctbl{width:100%;border-collapse:collapse}
+.ctbl th{background:var(--bg3);color:var(--text3);font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:7px 14px;text-align:left;font-weight:600;border-bottom:1px solid var(--border)}
+.ctbl td{padding:7px 14px;border-bottom:1px solid rgba(255,255,255,.03);font-size:12px;vertical-align:top}
+.ctbl tr:last-child td{border-bottom:none}
+.ctbl tr:hover td{background:rgba(255,255,255,.015)}
+.col-name{font-family:'Consolas',monospace;color:#93c5fd;font-size:12px;white-space:nowrap}
+.col-pk{color:var(--yellow)}
+.col-fk{color:var(--purple)}
+.col-type{color:var(--text2);font-size:11px;white-space:nowrap}
+.col-null{color:var(--text3);font-size:10px}
+.col-default{color:var(--text3);font-size:11px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.col-check{color:var(--orange);font-size:11px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fk-ref{font-size:10px;color:var(--purple);display:block;margin-top:1px}
+
+/* DOMAIN GRID */
+.dgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:24px}
+.dcard{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.dcard h4{font-size:13px;font-weight:700;color:#fff;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.dcard .tables{display:flex;flex-wrap:wrap;gap:4px}
+
+/* SEARCH */
+.search-wrap{margin-bottom:20px;position:relative}
+.search-wrap input{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:10px 14px 10px 36px;color:var(--text);font-size:13px;outline:none}
+.search-wrap input:focus{border-color:var(--accent)}
+.search-wrap svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text3)}
+.search-wrap input::placeholder{color:var(--text3)}
+
+/* ER MINI */
+.er-section{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:20px;margin-bottom:24px;overflow-x:auto}
+.er-group{margin-bottom:16px}
+.er-group h4{font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.er-items{display:flex;flex-wrap:wrap;gap:6px}
+.er-item{background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:4px 10px;font-size:11px;font-family:'Consolas',monospace;color:var(--text);cursor:pointer}
+.er-item:hover{border-color:var(--accent);color:#fff}
+.er-arrow{color:var(--text3);font-size:14px;padding:0 2px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">📚 Data Catalog</span>
+  <a href="#overview" class="active">Overview</a>
+  <a href="#core">Core CRM</a>
+  <a href="#messaging">Messaging</a>
+  <a href="#agents">Agentes & Tools</a>
+  <a href="#empresa">Empresa</a>
+  <a href="#finance">Finanzas</a>
+  <a href="#whatsapp">WhatsApp</a>
+  <a href="#email">Email Marketing</a>
+  <a href="#tasks">Tareas & Proyectos</a>
+  <a href="#team">Team & Auth</a>
+  <a href="#observability">Observability</a>
+  <a href="#content">Contenido</a>
+  <a href="#other">Otros</a>
+</div>
+
+<div class="page">
+
+<section id="overview">
+  <h1>Data Catalog — Monica Inteligén</h1>
+  <p class="sub">Catálogo completo de las 80+ tablas en Supabase (PostgreSQL), agrupadas por dominio funcional. Generado desde el schema real de producción.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-val">82</div><div class="stat-label">Tablas totales</div></div>
+    <div class="stat"><div class="stat-val">13</div><div class="stat-label">Dominios funcionales</div></div>
+    <div class="stat"><div class="stat-val">900+</div><div class="stat-label">Columnas</div></div>
+    <div class="stat"><div class="stat-val">120+</div><div class="stat-label">Foreign Keys</div></div>
+  </div>
+
+  <div class="search-wrap">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input type="text" id="searchInput" placeholder="Buscar tabla o columna... (ej: wp_contactos, is_active, empresa_id)">
+  </div>
+
+  <h3>Dominios Funcionales</h3>
+  <div class="dgrid">
+    <div class="dcard"><h4>👤 Core CRM</h4><div class="tables"><span class="b b-blue">wp_contactos</span><span class="b b-blue">wp_contactos_nota</span><span class="b b-blue">wp_contactos_auditoria</span><span class="b b-blue">wp_contactos_merge_log</span><span class="b b-blue">wp_contacto_estado_embudo</span><span class="b b-blue">wp_contacto_team_asignaciones</span><span class="b b-blue">wp_evaluacion_preliminar</span></div></div>
+    <div class="dcard"><h4>💬 Messaging</h4><div class="tables"><span class="b b-green">wp_conversaciones</span><span class="b b-green">wp_mensajes</span><span class="b b-green">wp_multimedia</span><span class="b b-green">wp_recordatorios</span></div></div>
+    <div class="dcard"><h4>🤖 Agentes & Tools</h4><div class="tables"><span class="b b-purple">wp_agentes</span><span class="b b-purple">wp_agente_roles</span><span class="b b-purple">wp_agente_tools</span><span class="b b-purple">wp_mcp_tools_catalog</span><span class="b b-purple">wp_documentacion</span><span class="b b-purple">agent_memory</span><span class="b b-purple">agent_memory_interno</span></div></div>
+    <div class="dcard"><h4>🏢 Empresa</h4><div class="tables"><span class="b b-orange">wp_empresa_perfil</span><span class="b b-orange">wp_empresa_embudo</span><span class="b b-orange">wp_empresa_historial</span><span class="b b-orange">wp_empresa_ads_config</span><span class="b b-orange">wp_numeros</span><span class="b b-orange">wp_numeros_horarios</span></div></div>
+    <div class="dcard"><h4>💰 Finanzas & Cartera</h4><div class="tables"><span class="b b-yellow">wp_crm_servicios</span><span class="b b-yellow">wp_crm_pagos</span><span class="b b-yellow">wp_facturas</span><span class="b b-yellow">wp_metodos_pago</span><span class="b b-yellow">wp_finanzas</span><span class="b b-yellow">wp_suscripciones</span><span class="b b-yellow">wp_planes_suscripcion</span><span class="b b-yellow">wp_planes_caracteristicas</span><span class="b b-yellow">wp_plan_consumo</span><span class="b b-yellow">wp_suscripcion_historial</span></div></div>
+    <div class="dcard"><h4>📱 WhatsApp</h4><div class="tables"><span class="b b-teal">wp_whatsapp_templates</span><span class="b b-teal">wp_whatsapp_template_envios</span></div></div>
+    <div class="dcard"><h4>📧 Email</h4><div class="tables"><span class="b b-pink">wp_email_campanas</span><span class="b b-pink">wp_email_contacto_campana</span><span class="b b-pink">wp_email_envio</span><span class="b b-pink">wp_email_recibido</span><span class="b b-pink">wp_marketing_audiencias</span><span class="b b-pink">wp_marketing_audiencia_contacto</span></div></div>
+    <div class="dcard"><h4>📋 Tareas & Proyectos</h4><div class="tables"><span class="b b-cyan">wp_tareas</span><span class="b b-cyan">wp_tareas_asignados</span><span class="b b-cyan">wp_tareas_comentarios</span><span class="b b-cyan">wp_tareas_etiquetas</span><span class="b b-cyan">wp_tareas_historial</span><span class="b b-cyan">wp_tareas_items</span><span class="b b-cyan">wp_tareas_media</span><span class="b b-cyan">wp_tareas_reacciones</span><span class="b b-cyan">wp_proyectos</span><span class="b b-cyan">wp_proyectos_costos</span><span class="b b-cyan">wp_etiquetas_equipo</span></div></div>
+    <div class="dcard"><h4>👥 Team & Auth</h4><div class="tables"><span class="b b-gray">wp_team_humano</span><span class="b b-gray">wp_team_invitations</span><span class="b b-gray">team_invitations</span><span class="b b-gray">team_groups</span><span class="b b-gray">system_users</span><span class="b b-gray">system_roles</span><span class="b b-gray">system_permissions</span><span class="b b-gray">system_modules</span><span class="b b-gray">system_actions</span></div></div>
+    <div class="dcard"><h4>🔍 Observability</h4><div class="tables"><span class="b b-red">debug_events</span><span class="b b-red">wp_error_logs</span><span class="b b-red">wp_actividades_log</span><span class="b b-red">wp_auditoria</span><span class="b b-red">auditoria_historial</span><span class="b b-red">wp_notificaciones</span><span class="b b-red">wp_notificaciones_team</span><span class="b b-red">wp_system_alerts</span><span class="b b-red">metricas</span><span class="b b-red">wp_user_engagement</span><span class="b b-red">wp_user_engagement_daily</span><span class="b b-red">wp_module_usage_daily</span></div></div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- CORE CRM -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="core">
+<h2>👤 Core CRM</h2>
+
+<div class="tcard open" data-table="wp_contactos">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_contactos</span>
+    <span class="tcard-desc">Contactos del CRM — tabla central del sistema</span>
+    <span class="b b-blue">20 cols</span><span class="b b-gray">PK: id</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl">
+    <thead><tr><th>Columna</th><th>Tipo</th><th>Nullable</th><th>Default</th><th>Constraints / FK</th></tr></thead>
+    <tbody>
+      <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td class="col-null">NOT NULL</td><td class="col-default">nextval sequence</td><td>PRIMARY KEY</td></tr>
+      <tr><td class="col-name">telefono</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">nombre</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">apellido</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">email</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">fecha_registro</td><td class="col-type">timestamptz</td><td class="col-null">NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+      <tr><td class="col-name">ultima_interaccion</td><td class="col-type">timestamptz</td><td class="col-null">nullable</td><td class="col-default">now()</td><td></td></tr>
+      <tr><td class="col-name">origen</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">notas</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">is_active</td><td class="col-type">boolean</td><td class="col-null">nullable</td><td class="col-default">true</td><td><span class="b b-red">Guard: false = sin respuesta WA</span></td></tr>
+      <tr><td class="col-name">suscripcion</td><td class="col-type">boolean</td><td class="col-null">nullable</td><td class="col-default">true</td><td></td></tr>
+      <tr><td class="col-name">subscriber_id</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">avatar_url</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td class="col-null">nullable</td><td></td><td><span class="fk-ref">FK → wp_empresa_perfil(id)</span></td></tr>
+      <tr><td class="col-name">etapa_emocional</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">timezone</td><td class="col-type">text</td><td class="col-null">nullable</td><td class="col-default">'Por definir'</td><td></td></tr>
+      <tr><td class="col-name">es_calificado</td><td class="col-type">text</td><td class="col-null">nullable</td><td class="col-default">'evaluando'</td><td class="col-check">CHECK: si | no | evaluando</td></tr>
+      <tr><td class="col-name">estado</td><td class="col-type">text</td><td class="col-null">nullable</td><td class="col-default">'prospecto'</td><td></td></tr>
+      <tr><td class="col-name">url_drive</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">link_stripe</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name col-fk">team_humano_id</td><td class="col-type">bigint</td><td class="col-null">nullable</td><td></td><td><span class="fk-ref">FK → wp_team_humano(id)</span></td></tr>
+      <tr><td class="col-name col-fk">etapa_embudo</td><td class="col-type">bigint</td><td class="col-null">nullable</td><td></td><td><span class="fk-ref">FK → wp_empresa_embudo(id)</span></td></tr>
+      <tr><td class="col-name">informe_gamma</td><td class="col-type">text</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">paused_until</td><td class="col-type">timestamptz</td><td class="col-null">nullable</td><td></td><td></td></tr>
+      <tr><td class="col-name">created_at</td><td class="col-type">timestamptz</td><td class="col-null">NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+      <tr><td class="col-name">updated_at</td><td class="col-type">timestamptz</td><td class="col-null">nullable</td><td class="col-default">now()</td><td></td></tr>
+    </tbody>
+  </table></div>
+</div>
+
+<div class="tcard" data-table="wp_contactos_nota">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_contactos_nota</span>
+    <span class="tcard-desc">Notas de contactos (por agente IA o equipo humano)</span>
+    <span class="b b-blue">8 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">created_at</td><td class="col-type">timestamptz</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">descripcion</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_contactos(id)</td></tr>
+    <tr><td class="col-name col-fk">team_humano_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_team_humano(id)</td></tr>
+    <tr><td class="col-name">titulo</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">etiquetas</td><td class="col-type">jsonb</td><td class="col-default">[]</td><td></td></tr>
+    <tr><td class="col-name">es_fijado</td><td class="col-type">boolean</td><td class="col-default">false</td><td></td></tr>
+    <tr><td class="col-name">archivos_urls</td><td class="col-type">text[]</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">visible_ia</td><td class="col-type">boolean</td><td class="col-default">true</td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_contacto_estado_embudo">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_contacto_estado_embudo</span>
+    <span class="tcard-desc">Estado del contacto en el embudo de ventas (1:1 por contacto)</span>
+    <span class="b b-blue">10 cols</span><span class="b b-gray">UNIQUE: contacto_id</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint NOT NULL UNIQUE</td><td></td><td class="fk-ref">→ wp_contactos(id)</td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name col-fk">etapa_anterior</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_empresa_embudo(id)</td></tr>
+    <tr><td class="col-name col-fk">etapa_actual</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_embudo(id) <span class="col-check">CHECK > 0</span></td></tr>
+    <tr><td class="col-name col-fk">team_humano_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_team_humano(id)</td></tr>
+    <tr><td class="col-name">origen_cambio</td><td class="col-type">text</td><td class="col-default">'sistema'</td><td class="col-check">CHECK: sistema | agente_ia | manual | team_humano | webhook | api</td></tr>
+    <tr><td class="col-name">notas</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">fecha_ingreso_embudo</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">fecha_ultimo_cambio</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- MESSAGING -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="messaging">
+<h2>💬 Messaging</h2>
+
+<div class="tcard open" data-table="wp_conversaciones">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_conversaciones</span>
+    <span class="tcard-desc">Hilos de conversación (1 contacto puede tener múltiples)</span>
+    <span class="b b-green">17 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">agente_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_agentes(id)</td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_contactos(id)</td></tr>
+    <tr><td class="col-name">fecha_inicio</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name col-fk">numero_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_numeros(id)</td></tr>
+    <tr><td class="col-name">canal</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name">seguimiento</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">resumen</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">evaluacion</td><td class="col-type">numeric</td><td></td><td></td></tr>
+    <tr><td class="col-name">fecha_analisis</td><td class="col-type">timestamptz</td><td></td><td></td></tr>
+    <tr><td class="col-name">subscriber_id_redes</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">fecha_ultimo_mensaje_usuario</td><td class="col-type">timestamptz</td><td class="col-default">now() UTC</td><td></td></tr>
+    <tr><td class="col-name">inteligencia_conversacional</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">ultimo_mensaje_at</td><td class="col-type">timestamptz</td><td></td><td></td></tr>
+    <tr><td class="col-name">ultimo_mensaje_contenido</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">ultimo_mensaje_remitente</td><td class="col-type">text</td><td></td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard open" data-table="wp_mensajes">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_mensajes</span>
+    <span class="tcard-desc">Mensajes individuales — tabla más activa del sistema</span>
+    <span class="b b-green">13 cols</span><span class="b b-red">status: buffer → procesando → enviado/error</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">conversacion_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_conversaciones(id)</td></tr>
+    <tr><td class="col-name">timestamp</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">contenido</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">tipo</td><td class="col-type">text NOT NULL</td><td class="col-default">'texto'</td><td class="col-check">CHECK: texto | multimedia</td></tr>
+    <tr><td class="col-name">remitente</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">status</td><td class="col-type">text</td><td class="col-default">'buffer'</td><td><span class="b b-gray">buffer</span> → <span class="b b-yellow">procesando</span> → <span class="b b-green">enviado/sent</span> | <span class="b b-red">error</span></td></tr>
+    <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-default">{}</td><td>canal, kapso_message_id, processing_error, etc.</td></tr>
+    <tr><td class="col-name">modelo_llm</td><td class="col-type">text</td><td class="col-default">''</td><td></td></tr>
+    <tr><td class="col-name">uso_herramientas</td><td class="col-type">jsonb</td><td></td><td></td></tr>
+    <tr><td class="col-name">url_ejecucion</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td></td><td>Para RLS eficiente</td></tr>
+    <tr><td class="col-name">id_externo</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">created_at</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">updated_at</td><td class="col-type">timestamptz NOT NULL</td><td class="col-default">now()</td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_multimedia">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_multimedia</span>
+    <span class="tcard-desc">Archivos multimedia asociados a contactos (vía Edge Functions)</span>
+    <span class="b b-green">11 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">archivo_url</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">tipo</td><td class="col-type">text NOT NULL</td><td></td><td class="col-check">CHECK: imagen | audio | video | documento</td></tr>
+    <tr><td class="col-name">nombre_archivo</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">tamaño</td><td class="col-type">bigint</td><td></td><td></td></tr>
+    <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">hash</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_contactos(id)</td></tr>
+    <tr><td class="col-name">contenido</td><td class="col-type">jsonb</td><td></td><td>Transcripción / descripción</td></tr>
+    <tr><td class="col-name">url_carpeta</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">estado</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td></td><td></td></tr>
+    <tr><td class="col-name">seccion</td><td class="col-type">text</td><td></td><td></td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- AGENTES -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="agents">
+<h2>🤖 Agentes & Tools</h2>
+
+<div class="tcard" data-table="wp_agentes">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_agentes</span>
+    <span class="tcard-desc">Configuración de agentes IA (prompt, modelo, MCP, restricciones)</span>
+    <span class="b b-purple">21 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">nombre_agente</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">instrucciones</td><td class="col-type">text</td><td></td><td>System prompt principal</td></tr>
+    <tr><td class="col-name">comportamiento</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">restricciones</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">rol</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name">formato_respuesta</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">areas_de_expertise</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">uso_de_emojis</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">prompt_personalizado</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">idioma</td><td class="col-type">text</td><td class="col-default">'es'</td><td></td></tr>
+    <tr><td class="col-name">url_imagen_agente</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">manejo_herramientas</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">instrucciones_mensajes</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">url_videos</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">llm</td><td class="col-type">text</td><td class="col-default">'google/gemini-2.5-flash'</td><td>Modelo LLM a usar</td></tr>
+    <tr><td class="col-name">mcp_url</td><td class="col-type">text</td><td class="col-default">URL n8n MCP</td><td>Puede ser JSON array o CSV de URLs</td></tr>
+    <tr><td class="col-name">instrucciones_multimedia</td><td class="col-type">text</td><td></td><td>Prompt para visión de imágenes</td></tr>
+    <tr><td class="col-name col-fk">id_rol</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_agente_roles(id)</td></tr>
+    <tr><td class="col-name">metadata_contacto</td><td class="col-type">jsonb</td><td></td><td></td></tr>
+    <tr><td class="col-name">archivado</td><td class="col-type">boolean</td><td class="col-default">false</td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_agente_roles">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_agente_roles</span>
+    <span class="tcard-desc">Roles de agentes IA (plantillas de instrucciones)</span>
+    <span class="b b-purple">4 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th></th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">nombre_rol</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">instrucciones_rol</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">fecha_creacion / fecha_actualizacion</td><td class="col-type">timestamptz</td><td class="col-default">now()</td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="agent_memory">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">agent_memory / agent_memory_interno</span>
+    <span class="tcard-desc">Checkpoints de memoria LangGraph (session_id = contacto_id o teléfono)</span>
+    <span class="b b-purple">3 cols cada una</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th></th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">integer (sequence)</td><td>PK</td></tr>
+    <tr><td class="col-name">session_id</td><td class="col-type">varchar NOT NULL</td><td>contacto_id o teléfono normalizado</td></tr>
+    <tr><td class="col-name">message</td><td class="col-type">jsonb NOT NULL</td><td>Checkpoint del grafo LangGraph</td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- EMPRESA -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="empresa">
+<h2>🏢 Empresa & Números</h2>
+
+<div class="tcard" data-table="wp_empresa_perfil">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_empresa_perfil</span>
+    <span class="tcard-desc">Perfil de empresa — entidad raíz multi-tenant</span>
+    <span class="b b-orange">22 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th></th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td></td><td>PK — referenciada por casi todas las tablas</td></tr>
+    <tr><td class="col-name">nombre</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">ciudad / pais / rubro</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">informacion_empresarial</td><td class="col-type">text</td><td></td><td>Contexto para agentes IA</td></tr>
+    <tr><td class="col-name">preguntas_frecuentes</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">servicios_generales</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">embudo_ventas</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">logo_url / sitio_web / telefono / email / direccion</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">metadata</td><td class="col-type">jsonb</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">reglas_negocio</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">canal_comunicacion</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">timezone</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">branding</td><td class="col-type">jsonb</td><td></td><td></td></tr>
+    <tr><td class="col-name">activo</td><td class="col-type">boolean</td><td class="col-default">true</td><td></td></tr>
+    <tr><td class="col-name">email_marketing</td><td class="col-type">boolean</td><td class="col-default">true</td><td></td></tr>
+    <tr><td class="col-name">metricas_activa</td><td class="col-type">boolean</td><td class="col-default">false</td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_numeros">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_numeros</span>
+    <span class="tcard-desc">Números de WhatsApp / canales configurados por empresa</span>
+    <span class="b b-orange">15 cols</span><span class="b b-gray">UNIQUE: telefono</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">telefono</td><td class="col-type">text UNIQUE</td><td></td><td>Número WA (usado para resolver inbound)</td></tr>
+    <tr><td class="col-name">nombre</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">activo</td><td class="col-type">boolean</td><td class="col-default">true</td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name col-fk">agente_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_agentes(id)</td></tr>
+    <tr><td class="col-name">canal</td><td class="col-type">text</td><td></td><td>whatsapp, etc.</td></tr>
+    <tr><td class="col-name">id_kapso</td><td class="col-type">text</td><td></td><td>ID en plataforma Kapso (fallback lookup)</td></tr>
+    <tr><td class="col-name col-fk">agente_id_ab</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_agentes(id) — A/B testing</td></tr>
+    <tr><td class="col-name">ab_test_activo</td><td class="col-type">boolean</td><td class="col-default">false</td><td></td></tr>
+    <tr><td class="col-name">waha_session / evolution_instance</td><td class="col-type">text</td><td></td><td>Proveedores legacy</td></tr>
+    <tr><td class="col-name">elevenlabs_id_voz</td><td class="col-type">text</td><td></td><td>Voz TTS</td></tr>
+    <tr><td class="col-name">timezone</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">link_conectar_canal</td><td class="col-type">text</td><td></td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_empresa_embudo">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_empresa_embudo</span>
+    <span class="tcard-desc">Etapas del embudo de ventas por empresa</span>
+    <span class="b b-orange">7 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name">nombre_etapa</td><td class="col-type">varchar NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">orden_etapa</td><td class="col-type">integer NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">descripcion</td><td class="col-type">jsonb</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name">configuracion_seguimiento</td><td class="col-type">jsonb</td><td class="col-default">JSON con horario + seguimientos</td><td></td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- FINANCE -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="finance">
+<h2>💰 Finanzas & Cartera</h2>
+
+<div class="tcard" data-table="wp_crm_servicios">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_crm_servicios</span>
+    <span class="tcard-desc">Servicios / contratos contratados por un contacto</span>
+    <span class="b b-yellow">16 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_contactos(id) ON DELETE CASCADE</td></tr>
+    <tr><td class="col-name">nombre_servicio</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">tipo_servicio</td><td class="col-type">text</td><td class="col-default">'general'</td><td></td></tr>
+    <tr><td class="col-name">descripcion</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">moneda</td><td class="col-type">varchar</td><td class="col-default">'USD'</td><td></td></tr>
+    <tr><td class="col-name">valor_total</td><td class="col-type">numeric NOT NULL</td><td class="col-default">0</td><td></td></tr>
+    <tr><td class="col-name">saldo_pagado</td><td class="col-type">numeric NOT NULL</td><td class="col-default">0</td><td>Actualizado por trigger</td></tr>
+    <tr><td class="col-name">saldo_pendiente</td><td class="col-type">numeric</td><td class="col-default">valor_total - saldo_pagado</td><td><span class="b b-yellow">GENERATED / computed</span></td></tr>
+    <tr><td class="col-name">estado</td><td class="col-type">varchar</td><td class="col-default">'activo'</td><td></td></tr>
+    <tr><td class="col-name">fecha_inicio / fecha_fin</td><td class="col-type">timestamptz</td><td></td><td></td></tr>
+    <tr><td class="col-name">dia_compromiso_pago</td><td class="col-type">smallint</td><td></td><td class="col-check">CHECK: 1-31</td></tr>
+    <tr><td class="col-name">cuota_mensual</td><td class="col-type">numeric</td><td></td><td class="col-check">CHECK: >= 0</td></tr>
+    <tr><td class="col-name">contrato_url</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">ultima_factura_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_facturas(id)</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_crm_pagos">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_crm_pagos</span>
+    <span class="tcard-desc">Pagos / abonos a servicios — trigger actualiza saldo_pagado</span>
+    <span class="b b-yellow">13 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name col-fk">servicio_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_crm_servicios(id)</td></tr>
+    <tr><td class="col-name col-fk">contacto_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_contactos(id)</td></tr>
+    <tr><td class="col-name">monto</td><td class="col-type">numeric NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">moneda</td><td class="col-type">varchar</td><td class="col-default">'USD'</td><td></td></tr>
+    <tr><td class="col-name">fecha_pago</td><td class="col-type">timestamptz</td><td class="col-default">now()</td><td></td></tr>
+    <tr><td class="col-name">metodo_pago</td><td class="col-type">varchar</td><td></td><td></td></tr>
+    <tr><td class="col-name">referencia</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">estado</td><td class="col-type">varchar</td><td class="col-default">'confirmado'</td><td></td></tr>
+    <tr><td class="col-name">nota / comprobante_url</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name col-fk">registrado_por</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_team_humano(id)</td></tr>
+    <tr><td class="col-name col-fk">factura_id</td><td class="col-type">bigint</td><td></td><td class="fk-ref">→ wp_facturas(id)</td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_facturas">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_facturas</span>
+    <span class="tcard-desc">Facturas — vinculadas a servicios y pagos</span>
+    <span class="b b-yellow">26 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">empresa_id / contacto_id / servicio_id / pago_id</td><td class="col-type">bigint</td><td>FKs a empresa, contacto, servicio, pago</td></tr>
+    <tr><td class="col-name">numero_factura</td><td class="col-type">varchar NOT NULL</td><td></td></tr>
+    <tr><td class="col-name">prefijo</td><td class="col-type">varchar</td><td>'INV'</td></tr>
+    <tr><td class="col-name">secuencia</td><td class="col-type">integer NOT NULL</td><td></td></tr>
+    <tr><td class="col-name">cliente_nombre / email / telefono / direccion / documento / pais</td><td class="col-type">text</td><td>Snapshot del contacto al emitir</td></tr>
+    <tr><td class="col-name">empresa_nombre / direccion / telefono / email / sitio_web / logo_url / documento</td><td class="col-type">text</td><td>Snapshot de la empresa</td></tr>
+    <tr><td class="col-name">items</td><td class="col-type">jsonb NOT NULL</td><td>Líneas de la factura</td></tr>
+    <tr><td class="col-name">subtotal / impuestos / descuentos / total</td><td class="col-type">numeric</td><td>CHECK: total >= 0</td></tr>
+    <tr><td class="col-name">monto_pagado / saldo_pendiente</td><td class="col-type">numeric</td><td>saldo = total - monto_pagado</td></tr>
+    <tr><td class="col-name">estado</td><td class="col-type">varchar</td><td>'emitida'</td></tr>
+    <tr><td class="col-name">pdf_url / notas / terminos</td><td class="col-type">text</td><td></td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- WHATSAPP -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="whatsapp">
+<h2>📱 WhatsApp Templates</h2>
+
+<div class="tcard" data-table="wp_whatsapp_templates">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_whatsapp_templates</span>
+    <span class="tcard-desc">Plantillas de WhatsApp Business registradas en Meta</span>
+    <span class="b b-teal">22 cols</span><span class="b b-gray">UNIQUE: (numero_id, template_name, language_code)</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr>
+    <tr><td class="col-name col-fk">numero_id</td><td class="col-type">bigint NOT NULL</td><td></td><td class="fk-ref">→ wp_numeros(id)</td></tr>
+    <tr><td class="col-name">provider</td><td class="col-type">text NOT NULL</td><td class="col-default">'kapso'</td><td class="col-check">CHECK: kapso | meta | manual</td></tr>
+    <tr><td class="col-name">template_name</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">language_code</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">category</td><td class="col-type">text NOT NULL</td><td></td><td class="col-check">CHECK: marketing | utility | authentication</td></tr>
+    <tr><td class="col-name">status</td><td class="col-type">text NOT NULL</td><td class="col-default">'pending'</td><td class="col-check">CHECK: draft | pending | approved | rejected | disabled | paused | archived | deleted</td></tr>
+    <tr><td class="col-name">is_active</td><td class="col-type">boolean NOT NULL</td><td class="col-default">true</td><td></td></tr>
+    <tr><td class="col-name">header_type</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">components</td><td class="col-type">jsonb NOT NULL</td><td class="col-default">[]</td><td>Estructura Meta: header, body, footer, buttons</td></tr>
+    <tr><td class="col-name">variables_schema</td><td class="col-type">jsonb NOT NULL</td><td class="col-default">[]</td><td>Mapeo de &#123;&#123;1&#125;&#125; → campo del contacto</td></tr>
+    <tr><td class="col-name">example_payload</td><td class="col-type">jsonb NOT NULL</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">rejection_reason / quality_rating</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">meta_category / clasificacion_interna</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">last_synced_at / external_created_at / external_updated_at</td><td class="col-type">timestamptz</td><td></td><td></td></tr>
+  </tbody></table></div>
+</div>
+
+<div class="tcard" data-table="wp_whatsapp_template_envios">
+  <div class="tcard-head" onclick="this.parentElement.classList.toggle('open')">
+    <span class="tcard-toggle">▶</span>
+    <span class="tcard-name">wp_whatsapp_template_envios</span>
+    <span class="tcard-desc">Audit log de cada envío de plantilla — tracking completo</span>
+    <span class="b b-teal">24 cols</span>
+  </div>
+  <div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th><th>FK / Check</th></tr></thead><tbody>
+    <tr><td class="col-name col-pk">id</td><td class="col-type">bigint</td><td></td><td>PK</td></tr>
+    <tr><td class="col-name col-fk">empresa_id / numero_id / template_id / conversacion_id / mensaje_id / contacto_id / enviado_por</td><td class="col-type">bigint</td><td></td><td>FKs a todas las entidades relacionadas</td></tr>
+    <tr><td class="col-name">provider</td><td class="col-type">text NOT NULL</td><td class="col-default">'kapso'</td><td class="col-check">CHECK: kapso | meta | manual</td></tr>
+    <tr><td class="col-name">provider_message_id / provider_template_id</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">template_name</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">language_code</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">telefono_destino</td><td class="col-type">text NOT NULL</td><td></td><td></td></tr>
+    <tr><td class="col-name">payload</td><td class="col-type">jsonb NOT NULL</td><td class="col-default">{}</td><td></td></tr>
+    <tr><td class="col-name">parametros_resueltos</td><td class="col-type">jsonb NOT NULL</td><td class="col-default">[]</td><td></td></tr>
+    <tr><td class="col-name">rendered_body</td><td class="col-type">text</td><td></td><td>Lo que vio el usuario final</td></tr>
+    <tr><td class="col-name">estado</td><td class="col-type">text NOT NULL</td><td class="col-default">'queued'</td><td class="col-check">CHECK: queued | accepted | sent | delivered | read | failed | rejected | cancelled</td></tr>
+    <tr><td class="col-name">error_code / error_message</td><td class="col-type">text</td><td></td><td></td></tr>
+    <tr><td class="col-name">sent_at / delivered_at / read_at / failed_at</td><td class="col-type">timestamptz</td><td></td><td>Tracking lifecycle completo</td></tr>
+  </tbody></table></div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- EMAIL -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="email">
+<h2>📧 Email Marketing</h2>
+<div class="tcard" data-table="wp_email_campanas"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_email_campanas</span><span class="tcard-desc">Campañas de email marketing</span><span class="b b-pink">13 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Check</th></tr></thead><tbody><tr><td class="col-name">nombre</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">estado</td><td class="col-type">text NOT NULL</td><td class="col-check">borrador | activa | pausada | archivada</td></tr><tr><td class="col-name">es_default_post_conversacion</td><td class="col-type">boolean</td><td class="col-default">false</td></tr><tr><td class="col-name">cadencia_dias</td><td class="col-type">integer NOT NULL</td><td class="col-check">CHECK: > 0, default 2</td></tr><tr><td class="col-name">total_toques</td><td class="col-type">integer</td><td></td></tr><tr><td class="col-name">instrucciones_ai</td><td class="col-type">text</td><td>Prompt para IA que genera emails</td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_email_envio"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_email_envio</span><span class="tcard-desc">Cada email individual enviado</span><span class="b b-pink">16 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Check</th></tr></thead><tbody><tr><td class="col-name">secuencia</td><td class="col-type">integer NOT NULL</td><td>Toque # en la secuencia</td></tr><tr><td class="col-name">estado</td><td class="col-type">text NOT NULL</td><td class="col-check">borrador | pendiente | programado | enviado | abierto | clic | fallido | cancelado</td></tr><tr><td class="col-name">asunto / cuerpo_html / cuerpo_texto</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">thread_id / email_id</td><td class="col-type">text</td><td>IDs de Nylas</td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_email_recibido"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_email_recibido</span><span class="tcard-desc">Emails recibidos de contactos</span><span class="b b-pink">14 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name">asunto / cuerpo_html / cuerpo_texto</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">thread_id / email_id</td><td class="col-type">text</td><td>Nylas</td></tr><tr><td class="col-name">descripcion</td><td class="col-type">text</td><td>Resumen AI</td></tr><tr><td class="col-name">tipo</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">contestar</td><td class="col-type">boolean</td><td></td></tr></tbody></table></div></div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TASKS -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="tasks">
+<h2>📋 Tareas & Proyectos</h2>
+<div class="tcard" data-table="wp_tareas"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_tareas</span><span class="tcard-desc">Sistema de tareas con prioridad, costos y tiempo</span><span class="b b-cyan">20 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Check / Default</th></tr></thead><tbody><tr><td class="col-name">titulo</td><td class="col-type">varchar NOT NULL</td><td></td></tr><tr><td class="col-name">estado</td><td class="col-type">varchar</td><td class="col-check">pendiente | en_progreso | completada | cancelada</td></tr><tr><td class="col-name">prioridad</td><td class="col-type">smallint</td><td class="col-check">1-4 (default 2)</td></tr><tr><td class="col-name col-fk">contacto_id / cita_id / conversacion_id / proyecto_id</td><td class="col-type">integer</td><td>FKs opcionales</td></tr><tr><td class="col-name col-fk">asignado_a / creado_por</td><td class="col-type">integer</td><td class="fk-ref">→ wp_team_humano</td></tr><tr><td class="col-name">tiempo_estimado_min / tiempo_real_min</td><td class="col-type">integer</td><td></td></tr><tr><td class="col-name">costo_estimado / costo_real</td><td class="col-type">numeric</td><td></td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_proyectos"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_proyectos</span><span class="tcard-desc">Proyectos con kanban, presupuesto y fechas</span><span class="b b-cyan">18 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name">nombre</td><td class="col-type">varchar NOT NULL</td><td></td></tr><tr><td class="col-name">estado</td><td class="col-type">varchar</td><td class="col-check">activo | archivado | completado</td></tr><tr><td class="col-name">config</td><td class="col-type">jsonb</td><td>vista_default, columnas_kanban</td></tr><tr><td class="col-name">presupuesto / gasto_actual</td><td class="col-type">numeric</td><td></td></tr><tr><td class="col-name col-fk">contacto_id / servicio_id</td><td class="col-type">integer</td><td>FKs opcionales</td></tr></tbody></table></div></div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- TEAM -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="team">
+<h2>👥 Team & Auth</h2>
+<div class="tcard" data-table="wp_team_humano"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_team_humano</span><span class="tcard-desc">Miembros del equipo humano (asesores, admins)</span><span class="b b-gray">30+ cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td>PK</td></tr><tr><td class="col-name col-fk">empresa_id</td><td class="col-type">bigint NOT NULL</td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr><tr><td class="col-name">nombre / apellido</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">email</td><td class="col-type">text NOT NULL UNIQUE</td><td></td></tr><tr><td class="col-name">rol</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">especialidad</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">is_active</td><td class="col-type">boolean</td><td>default true</td></tr><tr><td class="col-name">disponibilidad</td><td class="col-type">jsonb</td><td>JSON complejo: horarios, vacaciones, buffer</td></tr><tr><td class="col-name">grant_id</td><td class="col-type">text</td><td>Nylas calendar grant</td></tr><tr><td class="col-name">auth_uid</td><td class="col-type">uuid UNIQUE</td><td>Link a auth.users</td></tr><tr><td class="col-name col-fk">role_id</td><td class="col-type">bigint</td><td class="fk-ref">→ system_roles(id) — default 3</td></tr><tr><td class="col-name">duracion_cita_minutos</td><td class="col-type">integer</td><td>default 30</td></tr><tr><td class="col-name">acepta_citas / notetaker</td><td class="col-type">boolean</td><td></td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="system_roles"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">system_roles</span><span class="tcard-desc">Roles del sistema (RBAC)</span><span class="b b-gray">7 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name col-pk">id</td><td class="col-type">bigint GENERATED ALWAYS</td><td>PK</td></tr><tr><td class="col-name">name</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">is_super_admin</td><td class="col-type">boolean NOT NULL</td><td>default false</td></tr><tr><td class="col-name col-fk">enterprise_id</td><td class="col-type">bigint</td><td class="fk-ref">→ wp_empresa_perfil(id)</td></tr><tr><td class="col-name">active</td><td class="col-type">boolean</td><td>default true</td></tr></tbody></table></div></div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- OBSERVABILITY -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="observability">
+<h2>🔍 Observability & Auditoría</h2>
+
+<div class="tcard" data-table="debug_events"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">debug_events</span><span class="tcard-desc">Eventos de debug del pipeline Kapso — SSE streaming</span><span class="b b-red">7 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name col-pk">id</td><td class="col-type">uuid</td><td>gen_random_uuid()</td></tr><tr><td class="col-name">created_at</td><td class="col-type">timestamptz</td><td>now()</td></tr><tr><td class="col-name">source</td><td class="col-type">text NOT NULL</td><td>"fastapi" | "bridge"</td></tr><tr><td class="col-name">stage</td><td class="col-type">text NOT NULL</td><td>inbound_received, inbound_blocked, audio_processing, etc.</td></tr><tr><td class="col-name">payload</td><td class="col-type">jsonb</td><td>Datos del evento</td></tr><tr><td class="col-name">empresa_id / contacto_id</td><td class="col-type">integer</td><td>Para filtrado</td></tr><tr><td class="col-name">message_id</td><td class="col-type">text</td><td>ID Kapso</td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_error_logs"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_error_logs</span><span class="tcard-desc">Logs de errores del sistema</span><span class="b b-red">8 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name">function_name</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">error_message / error_stack</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">request_body</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">severity</td><td class="col-type">text</td><td>default 'error'</td></tr><tr><td class="col-name">context</td><td class="col-type">jsonb</td><td></td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_actividades_log"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_actividades_log</span><span class="tcard-desc">Log de actividades del CRM</span><span class="b b-red">12 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name">tipo / accion</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">descripcion</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name">datos_antes / datos_despues</td><td class="col-type">jsonb</td><td>Snapshot before/after</td></tr><tr><td class="col-name">entidad_tipo / entidad_id</td><td class="col-type">text</td><td></td></tr><tr><td class="col-name col-fk">agente_id / empresa_id / contacto_id</td><td class="col-type">bigint</td><td>FKs</td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="wp_notificaciones_team"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">wp_notificaciones_team</span><span class="tcard-desc">Notificaciones para el equipo humano (HITL, alertas)</span><span class="b b-red">15 cols</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Columna</th><th>Tipo</th><th>Default</th></tr></thead><tbody><tr><td class="col-name">tipo</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">mensaje</td><td class="col-type">text NOT NULL</td><td></td></tr><tr><td class="col-name">estado</td><td class="col-type">text NOT NULL</td><td>'pendiente'</td></tr><tr><td class="col-name">requiere_respuesta</td><td class="col-type">boolean</td><td>true</td></tr><tr><td class="col-name">visto</td><td class="col-type">boolean</td><td>false</td></tr><tr><td class="col-name">archivado</td><td class="col-type">boolean</td><td>false</td></tr><tr><td class="col-name">origen</td><td class="col-type">text</td><td>''</td></tr><tr><td class="col-name">respuesta / fecha_respuesta</td><td class="col-type">text / timestamptz</td><td></td></tr></tbody></table></div></div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- CONTENT -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="content">
+<h2>📝 Contenido & Documentación</h2>
+<div class="tcard" data-table="redaccion"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">redaccion / redaccion_detalles / redaccion_tipos</span><span class="tcard-desc">Sistema de redacción de documentos con secciones y evaluación</span><span class="b b-gray">3 tablas</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Tabla</th><th>Columnas clave</th><th>Nota</th></tr></thead><tbody><tr><td class="col-name">redaccion</td><td>nombre, url_doc, tipo_id, contacto_id, estado (borrador|en_revision|publicado|archivado|preparando), contexto_structured</td><td></td></tr><tr><td class="col-name">redaccion_detalles</td><td>titulo, contenido, orden, redaccion_id, evaluacion (0-10), plan_seccion</td><td></td></tr><tr><td class="col-name">redaccion_tipos</td><td>nombre, partes, instrucciones, longitud, objetivo, requerimientos, empresa_id</td><td></td></tr></tbody></table></div></div>
+
+<div class="tcard" data-table="artifacts"><div class="tcard-head" onclick="this.parentElement.classList.toggle('open')"><span class="tcard-toggle">▶</span><span class="tcard-name">artifacts / artifact_versions / artifact_stars</span><span class="tcard-desc">Artefactos generados (HTML, markdown, SVG, React, code, research)</span><span class="b b-gray">3 tablas</span></div><div class="tcard-body"><table class="ctbl"><thead><tr><th>Tabla</th><th>Columnas clave</th></tr></thead><tbody><tr><td class="col-name">artifacts</td><td>title, content, type (html|markdown|svg|mermaid|react|code|research), language, tags[], is_pinned, is_public, public_slug, view_count, fork_count</td></tr><tr><td class="col-name">artifact_versions</td><td>artifact_id, content, version_number, change_description, is_auto_save</td></tr><tr><td class="col-name">artifact_stars</td><td>user_id, artifact_id</td></tr></tbody></table></div></div>
+</section>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- OTHER -->
+<!-- ════════════════════════════════════════════════ -->
+<section id="other">
+<h2>🔧 Otras Tablas</h2>
+<div class="dgrid">
+  <div class="dcard"><h4>🏥 Salud</h4><div style="font-size:12px;color:var(--text2)"><code>pacientes</code> — Pacientes con historia médica<br><code>diagnostico</code> — Diagnósticos<br><code>aceptacion</code> — Aceptación de diagnóstico<br><code>usuarios_consentimientos</code> — Consentimientos firmados</div></div>
+  <div class="dcard"><h4>🧪 Testing Sintético</h4><div style="font-size:12px;color:var(--text2)"><code>sintetico_perfiles</code> — Perfiles de usuarios simulados<br><code>sintetico_escenarios</code> — Escenarios de test<br><code>sintetico_ejecuciones</code> — Runs de test</div></div>
+  <div class="dcard"><h4>🐦 DAU Tracking</h4><div style="font-size:12px;color:var(--text2)"><code>dau_tracked_users</code> — Usuarios de Twitter/X<br><code>dau_user_tweets</code> — Tweets monitoreados</div></div>
+  <div class="dcard"><h4>🎓 Training</h4><div style="font-size:12px;color:var(--text2)"><code>training_courses</code> → <code>training_lessons</code> → <code>training_questions</code><br><code>training_user_progress</code> — Progreso del equipo<br><code>training_streaks</code> — Rachas de aprendizaje</div></div>
+  <div class="dcard"><h4>🎮 Gamificación</h4><div style="font-size:12px;color:var(--text2)"><code>minijuegos_jugadores</code><br><code>minijuegos_organizaciones</code></div></div>
+  <div class="dcard"><h4>📎 Drive & Links</h4><div style="font-size:12px;color:var(--text2)"><code>drive_files</code> — Archivos de Google Drive indexados<br><code>shortened_links</code> — URLs acortadas con clicks tracking</div></div>
+  <div class="dcard"><h4>🤖 N18 (Agente Autónomo)</h4><div style="font-size:12px;color:var(--text2)"><code>n18_memory</code> — Memoria del agente<br><code>n18_episodic</code> — Resúmenes diarios<br><code>n18_autonomy</code> — Decisiones del agente<br><code>n18_autonomy_rules</code> — Reglas de autonomía<br><code>numero18_alerts</code> — Alertas</div></div>
+  <div class="dcard"><h4>👩‍💼 Sofia (Recruiting)</h4><div style="font-size:12px;color:var(--text2)"><code>sofia_candidatos</code> — Candidatos evaluados con score, CV, salario</div></div>
+  <div class="dcard"><h4>🗂️ Chatbot (Legacy)</h4><div style="font-size:12px;color:var(--text2)"><code>chatbot_integrations</code><br><code>chatbot_conversations</code><br><code>chatbot_messages</code></div></div>
+  <div class="dcard"><h4>📊 Métricas</h4><div style="font-size:12px;color:var(--text2)"><code>metricas</code> — KPIs por empresa<br><code>evaluaciones</code> — Evaluaciones de agentes</div></div>
+  <div class="dcard"><h4>📹 Videos</h4><div style="font-size:12px;color:var(--text2)"><code>wp_videos</code> — Videos de reuniones<br><code>transcripciones</code> — Transcripciones de reuniones (Nylas)</div></div>
+</div>
+</section>
+
+<div style="border-top:1px solid var(--border);padding:20px 0;color:var(--text3);font-size:11px;text-align:center">
+  Monica Inteligén — Data Catalog (schema real de Supabase) — Generado 2026-04-01 — 82 tablas en public schema
+</div>
+
+</div>
+
+<script>
+// Search
+const input = document.getElementById('searchInput');
+const allCards = document.querySelectorAll('.tcard');
+const allSections = document.querySelectorAll('section');
+input.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  if (!q) {
+    allCards.forEach(c => { c.style.display = ''; c.classList.remove('open'); });
+    allSections.forEach(s => s.style.display = '');
+    return;
+  }
+  allCards.forEach(c => {
+    const text = c.textContent.toLowerCase();
+    const match = text.includes(q);
+    c.style.display = match ? '' : 'none';
+    if (match) c.classList.add('open');
+  });
+  // Hide empty sections
+  allSections.forEach(s => {
+    const visibleCards = s.querySelectorAll('.tcard:not([style*="display: none"])');
+    const hasDgrid = s.querySelector('.dgrid');
+    if (s.id === 'overview') return;
+    s.style.display = (visibleCards.length === 0 && !hasDgrid) ? 'none' : '';
+  });
+});
+
+// Nav active on scroll
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.topbar a');
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove('active'));
+      const a = document.querySelector(`.topbar a[href="#${e.target.id}"]`);
+      if (a) a.classList.add('active');
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
