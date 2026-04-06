@@ -1847,6 +1847,26 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   let timer = null;
 
+  let sseSource = null;
+
+  let debounce = null;
+
+  function connectSSE(){
+    if(sseSource){ sseSource.close(); sseSource=null; }
+    sseSource=new EventSource(debugPath('/debug/kapso/stream'));
+    sseSource.onmessage=function(){
+      clearTimeout(debounce);
+      debounce=setTimeout(poll,200);
+    };
+    sseSource.onerror=function(){
+      sseSource.close();
+      sseSource=null;
+      setTimeout(connectSSE,5000);
+    };
+  }
+
+  connectSSE();
+
 
 
   function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
