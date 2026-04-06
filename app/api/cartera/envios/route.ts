@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ejecutarEnvioCartera } from '../../../lib/cartera/envio-workflow';
+import { ejecutarEnvioCartera } from '@/lib/cartera/envio-workflow';
 
 export async function POST(req: NextRequest) {
   try {

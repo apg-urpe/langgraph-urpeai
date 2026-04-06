@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin as supabase } from '../../../lib/supabase-admin';
-import { ejecutarEnvioCartera } from '../../../lib/cartera/envio-workflow';
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin';
+import { ejecutarEnvioCartera } from '@/lib/cartera/envio-workflow';
 
 export const dynamic = 'force-dynamic';
 
