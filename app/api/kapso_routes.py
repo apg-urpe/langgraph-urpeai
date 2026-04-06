@@ -1131,11 +1131,17 @@ async def kapso_inbound(
         {
             "phone_number_id": request.phone_number_id,
             "from": request.from_phone,
+            "from_phone": request.from_phone,
             "contact_name": request.contact_name,
             "conversation_id": channel_message.external_conversation_id,
             "message_id": request.message_id,
             "message_type": request.message_type,
             "interaction_id": interaction_id,
+            "text": request.text,
+            "timestamp": request.timestamp,
+            "has_media": request.has_media,
+            "kapso_conversation_id": request.kapso_conversation_id,
+            "_raw_request": request.model_dump(by_alias=True),
         },
     )
     logger.info(
@@ -1237,6 +1243,7 @@ async def kapso_inbound(
                 normalized_from_phone,
                 empresa_id,
                 canal=str(numero.get("canal") or channel_message.channel or "whatsapp"),
+                subscriber_id=request.kapso_conversation_id or None,
             )
             if contacto and contacto.get("id") is not None:
                 conversacion_db = await db.get_conversacion_activa(int(contacto["id"]), numero_id)
@@ -1284,6 +1291,7 @@ async def kapso_inbound(
                     normalized_from_phone,
                     empresa_id,
                     canal=str(numero.get("canal") or channel_message.channel or "whatsapp"),
+                    subscriber_id=request.kapso_conversation_id or None,
                 )
             if numero_id and contacto and contacto.get("id") is not None:
                 conversacion_db = await db.get_conversacion_activa(int(contacto["id"]), numero_id)

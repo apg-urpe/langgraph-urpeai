@@ -349,7 +349,12 @@ async def get_contacto_por_telefono(telefono: str, empresa_id: int) -> dict | No
     )
 
 
-async def upsert_contacto_canal(telefono: str, empresa_id: int, canal: str = "whatsapp") -> tuple[dict, bool]:
+async def upsert_contacto_canal(
+    telefono: str,
+    empresa_id: int,
+    canal: str = "whatsapp",
+    subscriber_id: str | None = None,
+) -> tuple[dict, bool]:
     sb = await get_supabase()
     timestamp = datetime.now(timezone.utc).isoformat()
     existente = await get_contacto_por_telefono(telefono, empresa_id)
@@ -360,24 +365,29 @@ async def upsert_contacto_canal(telefono: str, empresa_id: int, canal: str = "wh
     }.get(origen, origen.title())
 
     if existente and existente.get("id") is not None:
+        update_data: dict[str, Any] = {"ultima_interaccion": timestamp}
+        # Guardar subscriber_id si el contacto no lo tiene aún
+        if subscriber_id and not existente.get("subscriber_id"):
+            update_data["subscriber_id"] = subscriber_id
         updated = await sb.update(
             "wp_contactos",
             {"id": existente["id"]},
-            {"ultima_interaccion": timestamp},
+            update_data,
         )
         return ((updated[0] if updated else existente), False)
 
-    creado = await sb.insert(
-        "wp_contactos",
-        {
-            "telefono": telefono,
-            "empresa_id": empresa_id,
-            "origen": origen_label,
-            "notas": "",
-            "fecha_registro": timestamp,
-            "ultima_interaccion": timestamp,
-        },
-    )
+    insert_data: dict[str, Any] = {
+        "telefono": telefono,
+        "empresa_id": empresa_id,
+        "origen": origen_label,
+        "notas": "",
+        "fecha_registro": timestamp,
+        "ultima_interaccion": timestamp,
+    }
+    if subscriber_id:
+        insert_data["subscriber_id"] = subscriber_id
+
+    creado = await sb.insert("wp_contactos", insert_data)
     return (creado, True)
 
 

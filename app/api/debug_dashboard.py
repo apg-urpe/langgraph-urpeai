@@ -17,8 +17,8 @@ import logging
 import os
 from html import escape
 
-from fastapi import APIRouter, Query
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from app.core.config import get_settings
 from app.core.kapso_debug import get_kapso_debug_events, mask_secret, subscribe_sse, unsubscribe_sse
@@ -210,6 +210,11 @@ def _render_dashboard_html(config: dict) -> str:
     @keyframes highlightNew{0%{background:#854d0e}40%{background:#713f12}100%{background:transparent}}
     .new-badge{display:inline-block;background:#f59e0b;color:#000;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:10px;animation:badgePop .4s ease-out}
     @keyframes badgePop{0%{transform:scale(0)}60%{transform:scale(1.2)}100%{transform:scale(1)}}
+    .btn-retry{background:#dc2626;color:#fff;border:none;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;font-weight:600}
+    .btn-retry:hover{background:#b91c1c}
+    .btn-retry:disabled{background:#6b7280;cursor:not-allowed}
+    .retry-ok{color:#4ade80;font-size:11px;font-weight:600}
+    .retry-err{color:#f87171;font-size:11px;font-weight:600}
   </style>
 </head>
 <body>
@@ -237,11 +242,11 @@ def _render_dashboard_html(config: dict) -> str:
         <tr>
           <th>Hora</th><th>Contacto</th><th>Teléfono</th><th>Tipo</th>
           <th>Mensaje</th><th>Agente</th><th>Modelo</th><th>Reply</th>
-          <th>Rx</th><th>Tiempo</th><th>Status</th><th>Detalle</th>
+          <th>Rx</th><th>Tiempo</th><th>Status</th><th>Detalle</th><th>Acción</th>
         </tr>
       </thead>
       <tbody id="interactionRows">
-        <tr><td colspan="12" class="loading pulse">Cargando datos desde Supabase...</td></tr>
+        <tr><td colspan="13" class="loading pulse">Cargando datos desde Supabase...</td></tr>
       </tbody>
     </table>
   </div>
@@ -348,6 +353,9 @@ def _render_dashboard_html(config: dict) -> str:
     // Table rows
     tbody.innerHTML = interactions.map((item, idx) => {
       const isNew = newIds.has(item.message_id);
+      const retryBtn = item.status === 'error' && item.message_id
+        ? `<button class="btn-retry" id="btn-${item.message_id}" onclick="retryMessage('${item.message_id}')">⟳ Reintentar</button><span id="retry-status-${item.message_id}"></span>`
+        : '—';
       return `<tr class="${isNew ? 'new-row' : ''}">
       <td>${E(item.started_at||'—')}</td>
       <td>${E(item.contact_name||'—')}</td>
@@ -361,6 +369,7 @@ def _render_dashboard_html(config: dict) -> str:
       <td>${E(item.duration_ms != null ? item.duration_ms + ' ms' : '—')}</td>
       <td>${E(item.status||'processing')}</td>
       <td><a href="#interaction-${idx}" style="color:#93c5fd" onclick="document.getElementById('interaction-${idx}').open=true">Ver detalle</a></td>
+      <td>${retryBtn}</td>
     </tr>`;
     }).join('');
 
@@ -408,6 +417,38 @@ def _render_dashboard_html(config: dict) -> str:
         <td style="max-width:400px;word-break:break-word"><pre style="margin:0;font-size:11px">${E(JSON.stringify(payload).substring(0, 500))}</pre></td>
       </tr>`;
     }).join('');
+  }
+
+  async function retryMessage(messageId) {
+    const btn = document.getElementById('btn-' + messageId);
+    const statusEl = document.getElementById('retry-status-' + messageId);
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = '⏳ Reintentando...';
+    statusEl.textContent = '';
+    try {
+      const r = await fetch('/debug/kapso/retry/' + encodeURIComponent(messageId), {
+        method: 'POST',
+      });
+      if (r.ok) {
+        statusEl.className = 'retry-ok';
+        statusEl.textContent = ' ✓ Enviado';
+        btn.textContent = '⟳ Reintentar';
+        btn.disabled = false;
+        setTimeout(loadData, 3000);
+      } else {
+        const err = await r.json().catch(() => ({detail: r.statusText}));
+        statusEl.className = 'retry-err';
+        statusEl.textContent = ' ✗ ' + (err.detail || 'Error');
+        btn.textContent = '⟳ Reintentar';
+        btn.disabled = false;
+      }
+    } catch(e) {
+      statusEl.className = 'retry-err';
+      statusEl.textContent = ' ✗ ' + e.message;
+      btn.textContent = '⟳ Reintentar';
+      btn.disabled = false;
+    }
   }
 
   const label    = document.getElementById('autoLabel');
@@ -546,3 +587,56 @@ async def debug_kapso_data(limit: int = Query(default=200, ge=1, le=500)):
         "fastapi_events": events,
         "interactions": interactions,
     }
+
+
+@router.post("/debug/kapso/retry/{message_id}")
+async def debug_retry_message(message_id: str):
+    """Re-ejecuta un mensaje fallido buscando su payload original en debug_events."""
+    from app.api.kapso_routes import kapso_inbound
+    from app.schemas.kapso import KapsoInboundRequest
+
+    settings = get_settings()
+
+    # Buscar el raw_request en debug_events
+    try:
+        db = await get_supabase()
+        rows = await db.query(
+            "debug_events",
+            select="payload",
+            filters={"source": "kapso", "stage": "inbound_received"},
+            order="created_at",
+            order_desc=True,
+            limit=500,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error consultando debug_events: {exc}")
+
+    raw_request = None
+    for row in (rows or []):
+        payload = row.get("payload") or {}
+        if payload.get("message_id") == message_id:
+            raw_request = payload.get("_raw_request")
+            break
+
+    if not raw_request:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No se encontró el request original para message_id={message_id}. "
+                   "Solo se pueden reintentar mensajes recibidos después de esta actualización.",
+        )
+
+    try:
+        request = KapsoInboundRequest(**raw_request)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Error reconstruyendo request: {exc}")
+
+    logger.info("debug_retry: re-ejecutando message_id=%s", message_id)
+    try:
+        result = await kapso_inbound(
+            request=request,
+            x_kapso_internal_token=settings.KAPSO_INTERNAL_TOKEN,
+        )
+        return JSONResponse(content={"success": True, "message_id": message_id, "result": result.model_dump()})
+    except Exception as exc:
+        logger.error("debug_retry: error re-ejecutando message_id=%s: %s", message_id, exc)
+        raise HTTPException(status_code=500, detail=f"Error en reintento: {exc}")

@@ -386,6 +386,41 @@ async def _asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
 # ════════════════════════════════════════════════════════════
 
 
+def _hora_dentro_de_horarios_normales(dt_utc: datetime, disponibilidad: dict | None, tz_name: str, duracion_min: int) -> bool:
+    """Verifica que el slot (inicio y fin) cae completamente dentro de horarios_normales del asesor."""
+    if not disponibilidad:
+        return True  # Sin configuración, no bloquear
+
+    horarios_normales = disponibilidad.get("horarios_normales") or {}
+    if not horarios_normales:
+        return True
+
+    tz = ZoneInfo(tz_name)
+    dt_local = dt_utc.astimezone(tz)
+    dt_fin_local = (dt_utc + timedelta(minutes=duracion_min)).astimezone(tz)
+
+    dia_nombre = DIAS_SEMANA[dt_local.weekday()]
+    franjas = horarios_normales.get(dia_nombre, [])
+    if not franjas:
+        return False  # Día no laborable
+
+    slot_inicio_min = dt_local.hour * 60 + dt_local.minute
+    slot_fin_min = dt_fin_local.hour * 60 + dt_fin_local.minute
+
+    for franja in franjas:
+        try:
+            ini_h, ini_m = map(int, franja["inicio"].split(":"))
+            fin_h, fin_m = map(int, franja["fin"].split(":"))
+            franja_inicio_min = ini_h * 60 + ini_m
+            franja_fin_min = fin_h * 60 + fin_m
+            if slot_inicio_min >= franja_inicio_min and slot_fin_min <= franja_fin_min:
+                return True
+        except Exception:
+            continue
+
+    return False
+
+
 async def _seleccionar_mejor_asesor(
     empresa_id: int, fecha_hora_iso: str, tz_name: str, contacto_id: int | None = None,
     duracion_min: int | None = None, exclude_event_id: str | None = None,
@@ -407,8 +442,21 @@ async def _seleccionar_mejor_asesor(
             dur = duracion_min or asesor_fijo.get("duracion_cita_minutos") or 30
             end_unix = start_unix + (dur * 60)
 
-            ocupado = await _asesor_ocupado(nylas, asesor_fijo, start_unix, end_unix, exclude_event_id)
+            # Validar horarios_normales del asesor fijo
+            dispo = asesor_fijo.get("disponibilidad")
+            if isinstance(dispo, str):
+                import json
+                try:
+                    dispo = json.loads(dispo)
+                except Exception:
+                    dispo = None
+            asesor_tz = asesor_fijo.get("timezone") or "America/Bogota"
+            if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
+                return {
+                    "error": f"El horario solicitado está fuera del horario de atención del asesor ({asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}). Horario disponible: lunes a viernes 09:00-15:00."
+                }
 
+            ocupado = await _asesor_ocupado(nylas, asesor_fijo, start_unix, end_unix, exclude_event_id)
             if ocupado:
                 return {
                     "error": f"El asesor asignado ({asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}) no está disponible en ese horario."
@@ -421,10 +469,24 @@ async def _seleccionar_mejor_asesor(
     if not asesores:
         return None
 
-    # Free/Busy + list_events en paralelo por asesor
+    # Free/Busy + validación de horarios_normales + list_events en paralelo por asesor
     async def _check(asesor: dict) -> dict:
         dur = duracion_min or asesor.get("duracion_cita_minutos") or 30
         end_unix = start_unix + (dur * 60)
+
+        # Validar horarios_normales primero (sin llamada a Nylas)
+        dispo = asesor.get("disponibilidad")
+        if isinstance(dispo, str):
+            import json
+            try:
+                dispo = json.loads(dispo)
+            except Exception:
+                dispo = None
+        asesor_tz = asesor.get("timezone") or "America/Bogota"
+        if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
+            logger.info("Asesor %s descartado: horario %s fuera de horarios_normales", asesor["id"], fecha_hora_iso)
+            return {"asesor": asesor, "ok": True, "ocupado": True}
+
         try:
             ocupado = await _asesor_ocupado(nylas, asesor, start_unix, end_unix, exclude_event_id)
             return {"asesor": asesor, "ok": True, "ocupado": ocupado}
