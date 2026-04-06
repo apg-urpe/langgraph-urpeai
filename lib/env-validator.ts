@@ -55,6 +55,16 @@ export function validateEnv(): EnvConfig {
     return cachedEnv;
   }
 
+  // Skip strict validation during Next.js production build (Docker)
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    cachedEnv = {
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'placeholder',
+      NODE_ENV: (process.env.NODE_ENV as 'development' | 'production' | 'test') || 'production',
+    } as EnvConfig;
+    return cachedEnv;
+  }
+
   try {
     const env = {
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
