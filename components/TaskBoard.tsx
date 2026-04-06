@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { BlockActions } from './BlockActions';
+import { BlockAction } from '../types/chat';
 
 interface Task {
   id?: string;
@@ -18,15 +19,8 @@ interface TaskBoardProps {
   title?: string;
   tasks: Task[];
   assignees?: string[];
-  view?: 'board' | 'list';
-  actions?: Array<{
-    id: string;
-    label: string;
-    icon?: string;
-    variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
-    payload?: any;
-    [key: string]: any;
-  }>;
+  view?: string;
+  actions?: BlockAction[];
   onInteract?: (data: any) => void;
   disabled?: boolean;
 }
