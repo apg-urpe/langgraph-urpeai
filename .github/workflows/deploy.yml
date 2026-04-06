@@ -20,7 +20,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            REPO_DIR=~/langgraph-urpeai-lab
+            REPO_DIR=~/aguapp
 
             echo "==> Pulling latest code..."
             cd "$REPO_DIR"
