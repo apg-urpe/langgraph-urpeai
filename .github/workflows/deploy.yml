@@ -1,0 +1,36 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: SSH Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            REPO_DIR=~/langgraph-urpeai-lab
+
+            echo "==> Pulling latest code..."
+            cd "$REPO_DIR"
+            git pull origin main
+
+            echo "==> Building and restarting container..."
+            docker compose up --build -d
+
+            echo "==> Waiting for health check..."
+            sleep 10
+            docker compose ps
+
+            echo "==> Deploy complete."
