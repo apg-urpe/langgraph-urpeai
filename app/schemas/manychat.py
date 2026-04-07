@@ -3,13 +3,15 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
-class ManyChatInboundRequest(BaseModel):
+class ManyChatContactoIdentificador(BaseModel):
     subscriber_id: str
-    first_name: str | None = None
-    last_name: str | None = None
-    message: str
-    phone: str | None = None
-    page_id: str | None = None
+
+
+class ManyChatInboundRequest(BaseModel):
+    mensaje: str
+    contacto_identificador: ManyChatContactoIdentificador
+    telefono_receptor: str          # número registrado en wp_numeros
+    canal: str = "instagram"
 
 
 # ── ManyChat Dynamic Message response format ─────────────────────────────────

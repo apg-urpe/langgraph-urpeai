@@ -104,12 +104,28 @@ async def manychat_inbound(
     started_at = time.time()
     settings = get_settings()
 
+    subscriber_id = request.contacto_identificador.subscriber_id
+
     try:
         # ── Auth via Edge Function → Vault ────────────────────────────────────
-        canal_info = await _validate_api_key(x_api_key)
-        empresa_id = int(canal_info["empresa_id"])
-        agente_id  = int(canal_info["agente_id"])
-        numero_id  = int(canal_info["numero_id"])
+        # Valida que el X-Api-Key corresponde a un bot autorizado y obtiene
+        # el empresa_id esperado para cruzarlo con el lookup de telefono_receptor.
+        canal_info         = await _validate_api_key(x_api_key)
+        empresa_id_auth    = int(canal_info["empresa_id"])
+
+        # ── Lookup por telefono_receptor en wp_numeros ────────────────────────
+        # Igual que Kapso resuelve por phone_number_id.
+        numero = await db.get_numero_por_telefono(request.telefono_receptor)
+        if not numero:
+            raise HTTPException(status_code=404, detail=f"Número {request.telefono_receptor} no configurado")
+
+        empresa_id = int(numero["empresa_id"])
+        agente_id  = int(numero["agente_id"])
+        numero_id  = int(numero["id"])
+
+        # Verificar que el api_key pertenece a la misma empresa que el número
+        if empresa_id != empresa_id_auth:
+            raise HTTPException(status_code=401, detail="API key no autorizada para este número")
 
         # ── Agente config ─────────────────────────────────────────────────────
         agentes = await db.get_agentes_por_empresa(empresa_id)
@@ -121,16 +137,13 @@ async def manychat_inbound(
 
         # ── Upsert contacto por subscriber_id ────────────────────────────────
         contacto, contacto_creado = await db.upsert_contacto_manychat(
-            subscriber_id=request.subscriber_id,
+            subscriber_id=subscriber_id,
             empresa_id=empresa_id,
-            nombre=request.first_name,
-            apellido=request.last_name,
-            telefono=request.phone,
         )
         contacto_id = int(contacto["id"]) if contacto else None
 
         if contacto_creado:
-            logger.info("ManyChat: nuevo contacto creado — subscriber=%s empresa=%s", request.subscriber_id, empresa_id)
+            logger.info("ManyChat: nuevo contacto creado — subscriber=%s empresa=%s", subscriber_id, empresa_id)
 
         # ── Conversación ──────────────────────────────────────────────────────
         conversacion_db = None
@@ -152,20 +165,20 @@ async def manychat_inbound(
 
         conversacion_db_id = int(conversacion_db["id"]) if conversacion_db else None
         conversation_id    = str(conversacion_db_id) if conversacion_db_id else str(uuid.uuid4())
-        memory_session_id  = f"mc_{request.subscriber_id}"
+        memory_session_id  = f"mc_{subscriber_id}"
 
         # ── Guardar mensaje entrante ──────────────────────────────────────────
         if conversacion_db_id:
             await db.insertar_mensaje(
                 conversacion_id=conversacion_db_id,
-                contenido=request.message,
+                contenido=request.mensaje,
                 remitente="usuario",
                 tipo="texto",
                 status="procesando",
                 metadata={
-                    "canal": "manychat",
-                    "subscriber_id": request.subscriber_id,
-                    "page_id": request.page_id,
+                    "canal": request.canal,
+                    "subscriber_id": subscriber_id,
+                    "telefono_receptor": request.telefono_receptor,
                 },
                 empresa_id=empresa_id,
             )
@@ -181,10 +194,9 @@ async def manychat_inbound(
             limite_mensajes=8,
         )
 
-        nombre_completo = " ".join(filter(None, [request.first_name, request.last_name])) or None
         inbound_proxy = _InboundProxy(
-            from_phone=request.phone or request.subscriber_id,
-            contact_name=nombre_completo,
+            from_phone=subscriber_id,
+            contact_name=contacto.get("nombre") if contacto else None,
         )
 
         context_payload, prompt_extras = build_kapso_context_payload(
@@ -217,7 +229,7 @@ async def manychat_inbound(
         funnel_result         = None
         contact_update_result = None
 
-        run_funnel         = contacto_id is not None and _should_run_funnel_agent(request.message)
+        run_funnel         = contacto_id is not None and _should_run_funnel_agent(request.mensaje)
         run_contact_update = contacto_id is not None
 
         if run_funnel or run_contact_update:
@@ -293,7 +305,7 @@ async def manychat_inbound(
         result = await run_agent(
             ChatRequest(
                 system_prompt=enriched_prompt,
-                message=request.message,
+                message=request.mensaje,
                 model=model,
                 mcp_servers=[],
                 conversation_id=conversation_id,
@@ -318,14 +330,14 @@ async def manychat_inbound(
                 tipo="texto",
                 status="enviado",
                 modelo_llm=result.model_used,
-                metadata={"canal": "manychat", "subscriber_id": request.subscriber_id},
+                metadata={"canal": request.canal, "subscriber_id": subscriber_id},
                 empresa_id=empresa_id,
             )
 
         elapsed = round(time.time() - started_at, 2)
         logger.info(
             "ManyChat inbound OK — empresa=%s subscriber=%s nuevo=%s elapsed=%.2fs",
-            empresa_id, request.subscriber_id, contacto_creado, elapsed,
+            empresa_id, subscriber_id, contacto_creado, elapsed,
         )
 
         return ManyChatInboundResponse.text(reply_text)
@@ -338,7 +350,7 @@ async def manychat_inbound(
             exc,
             context="manychat_inbound",
             severity="error",
-            fallback=f"Error procesando mensaje ManyChat — subscriber_id={request.subscriber_id}",
+            fallback=f"Error procesando mensaje ManyChat — subscriber_id={subscriber_id}",
         )
         raise
 
