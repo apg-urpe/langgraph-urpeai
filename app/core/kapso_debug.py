@@ -51,11 +51,17 @@ async def _persist_debug_event(entry: dict[str, Any]) -> None:
         logger.debug("debug_events persist failed (kapso): %s", exc)
 
 
-def add_kapso_debug_event(source: str, stage: str, payload: dict[str, Any] | None = None) -> None:
+def add_kapso_debug_event(
+    source: str,
+    stage: str,
+    payload: dict[str, Any] | None = None,
+    channel: str = "whatsapp",
+) -> None:
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": source,
         "stage": stage,
+        "channel": channel,
         "payload": payload or {},
     }
     with _lock:
@@ -76,6 +82,13 @@ def get_kapso_debug_events(limit: int = 100) -> list[dict[str, Any]]:
     normalized_limit = max(1, min(limit, _MAX_KAPSO_DEBUG_EVENTS))
     with _lock:
         return list(_events)[:normalized_limit]
+
+
+def get_channel_debug_events(channel: str, limit: int = 100) -> list[dict[str, Any]]:
+    """Retorna eventos filtrados por canal (whatsapp, manychat, etc.)."""
+    normalized_limit = max(1, min(limit, _MAX_KAPSO_DEBUG_EVENTS))
+    with _lock:
+        return [e for e in _events if e.get("channel") == channel][:normalized_limit]
 
 
 def mask_secret(value: str | None) -> str | None:

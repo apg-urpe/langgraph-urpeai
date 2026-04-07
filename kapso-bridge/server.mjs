@@ -6498,6 +6498,214 @@ app.post('/webhook/kapso', async (req, res) => {
 
 
 
+// ── ManyChat debug panel ──────────────────────────────────────────────────────
+
+async function collectManyChatDebugPayload() {
+  const [eventsResult, configResult] = await Promise.allSettled([
+    fetchFastApiDebugJson('/api/v1/manychat/debug/events?limit=100'),
+    fetchFastApiDebugJson('/api/v1/manychat/debug/config'),
+  ]);
+  const events = eventsResult.status === 'fulfilled' ? (eventsResult.value.events || []) : [{
+    timestamp: new Date().toISOString(),
+    source: 'bridge',
+    stage: 'fastapi_debug_error',
+    payload: { error: String(eventsResult.reason) },
+  }];
+  return {
+    fastapi_config: configResult.status === 'fulfilled' ? configResult.value : { error: String(configResult.reason) },
+    events,
+  };
+}
+
+function renderManyChatHtml(data, debugToken = '') {
+  const events = Array.isArray(data.events) ? data.events : [];
+  const config = data.fastapi_config || {};
+  const token = debugToken ? `?token=${encodeURIComponent(debugToken)}` : '';
+
+  const rows = events.map(ev => {
+    const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('es-CO', { hour12: false }) : '';
+    const payload = ev.payload || {};
+    const preview = escapeHtml(
+      payload.reply_preview || payload.message || payload.error ||
+      JSON.stringify(payload).slice(0, 120)
+    );
+    const stageBg = ev.stage === 'error' ? '#fca5a5' :
+                    ev.stage === 'message_sent' ? '#86efac' :
+                    ev.stage === 'message_received' ? '#93c5fd' : '#e5e7eb';
+    return `<tr>
+      <td style="padding:4px 8px;white-space:nowrap;color:#6b7280">${escapeHtml(ts)}</td>
+      <td style="padding:4px 8px"><span style="background:${stageBg};border-radius:4px;padding:2px 6px;font-size:11px">${escapeHtml(ev.stage || '')}</span></td>
+      <td style="padding:4px 8px;color:#6b7280;font-size:12px">${escapeHtml(ev.source || '')}</td>
+      <td style="padding:4px 8px;font-size:12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${preview}</td>
+      <td style="padding:4px 8px;font-size:11px;color:#9ca3af">${escapeHtml(String(payload.subscriber_id || payload.empresa_id || ''))}</td>
+    </tr>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ManyChat Debug Panel</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#f9fafb;color:#111}
+  header{background:#7c3aed;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px}
+  header h1{margin:0;font-size:18px}
+  .nav{display:flex;gap:8px;margin-left:auto}
+  .nav a{color:#e9d5ff;text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.15)}
+  .nav a:hover{background:rgba(255,255,255,.3)}
+  main{padding:20px}
+  .card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);margin-bottom:20px;overflow:hidden}
+  .card-header{padding:10px 16px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-weight:600;font-size:13px;display:flex;align-items:center;justify-content:space-between}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{padding:6px 8px;text-align:left;background:#f9fafb;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;font-size:12px}
+  tbody tr:hover{background:#f9fafb}
+  tbody tr+tr{border-top:1px solid #f3f4f6}
+  pre{margin:0;padding:12px;font-size:11px;background:#1e293b;color:#e2e8f0;border-radius:6px;overflow:auto;max-height:300px}
+  .badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:500}
+  .empty{color:#9ca3af;font-size:13px;padding:16px}
+</style>
+</head><body>
+<header>
+  <h1>📱 ManyChat / Instagram Debug</h1>
+  <div class="nav">
+    <a href="/debug/manychat${token}">Refrescar</a>
+    <a href="/debug/manychat/data${token}" target="_blank">JSON</a>
+    <a href="/debug/canales${token}">Todos los canales</a>
+    <a href="/debug/kapso${token}">WhatsApp</a>
+  </div>
+</header>
+<main>
+  <div class="card">
+    <div class="card-header">Eventos recientes <span style="font-weight:400;color:#6b7280">(${events.length})</span></div>
+    ${events.length === 0 ? '<p class="empty">Sin eventos aún.</p>' : `
+    <table>
+      <thead><tr><th>Hora</th><th>Stage</th><th>Source</th><th>Preview</th><th>ID</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`}
+  </div>
+  <div class="card">
+    <div class="card-header">Configuración FastAPI</div>
+    <pre>${escapeHtml(JSON.stringify(config, null, 2))}</pre>
+  </div>
+</main>
+<script>
+  // Auto-refresh every 15s
+  setTimeout(() => location.reload(), 15000);
+</script>
+</body></html>`;
+}
+
+app.get('/debug/manychat', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectManyChatDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).type('html').send(renderManyChatHtml(data, extractAccessToken(req)));
+  } catch (err) {
+    res.status(500).type('html').send(`<pre>${escapeHtml(String(err))}</pre>`);
+  }
+});
+
+app.get('/debug/manychat/data', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectManyChatDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+
+// ── Unified all-channels debug panel ─────────────────────────────────────────
+
+app.get('/debug/canales', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+
+  const [waResult, mcResult] = await Promise.allSettled([
+    fetchFastApiDebugJson('/api/v1/kapso/debug/events?limit=100'),
+    fetchFastApiDebugJson('/api/v1/manychat/debug/events?limit=100'),
+  ]);
+
+  const waEvents = (waResult.status === 'fulfilled' ? (waResult.value.events || []) : [])
+    .map(e => ({ ...e, channel: e.channel || 'whatsapp' }));
+  const mcEvents = (mcResult.status === 'fulfilled' ? (mcResult.value.events || []) : [])
+    .map(e => ({ ...e, channel: e.channel || 'manychat' }));
+
+  const all = [...waEvents, ...mcEvents]
+    .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+  const debugToken = extractAccessToken(req);
+  const token = debugToken ? `?token=${encodeURIComponent(debugToken)}` : '';
+
+  const channelColor = { whatsapp: '#22c55e', manychat: '#7c3aed', instagram: '#7c3aed' };
+
+  const rows = all.map(ev => {
+    const ts = ev.timestamp ? new Date(ev.timestamp).toLocaleTimeString('es-CO', { hour12: false }) : '';
+    const ch = ev.channel || 'unknown';
+    const chColor = channelColor[ch] || '#6b7280';
+    const payload = ev.payload || {};
+    const preview = escapeHtml(
+      payload.reply_preview || payload.message || payload.error ||
+      JSON.stringify(payload).slice(0, 120)
+    );
+    const stageBg = ev.stage === 'error' ? '#fca5a5' :
+                    ev.stage === 'message_sent' ? '#86efac' :
+                    ev.stage === 'message_received' ? '#93c5fd' : '#e5e7eb';
+    return `<tr>
+      <td style="padding:4px 8px;white-space:nowrap;color:#6b7280">${escapeHtml(ts)}</td>
+      <td style="padding:4px 8px"><span style="background:${chColor};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px">${escapeHtml(ch)}</span></td>
+      <td style="padding:4px 8px"><span style="background:${stageBg};border-radius:4px;padding:2px 6px;font-size:11px">${escapeHtml(ev.stage || '')}</span></td>
+      <td style="padding:4px 8px;color:#6b7280;font-size:12px">${escapeHtml(ev.source || '')}</td>
+      <td style="padding:4px 8px;font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${preview}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Debug — Todos los canales</title>
+<style>
+  body{font-family:system-ui,sans-serif;margin:0;background:#f9fafb;color:#111}
+  header{background:#0f172a;color:#fff;padding:12px 20px;display:flex;align-items:center;gap:16px}
+  header h1{margin:0;font-size:18px}
+  .nav{display:flex;gap:8px;margin-left:auto}
+  .nav a{color:#cbd5e1;text-decoration:none;font-size:13px;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,.1)}
+  .nav a:hover{background:rgba(255,255,255,.2)}
+  main{padding:20px}
+  .card{background:#fff;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.08);overflow:hidden}
+  .card-header{padding:10px 16px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;font-weight:600;font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  thead th{padding:6px 8px;text-align:left;background:#f9fafb;color:#6b7280;font-weight:500;border-bottom:1px solid #e5e7eb;font-size:12px}
+  tbody tr:hover{background:#f9fafb}
+  tbody tr+tr{border-top:1px solid #f3f4f6}
+  .empty{color:#9ca3af;font-size:13px;padding:16px}
+</style>
+</head><body>
+<header>
+  <h1>🌐 Todos los canales</h1>
+  <div class="nav">
+    <a href="/debug/canales${token}">Refrescar</a>
+    <a href="/debug/kapso${token}">WhatsApp</a>
+    <a href="/debug/manychat${token}">ManyChat / IG</a>
+  </div>
+</header>
+<main>
+  <div class="card">
+    <div class="card-header">Eventos combinados — ${all.length} total (WhatsApp: ${waEvents.length}, ManyChat: ${mcEvents.length})</div>
+    ${all.length === 0 ? '<p class="empty">Sin eventos aún.</p>' : `
+    <table>
+      <thead><tr><th>Hora</th><th>Canal</th><th>Stage</th><th>Source</th><th>Preview</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`}
+  </div>
+</main>
+<script>setTimeout(() => location.reload(), 15000);</script>
+</body></html>`;
+
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.status(200).type('html').send(html);
+});
+
+
 app.listen(PORT, () => {
 
   console.log(`[KapsoBridge] escuchando en http://localhost:${PORT}`);
