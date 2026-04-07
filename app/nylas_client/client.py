@@ -1,5 +1,6 @@
 """Cliente Nylas API v3 con httpx async — equivalente a sdk-vercel-test-master/src/lib/nylas.js"""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -11,6 +12,9 @@ logger = logging.getLogger(__name__)
 
 _client: "NylasClient | None" = None
 _client2: "NylasClient | None" = None
+
+_RETRY_ATTEMPTS = 2
+_RETRY_DELAY_S = 1.0
 
 
 class NylasClient:
@@ -30,24 +34,42 @@ class NylasClient:
         )
         logger.info("NylasClient inicializado (%s)", self.api_url)
 
-    # ── Calendars ──────────────────────────────────────────────
+    # ── Helpers ────────────────────────────────────────────────
 
     @staticmethod
-    def _parse_response(r: httpx.Response, default: Any = None) -> Any:
+    def _parse_response(r: httpx.Response) -> Any:
         """Parsea el JSON de una respuesta; lanza ValueError si el cuerpo no es JSON válido."""
         try:
             return r.json()
         except Exception as exc:
             raise ValueError(
                 f"Nylas devolvió respuesta no-JSON (status={r.status_code}, "
-                f"content_type={r.headers.get('content-type','?')}): {r.text[:200]}"
+                f"content_type={r.headers.get('content-type', '?')!r}): {r.text[:200]!r}"
             ) from exc
+
+    async def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
+        """Ejecuta una petición HTTP reintentando en errores de red o respuestas no-JSON."""
+        last_exc: Exception | None = None
+        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+            try:
+                r: httpx.Response = await getattr(self._http, method)(path, **kwargs)
+                return r
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_exc = exc
+                logger.warning(
+                    "Nylas %s %s — error de red en intento %d/%d: %s",
+                    method.upper(), path, attempt, _RETRY_ATTEMPTS, exc,
+                )
+            if attempt < _RETRY_ATTEMPTS:
+                await asyncio.sleep(_RETRY_DELAY_S)
+        raise last_exc  # type: ignore[misc]
 
     async def get_free_busy(
         self, grant_id: str, email: str, start_time: int, end_time: int
     ) -> list[dict[str, Any]]:
         """Obtiene free/busy de un email en un rango de tiempo."""
-        r = await self._http.post(
+        r = await self._request_with_retry(
+            "post",
             f"/grants/{grant_id}/calendars/free-busy",
             json={"start_time": start_time, "end_time": end_time, "emails": [email]},
         )
@@ -56,7 +78,7 @@ class NylasClient:
 
     async def list_calendars(self, grant_id: str) -> list[dict[str, Any]]:
         """Lista los calendarios de un grant."""
-        r = await self._http.get(f"/grants/{grant_id}/calendars")
+        r = await self._request_with_retry("get", f"/grants/{grant_id}/calendars")
         r.raise_for_status()
         return self._parse_response(r).get("data", [])
 
@@ -64,7 +86,8 @@ class NylasClient:
         self, grant_id: str, calendar_id: str, start_time: int, end_time: int, limit: int = 50
     ) -> list[dict[str, Any]]:
         """Lista eventos de un calendario en un rango."""
-        r = await self._http.get(
+        r = await self._request_with_retry(
+            "get",
             f"/grants/{grant_id}/events",
             params={
                 "calendar_id": calendar_id,
@@ -83,7 +106,8 @@ class NylasClient:
     ) -> dict[str, Any]:
         """Crea un evento en el calendario."""
         body = self._build_event_body(event_data)
-        r = await self._http.post(
+        r = await self._request_with_retry(
+            "post",
             f"/grants/{grant_id}/events",
             params={"calendar_id": calendar_id},
             json=body,
@@ -97,7 +121,8 @@ class NylasClient:
     ) -> dict[str, Any]:
         """Actualiza un evento existente."""
         body = self._build_event_body(event_data, partial=True)
-        r = await self._http.put(
+        r = await self._request_with_retry(
+            "put",
             f"/grants/{grant_id}/events/{event_id}",
             params={"calendar_id": calendar_id},
             json=body,
@@ -108,7 +133,8 @@ class NylasClient:
 
     async def delete_event(self, grant_id: str, calendar_id: str, event_id: str) -> bool:
         """Elimina un evento."""
-        r = await self._http.delete(
+        r = await self._request_with_retry(
+            "delete",
             f"/grants/{grant_id}/events/{event_id}",
             params={"calendar_id": calendar_id},
         )
