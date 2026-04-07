@@ -1,15 +1,17 @@
 """ManyChat inbound endpoint.
 
-Flujo:
-  POST /api/v1/manychat/inbound  (X-Api-Key header)
-      └─ Edge Function validate-channel-key  (Vault lookup)
-          └─ empresa_id / agente_id / numero_id
-              └─ run_agent()
-                  └─ respuesta en formato Dynamic Message de ManyChat
+Flujo (idéntico a Kapso/WhatsApp):
+  Phase 1 — Funnel agent + Contact Update agent en paralelo
+  Phase 2 — System prompt enriquecido con resultado del funnel
+  Phase 3 — Agente conversacional
+  Respuesta — ManyChat Dynamic Message v2
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -17,12 +19,16 @@ from dataclasses import dataclass
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 
+from app.agents.contact_update import run_contact_update_agent
 from app.agents.conversational import CLOSING_FOLLOWUP_MARKER, run_agent
+from app.agents.funnel import run_funnel_agent
 from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
 from app.core.kapso_prompt import build_kapso_context_payload, build_kapso_system_prompt
 from app.db import queries as db
 from app.schemas.chat import ChatRequest
+from app.schemas.contact_update import ContactUpdateAgentRequest, ContactUpdateAgentResponse
+from app.schemas.funnel import FunnelAgentRequest, FunnelAgentResponse
 from app.schemas.manychat import ManyChatInboundRequest, ManyChatInboundResponse
 
 logger = logging.getLogger(__name__)
@@ -30,6 +36,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
 
 _EDGE_FUNCTION = "validate-channel-key"
+FUNNEL_TIMEOUT_SECONDS = 25
+CONTACT_UPDATE_TIMEOUT_SECONDS = 20
+
+FUNNEL_SKIP_TEXTS = {
+    "hola", "hola!", "hi", "hello",
+    "buenos dias", "buen día", "buen dia",
+    "buenas tardes", "buenas noches",
+    "ok", "oki", "dale", "gracias", "muchas gracias",
+}
+
+
+def _should_run_funnel_agent(message: str | None) -> bool:
+    normalized = re.sub(r"\s+", " ", str(message or "").strip().lower())
+    return bool(normalized) and normalized not in FUNNEL_SKIP_TEXTS
 
 
 # ── Proxy que imita los campos de KapsoInboundRequest usados en kapso_prompt ─
@@ -85,13 +105,13 @@ async def manychat_inbound(
     settings = get_settings()
 
     try:
-        # 1. Autenticar via Edge Function → Vault
+        # ── Auth via Edge Function → Vault ────────────────────────────────────
         canal_info = await _validate_api_key(x_api_key)
         empresa_id = int(canal_info["empresa_id"])
-        agente_id = int(canal_info["agente_id"])
-        numero_id = int(canal_info["numero_id"])
+        agente_id  = int(canal_info["agente_id"])
+        numero_id  = int(canal_info["numero_id"])
 
-        # 2. Obtener configuración del agente
+        # ── Agente config ─────────────────────────────────────────────────────
         agentes = await db.get_agentes_por_empresa(empresa_id)
         agent = next((a for a in agentes if a["id"] == agente_id), None)
         if not agent:
@@ -99,8 +119,8 @@ async def manychat_inbound(
 
         model = agent.get("llm") or settings.DEFAULT_MODEL
 
-        # 3. Upsert contacto por subscriber_id
-        contacto, _ = await db.upsert_contacto_manychat(
+        # ── Upsert contacto por subscriber_id ────────────────────────────────
+        contacto, contacto_creado = await db.upsert_contacto_manychat(
             subscriber_id=request.subscriber_id,
             empresa_id=empresa_id,
             nombre=request.first_name,
@@ -109,7 +129,10 @@ async def manychat_inbound(
         )
         contacto_id = int(contacto["id"]) if contacto else None
 
-        # 4. Obtener o crear conversación
+        if contacto_creado:
+            logger.info("ManyChat: nuevo contacto creado — subscriber=%s empresa=%s", request.subscriber_id, empresa_id)
+
+        # ── Conversación ──────────────────────────────────────────────────────
         conversacion_db = None
         if contacto_id:
             conversacion_db = await db.get_conversacion_activa(contacto_id, numero_id)
@@ -128,10 +151,10 @@ async def manychat_inbound(
                         raise
 
         conversacion_db_id = int(conversacion_db["id"]) if conversacion_db else None
-        conversation_id = str(conversacion_db_id) if conversacion_db_id else str(uuid.uuid4())
-        memory_session_id = f"mc_{request.subscriber_id}"
+        conversation_id    = str(conversacion_db_id) if conversacion_db_id else str(uuid.uuid4())
+        memory_session_id  = f"mc_{request.subscriber_id}"
 
-        # 5. Guardar mensaje entrante
+        # ── Guardar mensaje entrante ──────────────────────────────────────────
         if conversacion_db_id:
             await db.insertar_mensaje(
                 conversacion_id=conversacion_db_id,
@@ -147,7 +170,7 @@ async def manychat_inbound(
                 empresa_id=empresa_id,
             )
 
-        # 6. Construir system prompt (reutiliza el mismo contexto que Kapso)
+        # ── Construir system prompt ───────────────────────────────────────────
         prompt_context_data = await db.load_kapso_prompt_context(
             contacto_id=contacto_id,
             empresa_id=empresa_id,
@@ -188,10 +211,88 @@ async def manychat_inbound(
             rol_agente=prompt_context_data.get("rol_agente"),
         )
 
-        # 7. Ejecutar agente conversacional
+        # ═════════════════════════════════════════════════════════════════════
+        # Phase 1 — Funnel + Contact Update en paralelo
+        # ═════════════════════════════════════════════════════════════════════
+        funnel_result         = None
+        contact_update_result = None
+
+        run_funnel         = contacto_id is not None and _should_run_funnel_agent(request.message)
+        run_contact_update = contacto_id is not None
+
+        if run_funnel or run_contact_update:
+            analysis_tasks: list[asyncio.Task] = []
+            task_names:     list[str]          = []
+
+            if run_funnel:
+                analysis_tasks.append(asyncio.create_task(
+                    asyncio.wait_for(
+                        run_funnel_agent(FunnelAgentRequest(
+                            contacto_id=contacto_id,
+                            empresa_id=empresa_id,
+                            agente_id=agente_id,
+                            conversacion_id=conversacion_db_id,
+                            memory_session_id=memory_session_id,
+                            memory_window=20,
+                            model=model,
+                        )),
+                        timeout=FUNNEL_TIMEOUT_SECONDS,
+                    )
+                ))
+                task_names.append("funnel")
+
+            if run_contact_update:
+                analysis_tasks.append(asyncio.create_task(
+                    asyncio.wait_for(
+                        run_contact_update_agent(ContactUpdateAgentRequest(
+                            contacto_id=contacto_id,
+                            empresa_id=empresa_id,
+                            agente_id=agente_id,
+                            conversacion_id=conversacion_db_id,
+                            model=model,
+                        )),
+                        timeout=CONTACT_UPDATE_TIMEOUT_SECONDS,
+                    )
+                ))
+                task_names.append("contact_update")
+
+            analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+            for name, result in zip(task_names, analysis_results):
+                if name == "funnel":
+                    funnel_result = result
+                elif name == "contact_update":
+                    contact_update_result = result
+
+        if isinstance(funnel_result, Exception):
+            logger.warning("ManyChat: funnel agent falló (no bloquea respuesta): %s", funnel_result)
+            funnel_result = None
+
+        if isinstance(contact_update_result, Exception):
+            logger.warning("ManyChat: contact update agent falló (no bloquea respuesta): %s", contact_update_result)
+            contact_update_result = None
+
+        # ═════════════════════════════════════════════════════════════════════
+        # Phase 2 — Enriquecer prompt con resultado del funnel
+        # ═════════════════════════════════════════════════════════════════════
+        enriched_prompt = system_prompt
+        if isinstance(funnel_result, FunnelAgentResponse) and funnel_result.success:
+            funnel_sections = ["\n\n## 🔄 ANÁLISIS DE EMBUDO (actualización en tiempo real)"]
+            funnel_sections.append(f"Análisis del agente de embudo: {funnel_result.respuesta}")
+            if funnel_result.etapa_nueva is not None:
+                funnel_sections.append(f"Etapa del embudo actualizada a orden: {funnel_result.etapa_nueva}")
+            if funnel_result.metadata_actualizada:
+                funnel_sections.append(
+                    f"Información capturada: {json.dumps(funnel_result.metadata_actualizada, ensure_ascii=False)}"
+                )
+            enriched_prompt = system_prompt + "\n".join(funnel_sections)
+
+        # ═════════════════════════════════════════════════════════════════════
+        # Phase 3 — Agente conversacional
+        # ═════════════════════════════════════════════════════════════════════
         result = await run_agent(
             ChatRequest(
-                system_prompt=system_prompt,
+                system_prompt=enriched_prompt,
                 message=request.message,
                 model=model,
                 mcp_servers=[],
@@ -208,7 +309,7 @@ async def manychat_inbound(
         if reply_text == CLOSING_FOLLOWUP_MARKER:
             reply_text = ""
 
-        # 8. Guardar respuesta del agente
+        # ── Guardar respuesta del agente ──────────────────────────────────────
         if conversacion_db_id and reply_text:
             await db.insertar_mensaje(
                 conversacion_id=conversacion_db_id,
@@ -223,8 +324,8 @@ async def manychat_inbound(
 
         elapsed = round(time.time() - started_at, 2)
         logger.info(
-            "ManyChat inbound OK — empresa=%s subscriber=%s elapsed=%.2fs",
-            empresa_id, request.subscriber_id, elapsed,
+            "ManyChat inbound OK — empresa=%s subscriber=%s nuevo=%s elapsed=%.2fs",
+            empresa_id, request.subscriber_id, contacto_creado, elapsed,
         )
 
         return ManyChatInboundResponse.text(reply_text)
@@ -245,14 +346,14 @@ async def manychat_inbound(
 # ── Debug ─────────────────────────────────────────────────────────────────────
 
 @router.get("/debug")
-async def manychat_debug(x_api_key: str = Header(alias="X-Api-Key", default="")):
-    """Info de configuración del canal ManyChat."""
+async def manychat_debug():
     settings = get_settings()
     return {
         "canal": "manychat",
         "edge_function_url": f"{settings.SUPABASE_EDGE_FUNCTION_URL}/{_EDGE_FUNCTION}",
         "endpoint_inbound": "/api/v1/manychat/inbound",
         "auth_header": "X-Api-Key",
+        "agentes": ["funnel", "contact_update", "conversational"],
         "response_format": "ManyChat Dynamic Message v2",
         "docs": "/docs#/manychat",
     }
