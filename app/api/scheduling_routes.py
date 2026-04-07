@@ -123,7 +123,11 @@ async def _get_conteo_citas_por_asesor(empresa_id: int, tz_name: str = "America/
     ]
     r = await db._http.get("/wp_citas", params=params)
     r.raise_for_status()
-    citas = r.json()
+    try:
+        citas = r.json()
+    except Exception:
+        logger.warning("_get_conteo_citas_por_asesor: respuesta no-JSON de Supabase (status=%s), asumiendo sin citas", r.status_code)
+        citas = []
 
     conteo: dict[int, int] = {}
     if isinstance(citas, list):
@@ -532,6 +536,28 @@ def _parse_iso_to_unix(iso_str: str) -> tuple[int, datetime]:
 @router.post("/disponibilidad", response_model=DisponibilidadResponse)
 async def disponibilidad_agenda(req: DisponibilidadRequest):
     """Consulta la disponibilidad de asesores para los próximos 7 días."""
+    try:
+        return await _disponibilidad_agenda_interno(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("disponibilidad_agenda error inesperado: %s", exc, exc_info=True)
+        from datetime import datetime, timezone as _tz
+        return DisponibilidadResponse(
+            error=f"Error interno al consultar disponibilidad: {type(exc).__name__}: {exc}",
+            contacto_id=req.contacto_id,
+            empresa_id=req.empresa_id or 0,
+            time_zone=req.time_zone_contacto or "America/Bogota",
+            hora_actual=datetime.now(_tz.utc).isoformat(),
+            total_asesores=0,
+            asesores_consultados=0,
+            tiempo_consulta_ms=0,
+            disponibilidad=[],
+            hay_disponibilidad=False,
+        )
+
+
+async def _disponibilidad_agenda_interno(req: DisponibilidadRequest) -> DisponibilidadResponse:
     start_time = time.time()
     tz_name = req.time_zone_contacto or "America/Bogota"
 
@@ -713,6 +739,16 @@ async def disponibilidad_agenda(req: DisponibilidadRequest):
 @router.post("/crear-evento", response_model=CrearEventoResponse)
 async def crear_evento_calendario(req: CrearEventoRequest):
     """Crea un evento/cita en el calendario del asesor."""
+    try:
+        return await _crear_evento_interno(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("crear_evento_calendario error inesperado: %s", exc, exc_info=True)
+        return CrearEventoResponse(error=f"Error interno al crear el evento: {type(exc).__name__}: {exc}")
+
+
+async def _crear_evento_interno(req: CrearEventoRequest) -> CrearEventoResponse:
     tz_name = req.time_zone_contacto or "America/Bogota"
     nylas = await get_nylas()
     db = await get_supabase()
@@ -789,7 +825,8 @@ async def crear_evento_calendario(req: CrearEventoRequest):
         if _should_disable_nylas_grant(e):
             _disable_nylas_grant(asesor, e)
             return CrearEventoResponse(error=_nylas_grant_disabled_message())
-        raise
+        logger.error("crear_evento_interno: Nylas create_event falló: %s", e, exc_info=True)
+        return CrearEventoResponse(error=f"Error al crear el evento en Nylas: {type(e).__name__}: {e}")
     logger.info("✅ Evento creado: %s", evento.get("id"))
 
     meet_link = (evento.get("conferencing") or {}).get("details", {}).get("url")
@@ -836,6 +873,16 @@ async def crear_evento_calendario(req: CrearEventoRequest):
 @router.post("/reagendar-evento", response_model=ReagendarEventoResponse)
 async def reagendar_evento(req: ReagendarEventoRequest):
     """Reagenda un evento existente a nueva fecha/hora."""
+    try:
+        return await _reagendar_evento_interno(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("reagendar_evento error inesperado: %s", exc, exc_info=True)
+        return ReagendarEventoResponse(error=f"Error interno al reagendar el evento: {type(exc).__name__}: {exc}")
+
+
+async def _reagendar_evento_interno(req: ReagendarEventoRequest) -> ReagendarEventoResponse:
     tz_name = req.time_zone_contacto or "America/Bogota"
     nylas = await get_nylas()
     db = await get_supabase()
@@ -1012,6 +1059,16 @@ async def reagendar_evento(req: ReagendarEventoRequest):
 @router.post("/eliminar-evento", response_model=EliminarEventoResponse)
 async def eliminar_evento(req: EliminarEventoRequest):
     """Cancela un evento — elimina de Nylas y marca como 'cancelada' en Supabase."""
+    try:
+        return await _eliminar_evento_interno(req)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("eliminar_evento error inesperado: %s", exc, exc_info=True)
+        return EliminarEventoResponse(error=f"Error interno al eliminar el evento: {type(exc).__name__}: {exc}")
+
+
+async def _eliminar_evento_interno(req: EliminarEventoRequest) -> EliminarEventoResponse:
     nylas = await get_nylas()
     db = await get_supabase()
 

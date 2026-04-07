@@ -32,6 +32,17 @@ class NylasClient:
 
     # ── Calendars ──────────────────────────────────────────────
 
+    @staticmethod
+    def _parse_response(r: httpx.Response, default: Any = None) -> Any:
+        """Parsea el JSON de una respuesta; lanza ValueError si el cuerpo no es JSON válido."""
+        try:
+            return r.json()
+        except Exception as exc:
+            raise ValueError(
+                f"Nylas devolvió respuesta no-JSON (status={r.status_code}, "
+                f"content_type={r.headers.get('content-type','?')}): {r.text[:200]}"
+            ) from exc
+
     async def get_free_busy(
         self, grant_id: str, email: str, start_time: int, end_time: int
     ) -> list[dict[str, Any]]:
@@ -41,13 +52,13 @@ class NylasClient:
             json={"start_time": start_time, "end_time": end_time, "emails": [email]},
         )
         r.raise_for_status()
-        return r.json().get("data", [])
+        return self._parse_response(r).get("data", [])
 
     async def list_calendars(self, grant_id: str) -> list[dict[str, Any]]:
         """Lista los calendarios de un grant."""
         r = await self._http.get(f"/grants/{grant_id}/calendars")
         r.raise_for_status()
-        return r.json().get("data", [])
+        return self._parse_response(r).get("data", [])
 
     async def list_events(
         self, grant_id: str, calendar_id: str, start_time: int, end_time: int, limit: int = 50
@@ -63,7 +74,7 @@ class NylasClient:
             },
         )
         r.raise_for_status()
-        return r.json().get("data", [])
+        return self._parse_response(r).get("data", [])
 
     # ── Events CRUD ────────────────────────────────────────────
 
@@ -78,7 +89,8 @@ class NylasClient:
             json=body,
         )
         r.raise_for_status()
-        return r.json().get("data", r.json())
+        parsed = self._parse_response(r)
+        return parsed.get("data", parsed)
 
     async def update_event(
         self, grant_id: str, calendar_id: str, event_id: str, event_data: dict[str, Any]
@@ -91,7 +103,8 @@ class NylasClient:
             json=body,
         )
         r.raise_for_status()
-        return r.json().get("data", r.json())
+        parsed = self._parse_response(r)
+        return parsed.get("data", parsed)
 
     async def delete_event(self, grant_id: str, calendar_id: str, event_id: str) -> bool:
         """Elimina un evento."""
