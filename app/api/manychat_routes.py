@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
 
-_EDGE_FUNCTION = "validate-channel-key"
 _MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
@@ -63,36 +62,6 @@ class _InboundProxy:
     has_media: bool = False
 
 
-# ── Edge Function auth ────────────────────────────────────────────────────────
-
-async def _validate_api_key(api_key: str) -> dict:
-    """Valida el API key contra el Vault via Edge Function.
-    Retorna {empresa_id, agente_id, numero_id, canal}.
-    """
-    settings = get_settings()
-    url = f"{settings.SUPABASE_EDGE_FUNCTION_URL}/{_EDGE_FUNCTION}"
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            url,
-            json={"api_key": api_key},
-            headers={
-                "Authorization": f"Bearer {settings.SUPABASE_SERVICE_KEY}",
-                "Content-Type": "application/json",
-            },
-        )
-
-    if resp.status_code == 401:
-        raise HTTPException(status_code=401, detail="API key inválida")
-    if resp.status_code != 200:
-        logger.error("Edge Function error %s: %s", resp.status_code, resp.text)
-        raise HTTPException(status_code=502, detail="Error validando credenciales")
-
-    data = resp.json()
-    if not data or not data.get("empresa_id"):
-        raise HTTPException(status_code=401, detail="API key inválida")
-
-    return data
 
 
 # ── Envío de respuesta via ManyChat API ──────────────────────────────────────
@@ -188,14 +157,7 @@ async def manychat_inbound(
     subscriber_id = request.contacto_identificador.subscriber_id
 
     try:
-        # ── Auth via Edge Function → Vault ────────────────────────────────────
-        # Valida que el X-Api-Key corresponde a un bot autorizado y obtiene
-        # el empresa_id esperado para cruzarlo con el lookup de telefono_receptor.
-        canal_info         = await _validate_api_key(x_api_key)
-        empresa_id_auth    = int(canal_info["empresa_id"])
-
         # ── Lookup por telefono_receptor en wp_numeros ────────────────────────
-        # Igual que Kapso resuelve por phone_number_id.
         numero = await db.get_numero_por_telefono(request.telefono_receptor)
         if not numero:
             raise HTTPException(status_code=404, detail=f"Número {request.telefono_receptor} no configurado")
@@ -203,10 +165,6 @@ async def manychat_inbound(
         empresa_id = int(numero["empresa_id"])
         agente_id  = int(numero["agente_id"])
         numero_id  = int(numero["id"])
-
-        # Verificar que el api_key pertenece a la misma empresa que el número
-        if empresa_id != empresa_id_auth:
-            raise HTTPException(status_code=401, detail="API key no autorizada para este número")
 
         # ── Agente config ─────────────────────────────────────────────────────
         agentes = await db.get_agentes_por_empresa(empresa_id)
