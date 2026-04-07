@@ -27,8 +27,8 @@ from app.core.error_webhook import send_error_to_webhook
 from app.core.kapso_prompt import build_kapso_context_payload, build_kapso_system_prompt
 from app.db import queries as db
 from app.schemas.chat import ChatRequest
-from app.schemas.contact_update import ContactUpdateAgentRequest, ContactUpdateAgentResponse
-from app.schemas.funnel import FunnelAgentRequest, FunnelAgentResponse
+from app.schemas.contact_update import ContactUpdateAgentRequest
+from app.schemas.funnel import FunnelAgentRequest
 from app.schemas.manychat import ManyChatInboundRequest, ManyChatInboundResponse
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,48 @@ async def _validate_api_key(api_key: str) -> dict:
         raise HTTPException(status_code=401, detail="API key inválida")
 
     return data
+
+
+# ── Tareas background (no bloquean la respuesta a ManyChat) ──────────────────
+
+async def _bg_funnel(
+    *, contacto_id: int, empresa_id: int, agente_id: int,
+    conversacion_id: int | None, memory_session_id: str, model: str | None,
+) -> None:
+    try:
+        await asyncio.wait_for(
+            run_funnel_agent(FunnelAgentRequest(
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                agente_id=agente_id,
+                conversacion_id=conversacion_id,
+                memory_session_id=memory_session_id,
+                memory_window=20,
+                model=model,
+            )),
+            timeout=FUNNEL_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("ManyChat bg_funnel falló: %s", exc)
+
+
+async def _bg_contact_update(
+    *, contacto_id: int, empresa_id: int, agente_id: int,
+    conversacion_id: int | None, model: str | None,
+) -> None:
+    try:
+        await asyncio.wait_for(
+            run_contact_update_agent(ContactUpdateAgentRequest(
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                agente_id=agente_id,
+                conversacion_id=conversacion_id,
+                model=model,
+            )),
+            timeout=CONTACT_UPDATE_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("ManyChat bg_contact_update falló: %s", exc)
 
 
 # ── Endpoint principal ────────────────────────────────────────────────────────
@@ -224,87 +266,31 @@ async def manychat_inbound(
         )
 
         # ═════════════════════════════════════════════════════════════════════
-        # Phase 1 — Funnel + Contact Update en paralelo
+        # Phase 1 — Agente conversacional (responde dentro del timeout de ManyChat)
+        # Funnel + Contact Update corren en background para no bloquear.
         # ═════════════════════════════════════════════════════════════════════
-        funnel_result         = None
-        contact_update_result = None
+        if contacto_id and _should_run_funnel_agent(request.mensaje):
+            asyncio.create_task(_bg_funnel(
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                agente_id=agente_id,
+                conversacion_id=conversacion_db_id,
+                memory_session_id=memory_session_id,
+                model=model,
+            ))
 
-        run_funnel         = contacto_id is not None and _should_run_funnel_agent(request.mensaje)
-        run_contact_update = contacto_id is not None
+        if contacto_id:
+            asyncio.create_task(_bg_contact_update(
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                agente_id=agente_id,
+                conversacion_id=conversacion_db_id,
+                model=model,
+            ))
 
-        if run_funnel or run_contact_update:
-            analysis_tasks: list[asyncio.Task] = []
-            task_names:     list[str]          = []
-
-            if run_funnel:
-                analysis_tasks.append(asyncio.create_task(
-                    asyncio.wait_for(
-                        run_funnel_agent(FunnelAgentRequest(
-                            contacto_id=contacto_id,
-                            empresa_id=empresa_id,
-                            agente_id=agente_id,
-                            conversacion_id=conversacion_db_id,
-                            memory_session_id=memory_session_id,
-                            memory_window=20,
-                            model=model,
-                        )),
-                        timeout=FUNNEL_TIMEOUT_SECONDS,
-                    )
-                ))
-                task_names.append("funnel")
-
-            if run_contact_update:
-                analysis_tasks.append(asyncio.create_task(
-                    asyncio.wait_for(
-                        run_contact_update_agent(ContactUpdateAgentRequest(
-                            contacto_id=contacto_id,
-                            empresa_id=empresa_id,
-                            agente_id=agente_id,
-                            conversacion_id=conversacion_db_id,
-                            model=model,
-                        )),
-                        timeout=CONTACT_UPDATE_TIMEOUT_SECONDS,
-                    )
-                ))
-                task_names.append("contact_update")
-
-            analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-
-            for name, result in zip(task_names, analysis_results):
-                if name == "funnel":
-                    funnel_result = result
-                elif name == "contact_update":
-                    contact_update_result = result
-
-        if isinstance(funnel_result, Exception):
-            logger.warning("ManyChat: funnel agent falló (no bloquea respuesta): %s", funnel_result)
-            funnel_result = None
-
-        if isinstance(contact_update_result, Exception):
-            logger.warning("ManyChat: contact update agent falló (no bloquea respuesta): %s", contact_update_result)
-            contact_update_result = None
-
-        # ═════════════════════════════════════════════════════════════════════
-        # Phase 2 — Enriquecer prompt con resultado del funnel
-        # ═════════════════════════════════════════════════════════════════════
-        enriched_prompt = system_prompt
-        if isinstance(funnel_result, FunnelAgentResponse) and funnel_result.success:
-            funnel_sections = ["\n\n## 🔄 ANÁLISIS DE EMBUDO (actualización en tiempo real)"]
-            funnel_sections.append(f"Análisis del agente de embudo: {funnel_result.respuesta}")
-            if funnel_result.etapa_nueva is not None:
-                funnel_sections.append(f"Etapa del embudo actualizada a orden: {funnel_result.etapa_nueva}")
-            if funnel_result.metadata_actualizada:
-                funnel_sections.append(
-                    f"Información capturada: {json.dumps(funnel_result.metadata_actualizada, ensure_ascii=False)}"
-                )
-            enriched_prompt = system_prompt + "\n".join(funnel_sections)
-
-        # ═════════════════════════════════════════════════════════════════════
-        # Phase 3 — Agente conversacional
-        # ═════════════════════════════════════════════════════════════════════
         result = await run_agent(
             ChatRequest(
-                system_prompt=enriched_prompt,
+                system_prompt=system_prompt,
                 message=request.mensaje,
                 model=model,
                 mcp_servers=[],
