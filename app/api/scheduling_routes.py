@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 import httpx
 from fastapi import APIRouter, HTTPException
 
+from app.core.error_webhook import send_error_to_webhook
 from app.db.client import get_supabase
 from app.nylas_client.client import get_nylas
 from app.schemas.scheduling import (
@@ -542,6 +543,15 @@ async def disponibilidad_agenda(req: DisponibilidadRequest):
         raise
     except Exception as exc:
         logger.error("disponibilidad_agenda error inesperado: %s", exc, exc_info=True)
+        await send_error_to_webhook(
+            exc,
+            context="scheduling_disponibilidad",
+            severity="error",
+            fallback=(
+                f"Se devolvió DisponibilidadResponse con error al agente — "
+                f"contacto_id={req.contacto_id} empresa_id={req.empresa_id}"
+            ),
+        )
         from datetime import datetime, timezone as _tz
         return DisponibilidadResponse(
             error=f"Error interno al consultar disponibilidad: {type(exc).__name__}: {exc}",
@@ -745,6 +755,15 @@ async def crear_evento_calendario(req: CrearEventoRequest):
         raise
     except Exception as exc:
         logger.error("crear_evento_calendario error inesperado: %s", exc, exc_info=True)
+        await send_error_to_webhook(
+            exc,
+            context="scheduling_crear_evento",
+            severity="error",
+            fallback=(
+                f"Se devolvió CrearEventoResponse con error al agente — "
+                f"contacto_id={req.contacto_id} empresa_id={req.empresa_id} start={req.start}"
+            ),
+        )
         return CrearEventoResponse(error=f"Error interno al crear el evento: {type(exc).__name__}: {exc}")
 
 
@@ -879,6 +898,15 @@ async def reagendar_evento(req: ReagendarEventoRequest):
         raise
     except Exception as exc:
         logger.error("reagendar_evento error inesperado: %s", exc, exc_info=True)
+        await send_error_to_webhook(
+            exc,
+            context="scheduling_reagendar_evento",
+            severity="error",
+            fallback=(
+                f"Se devolvió ReagendarEventoResponse con error al agente — "
+                f"event_id={req.event_id} contacto_id={req.contacto_id} start={req.start}"
+            ),
+        )
         return ReagendarEventoResponse(error=f"Error interno al reagendar el evento: {type(exc).__name__}: {exc}")
 
 
@@ -1065,6 +1093,15 @@ async def eliminar_evento(req: EliminarEventoRequest):
         raise
     except Exception as exc:
         logger.error("eliminar_evento error inesperado: %s", exc, exc_info=True)
+        await send_error_to_webhook(
+            exc,
+            context="scheduling_eliminar_evento",
+            severity="error",
+            fallback=(
+                f"Se devolvió EliminarEventoResponse con error al agente — "
+                f"event_id={req.event_id} contacto_id={req.contacto_id}"
+            ),
+        )
         return EliminarEventoResponse(error=f"Error interno al eliminar el evento: {type(exc).__name__}: {exc}")
 
 
