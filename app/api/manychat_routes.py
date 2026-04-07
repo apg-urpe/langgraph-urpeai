@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
 
 _EDGE_FUNCTION = "validate-channel-key"
+_MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
 
@@ -92,6 +93,44 @@ async def _validate_api_key(api_key: str) -> dict:
         raise HTTPException(status_code=401, detail="API key inválida")
 
     return data
+
+
+# ── Envío de respuesta via ManyChat API ──────────────────────────────────────
+
+async def _send_manychat_reply(
+    api_key: str,
+    subscriber_id: str,
+    text: str,
+    canal: str,
+) -> None:
+    """Envía el texto de respuesta al suscriptor via ManyChat API."""
+    content_type = "instagram" if canal.lower() == "instagram" else "instagram"
+    payload = {
+        "subscriber_id": subscriber_id,
+        "data": {
+            "version": "v2",
+            "content": {
+                "type": content_type,
+                "messages": [{"type": "text", "text": text}],
+            },
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                _MANYCHAT_SEND_URL,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+        if resp.status_code == 200:
+            logger.info("ManyChat sendContent OK — subscriber=%s", subscriber_id)
+        else:
+            logger.error("ManyChat sendContent error %s: %s", resp.status_code, resp.text)
+    except Exception as exc:
+        logger.error("ManyChat sendContent excepción: %s", exc)
 
 
 # ── Tareas background (no bloquean la respuesta a ManyChat) ──────────────────
@@ -307,18 +346,26 @@ async def manychat_inbound(
         if reply_text == CLOSING_FOLLOWUP_MARKER:
             reply_text = ""
 
-        # ── Guardar respuesta del agente ──────────────────────────────────────
-        if conversacion_db_id and reply_text:
-            await db.insertar_mensaje(
-                conversacion_id=conversacion_db_id,
-                contenido=reply_text,
-                remitente="agente",
-                tipo="texto",
-                status="enviado",
-                modelo_llm=result.model_used,
-                metadata={"canal": request.canal, "subscriber_id": subscriber_id},
-                empresa_id=empresa_id,
+        # ── Enviar respuesta via ManyChat API + guardar en DB ────────────────
+        if reply_text:
+            await _send_manychat_reply(
+                api_key=x_api_key,
+                subscriber_id=subscriber_id,
+                text=reply_text,
+                canal=request.canal,
             )
+
+            if conversacion_db_id:
+                await db.insertar_mensaje(
+                    conversacion_id=conversacion_db_id,
+                    contenido=reply_text,
+                    remitente="agente",
+                    tipo="texto",
+                    status="enviado",
+                    modelo_llm=result.model_used,
+                    metadata={"canal": request.canal, "subscriber_id": subscriber_id},
+                    empresa_id=empresa_id,
+                )
 
         elapsed = round(time.time() - started_at, 2)
         logger.info(
@@ -326,7 +373,8 @@ async def manychat_inbound(
             empresa_id, subscriber_id, contacto_creado, elapsed,
         )
 
-        return ManyChatInboundResponse.text(reply_text)
+        # Respuesta vacía — el mensaje ya fue enviado via ManyChat API
+        return ManyChatInboundResponse.empty()
 
     except HTTPException:
         raise
