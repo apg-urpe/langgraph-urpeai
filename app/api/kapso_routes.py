@@ -18,6 +18,7 @@ from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
 from app.core.kapso_debug import (
     add_kapso_debug_event,
+    get_channel_debug_events,
     get_kapso_debug_events,
     mask_secret,
     subscribe_sse,
@@ -1011,7 +1012,7 @@ async def kapso_debug_events(
 ):
     """Return merged events: in-memory (fresh) + Supabase (persistent)."""
     _require_kapso_debug_access(request, x_kapso_internal_token, x_kapso_debug_token)
-    memory_events = get_kapso_debug_events(limit)
+    memory_events = get_channel_debug_events("whatsapp", limit)
 
     # Load persisted events from Supabase so data survives deploys
     db_events: list[dict] = []
@@ -1020,7 +1021,7 @@ async def kapso_debug_events(
         rows = await supabase.query(
             "debug_events",
             select="*",
-            filters={},
+            filters={"channel": "whatsapp"},
             order="created_at",
             order_desc=True,
             limit=limit,
