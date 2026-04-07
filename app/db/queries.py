@@ -396,6 +396,58 @@ async def upsert_contacto_whatsapp(telefono: str, empresa_id: int) -> tuple[dict
     return await upsert_contacto_canal(telefono, empresa_id, canal="whatsapp")
 
 
+async def get_contacto_por_subscriber_id(subscriber_id: str, empresa_id: int) -> dict | None:
+    """Busca un contacto por subscriber_id (ManyChat, Instagram, etc.)."""
+    sb = await get_supabase()
+    return await sb.query(
+        "wp_contactos",
+        filters={"subscriber_id": subscriber_id, "empresa_id": empresa_id},
+        single=True,
+    )
+
+
+async def upsert_contacto_manychat(
+    subscriber_id: str,
+    empresa_id: int,
+    nombre: str | None = None,
+    apellido: str | None = None,
+    telefono: str | None = None,
+) -> tuple[dict, bool]:
+    """Crea o actualiza un contacto de ManyChat usando subscriber_id como clave."""
+    sb = await get_supabase()
+    timestamp = datetime.now(timezone.utc).isoformat()
+    existente = await get_contacto_por_subscriber_id(subscriber_id, empresa_id)
+
+    if existente and existente.get("id") is not None:
+        update_data: dict[str, Any] = {"ultima_interaccion": timestamp}
+        if nombre and not existente.get("nombre"):
+            update_data["nombre"] = nombre
+        if apellido and not existente.get("apellido"):
+            update_data["apellido"] = apellido
+        if telefono and not existente.get("telefono"):
+            update_data["telefono"] = telefono
+        updated = await sb.update("wp_contactos", {"id": existente["id"]}, update_data)
+        return ((updated[0] if updated else existente), False)
+
+    insert_data: dict[str, Any] = {
+        "subscriber_id": subscriber_id,
+        "empresa_id": empresa_id,
+        "origen": "ManyChat",
+        "notas": "",
+        "fecha_registro": timestamp,
+        "ultima_interaccion": timestamp,
+        # telefono es requerido en la tabla; usamos prefijo mc_ si no viene del request
+        "telefono": telefono or f"mc_{subscriber_id}",
+    }
+    if nombre:
+        insert_data["nombre"] = nombre
+    if apellido:
+        insert_data["apellido"] = apellido
+
+    creado = await sb.insert("wp_contactos", insert_data)
+    return (creado, True)
+
+
 async def get_contacto_notas(contacto_id: int, limit: int = 10) -> list[dict]:
     """Obtiene las notas visibles para IA de un contacto."""
     sb = await get_supabase()
