@@ -2044,6 +2044,11 @@ async def _retry_single_stuck_message(msg: dict) -> bool:
     metadata = msg.get("metadata") or {}
     timestamp = msg.get("timestamp") or ""
 
+    # Skip ManyChat messages — handled by retry_stuck_manychat_messages()
+    if metadata.get("subscriber_id"):
+        logger.info("retry_stuck: msg %s is ManyChat, skipping (handled by MC retry)", msg_id)
+        return False
+
     if not conversacion_id:
         logger.warning("retry_stuck: msg %s has no conversacion_id, skipping", msg_id)
         await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "no conversacion_id"}})

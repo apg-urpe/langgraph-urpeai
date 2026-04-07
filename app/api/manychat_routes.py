@@ -39,6 +39,7 @@ router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
 _MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
+STUCK_MESSAGE_MINUTES = 5
 
 FUNNEL_SKIP_TEXTS = {
     "hola", "hola!", "hi", "hello",
@@ -275,6 +276,7 @@ async def manychat_inbound(
                     "canal": request.canal,
                     "subscriber_id": subscriber_id,
                     "telefono_receptor": request.telefono_receptor,
+                    "manychat_api_key": x_api_key,
                 },
                 empresa_id=empresa_id,
             )
@@ -420,6 +422,206 @@ async def manychat_inbound(
             fallback=f"Error procesando mensaje ManyChat — subscriber_id={subscriber_id}",
         )
         raise
+
+
+# ── Retry stuck ManyChat messages ────────────────────────────────────────────
+
+async def _retry_single_stuck_manychat_message(msg: dict) -> bool:
+    """Re-process a single stuck ManyChat inbound message."""
+    msg_id = msg.get("id")
+    conversacion_id = msg.get("conversacion_id")
+    contenido = msg.get("contenido") or ""
+    metadata = msg.get("metadata") or {}
+    timestamp = msg.get("timestamp") or ""
+
+    subscriber_id = metadata.get("subscriber_id")
+    canal = metadata.get("canal", "instagram")
+    api_key = metadata.get("manychat_api_key")
+
+    if not conversacion_id or not subscriber_id:
+        logger.warning("retry_stuck_mc: msg %s missing conversacion_id or subscriber_id", msg_id)
+        await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "missing conversacion_id or subscriber_id"}})
+        return False
+
+    if not api_key:
+        logger.warning("retry_stuck_mc: msg %s missing manychat_api_key — cannot send reply", msg_id)
+        await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "missing manychat_api_key"}})
+        return False
+
+    # Avoid duplicates: if a response already exists, just mark as enviado
+    if timestamp and await db.has_agent_response_after(int(conversacion_id), timestamp):
+        logger.info("retry_stuck_mc: msg %s already has agent response, marking enviado", msg_id)
+        await db.actualizar_mensaje(int(msg_id), {"status": "enviado"})
+        return True
+
+    conversacion = await db.get_conversacion(int(conversacion_id))
+    if not conversacion:
+        logger.warning("retry_stuck_mc: conversacion %s not found for msg %s", conversacion_id, msg_id)
+        await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "conversacion not found"}})
+        return False
+
+    contacto_id = conversacion.get("contacto_id")
+    agente_id   = conversacion.get("agente_id")
+    empresa_id  = conversacion.get("empresa_id")
+
+    if not agente_id:
+        await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "no agente_id"}})
+        return False
+
+    settings = get_settings()
+    agentes = await db.get_agentes_por_empresa(int(empresa_id)) if empresa_id else []
+    agent = next((a for a in agentes if a["id"] == agente_id), None)
+    if not agent:
+        await db.actualizar_mensaje(int(msg_id), {"status": "error", "metadata": {**metadata, "retry_error": "agent not found"}})
+        return False
+
+    contacto = await db.get_contacto(int(contacto_id)) if contacto_id else None
+    model = agent.get("llm") or settings.DEFAULT_MODEL
+    memory_session_id  = f"mc_{subscriber_id}"
+    conversation_id_str = str(conversacion_id)
+
+    try:
+        prompt_context_data = await db.load_kapso_prompt_context(
+            contacto_id=int(contacto_id) if contacto_id else None,
+            empresa_id=int(empresa_id) if empresa_id else None,
+            conversacion_id=int(conversacion_id),
+            team_id=int(contacto["team_humano_id"]) if contacto and contacto.get("team_humano_id") else None,
+            agente_id=int(agent["id"]) if agent.get("id") else None,
+            agente_rol_id=int(agent["id_rol"]) if agent.get("id_rol") else None,
+            limite_mensajes=8,
+        )
+
+        retry_inbound = _InboundProxy(
+            from_phone=subscriber_id,
+            contact_name=contacto.get("nombre") if contacto else None,
+        )
+
+        context_payload, prompt_extras = build_kapso_context_payload(
+            contacto=contacto,
+            agent=agent,
+            empresa=prompt_context_data.get("empresa"),
+            rol_agente=prompt_context_data.get("rol_agente"),
+            team_humano=prompt_context_data.get("team_humano"),
+            contextos=prompt_context_data.get("contextos") or [],
+            citas=prompt_context_data.get("citas") or [],
+            notificaciones=prompt_context_data.get("notificaciones") or [],
+            mensajes_recientes=prompt_context_data.get("mensajes_recientes") or [],
+            etapas_embudo=prompt_context_data.get("etapas_embudo") or [],
+            notas=prompt_context_data.get("notas") or [],
+            inbound=retry_inbound,
+        )
+
+        system_prompt = build_kapso_system_prompt(
+            agent=agent,
+            inbound=retry_inbound,
+            contacto=contacto,
+            context_payload=context_payload,
+            extras=prompt_extras,
+            rol_agente=prompt_context_data.get("rol_agente"),
+        )
+
+        await db.actualizar_mensaje(int(msg_id), {"status": "procesando"})
+
+        result = await run_agent(
+            ChatRequest(
+                system_prompt=system_prompt,
+                message=contenido.strip() or "El usuario envió un mensaje sin contenido legible.",
+                model=model,
+                mcp_servers=[],
+                conversation_id=conversation_id_str,
+                memory_session_id=memory_session_id,
+                memory_window=8,
+                contacto_id=int(contacto_id) if contacto_id else None,
+                empresa_id=int(empresa_id) if empresa_id else None,
+                channel="manychat",
+            )
+        )
+
+        reply_text = (result.response or "").strip()
+        if reply_text == CLOSING_FOLLOWUP_MARKER:
+            reply_text = ""
+
+        if reply_text:
+            await _send_manychat_reply(
+                api_key=api_key,
+                subscriber_id=subscriber_id,
+                text=reply_text,
+                canal=canal,
+            )
+            await db.insertar_mensaje(
+                conversacion_id=int(conversacion_id),
+                contenido=reply_text,
+                remitente="agente",
+                tipo="texto",
+                status="enviado",
+                modelo_llm=result.model_used,
+                metadata={
+                    "canal": canal,
+                    "subscriber_id": subscriber_id,
+                    "source": "retry_stuck",
+                    "original_message_id": msg_id,
+                },
+                empresa_id=int(empresa_id) if empresa_id else None,
+            )
+
+        await db.actualizar_mensaje(int(msg_id), {"status": "enviado"})
+
+        add_kapso_debug_event(
+            "fastapi", "retry_stuck_success",
+            {
+                "original_message_id": msg_id,
+                "subscriber_id": subscriber_id,
+                "empresa_id": empresa_id,
+                "response_preview": reply_text[:200] if reply_text else "",
+            },
+            channel="manychat",
+        )
+        logger.info("retry_stuck_mc: msg %s processed successfully, response_chars=%s", msg_id, len(reply_text))
+        return True
+
+    except Exception as exc:
+        logger.error("retry_stuck_mc: failed to process msg %s: %s", msg_id, exc, exc_info=True)
+        await db.actualizar_mensaje(int(msg_id), {
+            "status": "error",
+            "metadata": {**metadata, "retry_error": str(exc), "retry_error_type": type(exc).__name__},
+        })
+        add_kapso_debug_event(
+            "fastapi", "retry_stuck_error",
+            {"original_message_id": msg_id, "subscriber_id": subscriber_id, "error": str(exc)},
+            channel="manychat",
+        )
+        return False
+
+
+async def retry_stuck_manychat_messages() -> dict:
+    """Find and re-process stuck ManyChat messages. Called by the background task."""
+    try:
+        all_stuck = await db.get_stuck_messages(minutes_old=STUCK_MESSAGE_MINUTES, limit=20)
+        stuck = [m for m in all_stuck if (m.get("metadata") or {}).get("subscriber_id")]
+        if not stuck:
+            return {"checked": True, "stuck_found": 0, "retried": 0, "success": 0}
+
+        logger.info("retry_stuck_mc: found %d stuck ManyChat messages", len(stuck))
+        add_kapso_debug_event(
+            "fastapi", "retry_stuck_scan",
+            {"stuck_count": len(stuck), "message_ids": [m.get("id") for m in stuck]},
+            channel="manychat",
+        )
+
+        success_count = 0
+        for msg in stuck:
+            try:
+                ok = await _retry_single_stuck_manychat_message(msg)
+                if ok:
+                    success_count += 1
+            except Exception as exc:
+                logger.error("retry_stuck_mc: unexpected error for msg %s: %s", msg.get("id"), exc)
+
+        logger.info("retry_stuck_mc: processed %d/%d stuck messages", success_count, len(stuck))
+        return {"checked": True, "stuck_found": len(stuck), "retried": len(stuck), "success": success_count}
+    except Exception as exc:
+        logger.error("retry_stuck_mc: scan failed: %s", exc, exc_info=True)
+        return {"checked": True, "error": str(exc)}
 
 
 # ── Debug endpoints ───────────────────────────────────────────────────────────

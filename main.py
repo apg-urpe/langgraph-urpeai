@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.kapso_routes import router as kapso_router, retry_stuck_messages
-from app.api.manychat_routes import router as manychat_router
+from app.api.manychat_routes import router as manychat_router, retry_stuck_manychat_messages
 from app.api.routes import router
 from app.api.db_routes import router as db_router
 from app.api.debug_dashboard import router as debug_dashboard_router
@@ -28,17 +28,20 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
-RETRY_STUCK_INTERVAL_SECONDS = 10 * 60  # 10 minutes
+RETRY_STUCK_INTERVAL_SECONDS = 5 * 60  # 5 minutes
 
 
 async def _retry_stuck_loop():
-    """Background loop that checks for stuck messages every 10 minutes."""
+    """Background loop that checks for stuck messages every 5 minutes (WhatsApp + ManyChat)."""
     await asyncio.sleep(60)  # Initial delay: wait 1 min after startup
     while True:
         try:
-            result = await retry_stuck_messages()
-            if result.get("stuck_found", 0) > 0:
-                logger.info("retry_stuck_loop: %s", result)
+            result_wa = await retry_stuck_messages()
+            result_mc = await retry_stuck_manychat_messages()
+            if result_wa.get("stuck_found", 0) > 0:
+                logger.info("retry_stuck_loop WA: %s", result_wa)
+            if result_mc.get("stuck_found", 0) > 0:
+                logger.info("retry_stuck_loop MC: %s", result_mc)
         except Exception as exc:
             logger.error("retry_stuck_loop error: %s", exc, exc_info=True)
         await asyncio.sleep(RETRY_STUCK_INTERVAL_SECONDS)
@@ -49,7 +52,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Iniciando %s", settings.APP_NAME)
     task = asyncio.create_task(_retry_stuck_loop())
-    logger.info("Background task: retry_stuck_loop iniciado (cada %ds)", RETRY_STUCK_INTERVAL_SECONDS)
+    logger.info("Background task: retry_stuck_loop iniciado (cada %ds) — WhatsApp + ManyChat", RETRY_STUCK_INTERVAL_SECONDS)
     yield
     # Shutdown
     task.cancel()
