@@ -37,6 +37,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/scheduling", tags=["scheduling"])
 
 # ════════════════════════════════════════════════════════════
+# Normalización de timezones
+# ════════════════════════════════════════════════════════════
+
+def _normalizar_tz(tz_name: str | None, fallback: str = "America/Bogota") -> str:
+    """Devuelve el timezone corregido si es necesario.
+
+    Solo corrige el caso conocido donde el agente envía 'America/Argentina'
+    (sin ciudad), que no es una clave válida en zoneinfo.
+    Cualquier otro valor se devuelve tal cual.
+    """
+    if not tz_name:
+        return fallback
+    if tz_name == "America/Argentina":
+        return "America/Argentina/Buenos_Aires"
+    return tz_name
+
+# ════════════════════════════════════════════════════════════
 # Helpers Supabase
 # ════════════════════════════════════════════════════════════
 
@@ -455,7 +472,7 @@ async def _seleccionar_mejor_asesor(
                     dispo = json.loads(dispo)
                 except Exception:
                     dispo = None
-            asesor_tz = asesor_fijo.get("timezone") or "America/Bogota"
+            asesor_tz = _normalizar_tz(asesor_fijo.get("timezone"))
             if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
                 return {
                     "error": f"El horario solicitado está fuera del horario de atención del asesor ({asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}). Horario disponible: lunes a viernes 09:00-15:00."
@@ -487,7 +504,7 @@ async def _seleccionar_mejor_asesor(
                 dispo = json.loads(dispo)
             except Exception:
                 dispo = None
-        asesor_tz = asesor.get("timezone") or "America/Bogota"
+        asesor_tz = _normalizar_tz(asesor.get("timezone"))
         if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
             logger.info("Asesor %s descartado: horario %s fuera de horarios_normales", asesor["id"], fecha_hora_iso)
             return {"asesor": asesor, "ok": True, "ocupado": True}
@@ -569,7 +586,7 @@ async def disponibilidad_agenda(req: DisponibilidadRequest):
 
 async def _disponibilidad_agenda_interno(req: DisponibilidadRequest) -> DisponibilidadResponse:
     start_time = time.time()
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
 
     try:
         nylas = await get_nylas()
@@ -768,7 +785,7 @@ async def crear_evento_calendario(req: CrearEventoRequest):
 
 
 async def _crear_evento_interno(req: CrearEventoRequest) -> CrearEventoResponse:
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
     nylas = await get_nylas()
     db = await get_supabase()
 
@@ -911,7 +928,7 @@ async def reagendar_evento(req: ReagendarEventoRequest):
 
 
 async def _reagendar_evento_interno(req: ReagendarEventoRequest) -> ReagendarEventoResponse:
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
     nylas = await get_nylas()
     db = await get_supabase()
 

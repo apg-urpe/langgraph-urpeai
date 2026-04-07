@@ -1,0 +1,39 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - test           # Corre en cada push al branch test
+  pull_request:
+    branches:
+      - main           # Corre en cada PR hacia main (obligatorio antes de merge)
+
+jobs:
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+        env:
+          # Credenciales ficticias — los tests mockean todas las llamadas externas
+          OPENROUTER_API_KEY: test-ci-key
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_SERVICE_KEY: test-ci-service-key
+          NYLAS_API_KEY: test-ci-nylas-key
+          ERROR_WEBHOOK_URL: https://n8n.test/webhook/error
