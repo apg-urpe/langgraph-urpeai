@@ -37,6 +37,43 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/scheduling", tags=["scheduling"])
 
 # ════════════════════════════════════════════════════════════
+# Normalización de timezones
+# ════════════════════════════════════════════════════════════
+
+# Mapeo de zonas incompletas/ambiguas → zona canónica de zoneinfo
+_TZ_ALIAS: dict[str, str] = {
+    # Argentina: el LLM a veces envía solo "America/Argentina" sin ciudad
+    "America/Argentina":          "America/Argentina/Buenos_Aires",
+    "America/Argentina/BuenosAires": "America/Argentina/Buenos_Aires",
+    # Brasil genérico
+    "America/Brazil":             "America/Sao_Paulo",
+    # México genérico
+    "America/Mexico":             "America/Mexico_City",
+    # España
+    "Europe/Spain":               "Europe/Madrid",
+}
+
+
+def _normalizar_tz(tz_name: str | None, fallback: str = "America/Bogota") -> str:
+    """Devuelve una clave de timezone válida para ZoneInfo.
+
+    - Si tz_name es None o vacío → fallback.
+    - Si está en el mapa de alias → sustituye por la zona canónica.
+    - Si ZoneInfo la acepta → la devuelve tal cual.
+    - Si no existe en zoneinfo → fallback (y log de advertencia).
+    """
+    if not tz_name:
+        return fallback
+    # Alias explícitos (zona incompleta o con typo conocido)
+    tz_name = _TZ_ALIAS.get(tz_name, tz_name)
+    try:
+        ZoneInfo(tz_name)   # validación rápida
+        return tz_name
+    except Exception:
+        logger.warning("Timezone desconocida '%s', usando fallback '%s'", tz_name, fallback)
+        return fallback
+
+# ════════════════════════════════════════════════════════════
 # Helpers Supabase
 # ════════════════════════════════════════════════════════════
 
@@ -455,7 +492,7 @@ async def _seleccionar_mejor_asesor(
                     dispo = json.loads(dispo)
                 except Exception:
                     dispo = None
-            asesor_tz = asesor_fijo.get("timezone") or "America/Bogota"
+            asesor_tz = _normalizar_tz(asesor_fijo.get("timezone"))
             if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
                 return {
                     "error": f"El horario solicitado está fuera del horario de atención del asesor ({asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}). Horario disponible: lunes a viernes 09:00-15:00."
@@ -487,7 +524,7 @@ async def _seleccionar_mejor_asesor(
                 dispo = json.loads(dispo)
             except Exception:
                 dispo = None
-        asesor_tz = asesor.get("timezone") or "America/Bogota"
+        asesor_tz = _normalizar_tz(asesor.get("timezone"))
         if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
             logger.info("Asesor %s descartado: horario %s fuera de horarios_normales", asesor["id"], fecha_hora_iso)
             return {"asesor": asesor, "ok": True, "ocupado": True}
@@ -569,7 +606,7 @@ async def disponibilidad_agenda(req: DisponibilidadRequest):
 
 async def _disponibilidad_agenda_interno(req: DisponibilidadRequest) -> DisponibilidadResponse:
     start_time = time.time()
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
 
     try:
         nylas = await get_nylas()
@@ -768,7 +805,7 @@ async def crear_evento_calendario(req: CrearEventoRequest):
 
 
 async def _crear_evento_interno(req: CrearEventoRequest) -> CrearEventoResponse:
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
     nylas = await get_nylas()
     db = await get_supabase()
 
@@ -911,7 +948,7 @@ async def reagendar_evento(req: ReagendarEventoRequest):
 
 
 async def _reagendar_evento_interno(req: ReagendarEventoRequest) -> ReagendarEventoResponse:
-    tz_name = req.time_zone_contacto or "America/Bogota"
+    tz_name = _normalizar_tz(req.time_zone_contacto)
     nylas = await get_nylas()
     db = await get_supabase()
 
