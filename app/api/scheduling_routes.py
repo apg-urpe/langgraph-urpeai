@@ -40,38 +40,18 @@ router = APIRouter(prefix="/api/v1/scheduling", tags=["scheduling"])
 # Normalización de timezones
 # ════════════════════════════════════════════════════════════
 
-# Mapeo de zonas incompletas/ambiguas → zona canónica de zoneinfo
-_TZ_ALIAS: dict[str, str] = {
-    # Argentina: el LLM a veces envía solo "America/Argentina" sin ciudad
-    "America/Argentina":          "America/Argentina/Buenos_Aires",
-    "America/Argentina/BuenosAires": "America/Argentina/Buenos_Aires",
-    # Brasil genérico
-    "America/Brazil":             "America/Sao_Paulo",
-    # México genérico
-    "America/Mexico":             "America/Mexico_City",
-    # España
-    "Europe/Spain":               "Europe/Madrid",
-}
-
-
 def _normalizar_tz(tz_name: str | None, fallback: str = "America/Bogota") -> str:
-    """Devuelve una clave de timezone válida para ZoneInfo.
+    """Devuelve el timezone corregido si es necesario.
 
-    - Si tz_name es None o vacío → fallback.
-    - Si está en el mapa de alias → sustituye por la zona canónica.
-    - Si ZoneInfo la acepta → la devuelve tal cual.
-    - Si no existe en zoneinfo → fallback (y log de advertencia).
+    Solo corrige el caso conocido donde el agente envía 'America/Argentina'
+    (sin ciudad), que no es una clave válida en zoneinfo.
+    Cualquier otro valor se devuelve tal cual.
     """
     if not tz_name:
         return fallback
-    # Alias explícitos (zona incompleta o con typo conocido)
-    tz_name = _TZ_ALIAS.get(tz_name, tz_name)
-    try:
-        ZoneInfo(tz_name)   # validación rápida
-        return tz_name
-    except Exception:
-        logger.warning("Timezone desconocida '%s', usando fallback '%s'", tz_name, fallback)
-        return fallback
+    if tz_name == "America/Argentina":
+        return "America/Argentina/Buenos_Aires"
+    return tz_name
 
 # ════════════════════════════════════════════════════════════
 # Helpers Supabase
