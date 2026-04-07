@@ -12,6 +12,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agents.contact_update import run_contact_update_agent
 from app.agents.conversational import run_agent, CLOSING_FOLLOWUP_MARKER
+from app.channels.registry import get_channel
 from app.agents.funnel import run_funnel_agent
 from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
@@ -1727,18 +1728,9 @@ async def kapso_inbound(
             conversacion_db_id=conversacion_db_id,
         )
 
-        reaction_emoji: str | None = None
-        comando_data: dict | None = None
-        for tool_call in merged_tools:
-            if tool_call.tool_name == "send_reaction" and tool_call.tool_input.get("emoji"):
-                reaction_emoji = tool_call.tool_input["emoji"]
-            if tool_call.tool_name == "ejecutar_comando" and tool_call.tool_output:
-                try:
-                    _parsed = json.loads(tool_call.tool_output)
-                    if isinstance(_parsed, dict) and _parsed.get("__comando__"):
-                        comando_data = _parsed
-                except (json.JSONDecodeError, TypeError):
-                    pass
+        _wp_actions = get_channel("whatsapp").extract_actions(merged_tools)
+        reaction_emoji: str | None = _wp_actions.reaction_emoji
+        comando_data: dict | None = _wp_actions.extra.get("comando_data")
 
         add_kapso_debug_event(
             "fastapi",
