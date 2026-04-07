@@ -3,6 +3,7 @@ import logging
 from typing import Any
 import httpx
 from app.core.config import get_settings
+import json as _json
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,19 @@ class SupabaseClient:
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
         logger.info("SupabaseClient inicializado (httpx pooled, HTTP/2)")
+
+    @staticmethod
+    def _parse_json(r: httpx.Response) -> Any:
+        """Parsea JSON de la respuesta; lanza ValueError descriptivo si el cuerpo no es JSON válido."""
+        try:
+            return r.json()
+        except (_json.JSONDecodeError, Exception) as exc:
+            raise ValueError(
+                f"Supabase devolvió respuesta no-JSON "
+                f"(status={r.status_code}, url={str(r.url)!r}, "
+                f"content_type={r.headers.get('content-type', '?')!r}): "
+                f"{r.text[:300]!r}"
+            ) from exc
 
     async def query(
         self,
@@ -75,15 +89,15 @@ class SupabaseClient:
         if count:
             content_range = r.headers.get("content-range", "")
             total = content_range.split("/")[1] if "/" in content_range else "0"
-            return {"data": r.json(), "count": int(total) if total != "*" else 0}
+            return {"data": self._parse_json(r), "count": int(total) if total != "*" else 0}
 
-        return r.json()
+        return self._parse_json(r)
 
     async def insert(self, table: str, data: dict[str, Any]) -> dict:
         """Inserta un registro."""
         r = await self._http.post(f"/{table}", json=data)
         r.raise_for_status()
-        result = r.json()
+        result = self._parse_json(r)
         return result[0] if isinstance(result, list) and result else result
 
     async def update(self, table: str, filters: dict[str, Any], data: dict[str, Any]) -> list[dict]:
@@ -91,20 +105,20 @@ class SupabaseClient:
         params = {k: f"eq.{v}" for k, v in filters.items()}
         r = await self._http.patch(f"/{table}", params=params, json=data)
         r.raise_for_status()
-        return r.json()
+        return self._parse_json(r)
 
     async def delete(self, table: str, filters: dict[str, Any]) -> list[dict]:
         """Elimina registros que cumplan los filtros."""
         params = {k: f"eq.{v}" for k, v in filters.items()}
         r = await self._http.delete(f"/{table}", params=params)
         r.raise_for_status()
-        return r.json() if r.content else []
+        return self._parse_json(r) if r.content else []
 
     async def rpc(self, function_name: str, params: dict[str, Any] | None = None) -> Any:
         """Llama a una función RPC de Supabase."""
         r = await self._http.post(f"/rpc/{function_name}", json=params or {})
         r.raise_for_status()
-        return r.json()
+        return self._parse_json(r)
 
     async def close(self):
         """Cierra el cliente HTTP."""
