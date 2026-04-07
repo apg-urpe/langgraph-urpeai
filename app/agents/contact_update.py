@@ -11,7 +11,7 @@ from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
-from app.agents.funnel import _create_llm
+from app.agents.funnel import _create_llm, ainvoke_with_retry
 from app.core.error_webhook import send_error_to_webhook
 from app.db import queries as db
 from app.schemas.chat import AgentRunTrace, TimingInfo, ToolCall, ToolDefinition
@@ -198,7 +198,7 @@ async def _load_contact_update_context(contacto_id: int, empresa_id: int, conver
 def _build_graph(llm_with_tools, current_contact: dict, request: ContactUpdateAgentRequest):
     async def agent_node(state: ContactUpdateAgentState) -> dict:
         start = time.perf_counter()
-        response = await llm_with_tools.ainvoke(state["messages"])
+        response = await ainvoke_with_retry(llm_with_tools, state["messages"])
         llm_elapsed_ms = (time.perf_counter() - start) * 1000
         return {
             "messages": [response],

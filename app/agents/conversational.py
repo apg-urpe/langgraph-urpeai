@@ -17,6 +17,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
+from app.agents.funnel import ainvoke_with_retry
 from app.core.cache import response_cache
 from app.core.config import get_settings
 from app.db import queries as db
@@ -562,7 +563,7 @@ def _build_graph(llm_with_tools, tools: list) -> StateGraph:
     async def agent_node(state: AgentState) -> dict:
         """Nodo principal del agente: genera respuesta o decide usar herramientas."""
         t_llm = time.perf_counter()
-        response = await llm_with_tools.ainvoke(state["messages"])
+        response = await ainvoke_with_retry(llm_with_tools, state["messages"])
         llm_elapsed_ms = (time.perf_counter() - t_llm) * 1000
         return {
             "messages": [response],

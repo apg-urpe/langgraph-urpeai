@@ -206,6 +206,41 @@ def _create_llm(model: str, max_tokens: int = 512, temperature: float = 0.5) -> 
     return _llm_cache[cache_key]
 
 
+_LLM_RETRY_ATTEMPTS = 3
+_LLM_RETRY_DELAY_S = 1.0
+
+
+async def ainvoke_with_retry(llm, messages, **kwargs):
+    """Wrapper con retry alrededor de llm.ainvoke() para manejar errores transitorios
+    de OpenRouter (JSONDecodeError cuando CDN devuelve HTML en lugar de JSON)."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _LLM_RETRY_ATTEMPTS + 1):
+        try:
+            return await llm.ainvoke(messages, **kwargs)
+        except json.JSONDecodeError as exc:
+            last_exc = exc
+            logger.warning(
+                "LLM ainvoke JSONDecodeError en intento %d/%d: %s",
+                attempt, _LLM_RETRY_ATTEMPTS, exc,
+            )
+        except Exception as exc:
+            # Errores de conexión / timeout también se reintentan
+            err_name = type(exc).__name__
+            if "timeout" in err_name.lower() or "connection" in err_name.lower():
+                last_exc = exc
+                logger.warning(
+                    "LLM ainvoke %s en intento %d/%d: %s",
+                    err_name, attempt, _LLM_RETRY_ATTEMPTS, exc,
+                )
+            else:
+                raise  # Otros errores se propagan inmediatamente
+
+        if attempt < _LLM_RETRY_ATTEMPTS:
+            await asyncio.sleep(_LLM_RETRY_DELAY_S * attempt)
+
+    raise last_exc  # type: ignore[misc]
+
+
 def _stringify_safe(value) -> str:
     return json.dumps(value if value is not None else None, ensure_ascii=False, indent=2)
 
@@ -708,7 +743,7 @@ def _build_graph(llm_with_tools, context: FunnelContextResponse, requestData: Fu
     async def agent_node(state: FunnelAgentState) -> dict:
         """Nodo principal del agente: analiza el contexto y genera análisis."""
         t_llm = time.perf_counter()
-        response = await llm_with_tools.ainvoke(state["messages"])
+        response = await ainvoke_with_retry(llm_with_tools, state["messages"])
         llm_elapsed_ms = (time.perf_counter() - t_llm) * 1000
         return {
             "messages": [response],
