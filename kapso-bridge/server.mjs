@@ -6032,6 +6032,31 @@ app.post('/api/v1/scheduling/eliminar-evento', async (req, res) => {
 
 });
 
+/* ── ManyChat inbound ── */
+app.post('/api/v1/manychat/inbound', async (req, res) => {
+
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/manychat/inbound', `${baseUrl}/`).toString();
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // Reenviar el API key del canal — autenticado en FastAPI via Edge Function
+        'x-api-key': req.headers['x-api-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'manychat_proxy_error', message: err.message });
+  }
+
+});
+
 app.get('/debug/kapso', async (_req, res) => {
 
   if (!requireDebugAccess(_req, res)) return;
