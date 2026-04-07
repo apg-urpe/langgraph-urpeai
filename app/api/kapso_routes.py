@@ -1072,7 +1072,7 @@ async def kapso_debug_empresas(
     _require_kapso_debug_access(request, x_kapso_internal_token, x_kapso_debug_token)
     try:
         db = await get_supabase()
-        rows = await db.query("wp_empresa_perfil", select="id,nombre")
+        rows = await db.query("wp_empresa_perfil", select="id,nombre", filters={"activo": True})
         if isinstance(rows, list):
             return {"empresas": [{"id": r["id"], "nombre": r.get("nombre") or f"Empresa {r['id']}"} for r in rows]}
     except Exception as exc:

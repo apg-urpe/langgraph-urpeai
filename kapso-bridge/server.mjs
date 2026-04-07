@@ -1841,7 +1841,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
     return fetch(debugPath(path),init);
   }
 
-  const POLL_INTERVAL = 5000;
+  const POLL_INTERVAL = 30000; // fallback polling — SSE is primary
 
   let autoRefresh = true;
 
@@ -1849,19 +1849,40 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   let sseSource = null;
 
-  let debounce = null;
+  let sseConnected = false;
+
+  function startFallbackPolling(){
+    if(!autoRefresh) return;
+    clearInterval(timer);
+    timer = setInterval(poll, POLL_INTERVAL);
+  }
+
+  function stopFallbackPolling(){
+    clearInterval(timer);
+    timer = null;
+  }
 
   function connectSSE(){
     if(sseSource){ sseSource.close(); sseSource=null; }
-    sseSource=new EventSource(debugPath('/debug/kapso/stream'));
-    sseSource.onmessage=function(){
-      clearTimeout(debounce);
-      debounce=setTimeout(poll,200);
+    const es = new EventSource(debugPath('/debug/kapso/stream'));
+    sseSource = es;
+    es.onopen = function(){
+      sseConnected = true;
+      stopFallbackPolling(); // SSE is live — no need for interval polling
     };
-    sseSource.onerror=function(){
-      sseSource.close();
-      sseSource=null;
-      setTimeout(connectSSE,5000);
+    es.onmessage = function(msg){
+      try{
+        const ev = JSON.parse(msg.data);
+        if(ev.error){ console.warn('[Debug] SSE error:', ev.error); return; }
+      }catch(e){}
+      poll(); // refresh table data on every real event
+    };
+    es.onerror = function(){
+      sseConnected = false;
+      es.close();
+      sseSource = null;
+      startFallbackPolling(); // SSE dropped — fall back to interval
+      setTimeout(connectSSE, 5000); // try to reconnect
     };
   }
 
@@ -2253,7 +2274,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
       btn.style.background='#16a34a';
 
-      timer=setInterval(poll,POLL_INTERVAL);
+      if(!sseConnected) startFallbackPolling(); // only poll if SSE is not active
 
     }else{
 
@@ -2261,7 +2282,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
       btn.style.background='#dc2626';
 
-      clearInterval(timer);
+      stopFallbackPolling();
 
     }
 
@@ -2271,7 +2292,8 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   document.getElementById('toggle-auto').addEventListener('click',toggleAuto);
 
-  timer=setInterval(poll,POLL_INTERVAL);
+  // Initial poll to populate the table immediately on load
+  poll();
 
 })();
 
