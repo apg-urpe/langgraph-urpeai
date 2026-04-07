@@ -60,3 +60,8 @@ class ManyChatInboundResponse(BaseModel):
                 messages=[_ManyChatTextMessage(text=text or "")]
             )
         )
+
+    @classmethod
+    def empty(cls) -> "ManyChatInboundResponse":
+        """Respuesta vacía — usado cuando el mensaje ya fue enviado via API."""
+        return cls(content=_ManyChatContent(messages=[]))
