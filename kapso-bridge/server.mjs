@@ -7005,6 +7005,10 @@ function renderManyChatHtml(data, debugToken = '') {
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
   poll();
   connectSSE();
+  // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
+  setTimeout(function(){
+    if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
+  }, 3000);
 })();
 </script>
 </body></html>`;
@@ -7300,6 +7304,10 @@ function renderCanalesHtml(data, debugToken = '') {
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
   poll();
   connectSSE();
+  // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
+  setTimeout(function(){
+    if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
+  }, 3000);
 })();
 </script>
 </body></html>`;

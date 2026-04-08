@@ -1095,9 +1095,12 @@ async def kapso_debug_stream(
     async def _generate():
         try:
             while True:
-                event = await q.get()
-                data = json.dumps(event, default=str)
-                yield f"data: {data}\n\n"
+                try:
+                    event = await asyncio.wait_for(q.get(), timeout=15.0)
+                    data = json.dumps(event, default=str)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
         except asyncio.CancelledError:
             pass
         finally:
