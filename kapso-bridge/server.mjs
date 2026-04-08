@@ -6874,6 +6874,13 @@ function renderManyChatHtml(data, debugToken = '') {
   </details>
 
 <script>
+function canalToggleMore(a){
+  var s=a.previousElementSibling;
+  if(!s) return false;
+  s.style.display=s.style.display?'':'inline';
+  a.textContent=s.style.display?'ver menos':'ver más...';
+  return false;
+}
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
   function debugPath(path){
@@ -6901,7 +6908,7 @@ function renderManyChatHtml(data, debugToken = '') {
       +'<td>'+esc(item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.canal||'instagram')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';this.textContent=s.style.display===\'\'?\'ver menos\':\'ver más...\';return false;" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
+      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +'<td>'+esc(item.agent_name||'—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
@@ -7173,6 +7180,13 @@ function renderCanalesHtml(data, debugToken = '') {
   </details>
 
 <script>
+function canalToggleMore(a){
+  var s=a.previousElementSibling;
+  if(!s) return false;
+  s.style.display=s.style.display?'':'inline';
+  a.textContent=s.style.display?'ver menos':'ver más...';
+  return false;
+}
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
   function debugPath(path){
@@ -7207,7 +7221,7 @@ function renderCanalesHtml(data, debugToken = '') {
       +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';return false;" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
+      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +'<td>'+esc(item.agent_name||'—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
