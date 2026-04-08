@@ -949,20 +949,21 @@ function sanitizePublicConstellationGraph(graphData) {
   const _waR = 12;
   const _topY = 0.11;
 
-  // WhatsApp — reposicionar arriba-izquierda con color de marca
+  // WhatsApp — reposicionar arriba-centro con color de marca
   const waNode = nodes.find(n => n.id === waId);
   if (waNode) {
-    waNode.x = 0.22; waNode.hx = 0.22;
+    waNode.x = 0.50; waNode.hx = 0.50;
     waNode.y = _topY; waNode.hy = _topY;
+    waNode.r = _waR;
     waNode.color = '#25d366';
     waNode.glow  = 'rgba(37,211,102,.3)';
   }
 
-  // Instagram — arriba-centro con gradiente de marca
+  // Instagram — arriba-izquierda con gradiente de marca
   if (!nodes.some(n => n.id === igId)) {
     nodes.push({
       id: igId, kind: 'external',
-      x: 0.50, y: _topY, hx: 0.50, hy: _topY,
+      x: 0.22, y: _topY, hx: 0.22, hy: _topY,
       r: _waR,
       color: '#e1306c',
       glow: 'rgba(225,48,108,.3)',
