@@ -7287,7 +7287,7 @@ function canalToggleMore(a){
     sseLog.unshift('['+ts+'] '+msg);
     if(sseLog.length > 30) sseLog.pop();
     var el = document.getElementById('sse-debug-log');
-    if(el) el.textContent = sseLog.join('\n');
+    if(el) el.textContent = sseLog.join('\\n');
     console.log('[SSE-canales]', msg);
   }
 
@@ -7360,7 +7360,7 @@ function canalToggleMore(a){
     var pre = document.getElementById('sse-debug-log');
     if(pre && !pre._last || pre && pre._last !== rs){
       pre._last = rs;
-      var line = new Date().toLocaleTimeString()+' readyState='+rs+' ('+['CONNECTING','OPEN','CLOSED'][rs]+')\n';
+      var line = new Date().toLocaleTimeString()+' readyState='+rs+' ('+['CONNECTING','OPEN','CLOSED'][rs]+')\\n';
       pre.textContent = line + (pre.textContent||'').slice(0,400);
     }
   }, 1000);
