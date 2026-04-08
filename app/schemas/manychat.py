@@ -54,7 +54,7 @@ class ManyChatSendManualRequest(BaseModel):
     subscriber_id: str
     mensaje: str
     canal: str = "instagram"
-    telefono_receptor: str | None = None  # si se provee, guarda el mensaje en la conversación
+    telefono_receptor: str  # necesario para recuperar el token de ManyChat de la conversación
 
 
 class ManyChatSendManualResponse(BaseModel):

@@ -562,6 +562,30 @@ async def get_mensajes_recientes(conversacion_id: int, limit: int = 20) -> list[
     return data
 
 
+async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | None:
+    """Recupera el manychat_api_key del mensaje entrante más reciente de la conversación."""
+    sb = await get_supabase()
+    msgs = await sb.query(
+        "wp_mensajes",
+        select="metadata",
+        filters={"conversacion_id": conversacion_id, "remitente": "usuario"},
+        order="timestamp", order_desc=True,
+        limit=5,
+    ) or []
+    for msg in msgs:
+        meta = msg.get("metadata") or {}
+        if isinstance(meta, str):
+            import json
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                continue
+        key = meta.get("manychat_api_key")
+        if key:
+            return key
+    return None
+
+
 async def insertar_mensaje(
     conversacion_id: int,
     contenido: str,

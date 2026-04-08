@@ -165,21 +165,50 @@ async def _send_manychat_reply(
 # ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
 
 @router.post("/send", response_model=ManyChatSendManualResponse)
-async def manychat_send_manual(
-    req: ManyChatSendManualRequest,
-    x_api_key: str = Header(alias="X-Api-Key"),
-):
+async def manychat_send_manual(req: ManyChatSendManualRequest):
     """Envía un mensaje directo a un suscriptor de ManyChat sin pasar por el agente IA.
 
-    Útil para que un operador humano responda manualmente desde el dashboard.
-    Si se incluye `telefono_receptor`, busca la conversación activa y guarda el
-    mensaje en la base de datos como remitente 'agente'.
+    El token de ManyChat se obtiene automáticamente de la conversación activa
+    (guardado en los mensajes entrantes). No requiere header de autenticación adicional.
     """
     guardado_en_db = False
+    manychat_api_key: str | None = None
+    conversacion_id_db: int | None = None
+    empresa_id_db: int | None = None
+
+    # ── Buscar token y conversación desde la BD ───────────────────────────────
+    if req.telefono_receptor:
+        try:
+            numero = await db.get_numero_por_telefono(req.telefono_receptor)
+            if not numero:
+                raise HTTPException(status_code=404, detail=f"Número {req.telefono_receptor} no configurado")
+
+            empresa_id_db = int(numero["empresa_id"])
+            numero_id     = int(numero["id"])
+
+            contacto = await db.get_contacto_por_subscriber_id(req.subscriber_id, empresa_id_db)
+            contacto_id = int(contacto["id"]) if contacto else None
+
+            if contacto_id:
+                conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
+                if conversacion:
+                    conversacion_id_db = int(conversacion["id"])
+                    manychat_api_key = await db.get_manychat_api_key_de_conversacion(conversacion_id_db)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("manychat_send_manual: error buscando token en DB: %s", exc)
+
+    if not manychat_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró el token de ManyChat en la conversación. "
+                   "Asegúrate de que el contacto haya enviado al menos un mensaje primero.",
+        )
 
     # ── Enviar mensaje via ManyChat API ───────────────────────────────────────
     ok, error_msg = await _send_manychat_reply(
-        api_key=x_api_key,
+        api_key=manychat_api_key,
         subscriber_id=req.subscriber_id,
         text=req.mensaje,
         canal=req.canal,
@@ -191,38 +220,27 @@ async def manychat_send_manual(
             error=error_msg,
         )
 
-    # ── Guardar en DB si se provee telefono_receptor ──────────────────────────
-    if req.telefono_receptor:
+    # ── Guardar en DB ─────────────────────────────────────────────────────────
+    if conversacion_id_db:
         try:
-            numero = await db.get_numero_por_telefono(req.telefono_receptor)
-            if numero:
-                empresa_id = int(numero["empresa_id"])
-                numero_id  = int(numero["id"])
-
-                contacto = await db.get_contacto_por_subscriber_id(req.subscriber_id, empresa_id)
-                contacto_id = int(contacto["id"]) if contacto else None
-
-                if contacto_id:
-                    conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
-                    if conversacion:
-                        await db.insertar_mensaje(
-                            conversacion_id=int(conversacion["id"]),
-                            contenido=req.mensaje,
-                            remitente="agente",
-                            tipo="texto",
-                            status="enviado",
-                            metadata={
-                                "canal": req.canal,
-                                "subscriber_id": req.subscriber_id,
-                                "envio_manual": True,
-                            },
-                            empresa_id=empresa_id,
-                        )
-                        guardado_en_db = True
-                        logger.info(
-                            "manychat_send_manual guardado — subscriber=%s conversacion=%s",
-                            req.subscriber_id, conversacion["id"],
-                        )
+            await db.insertar_mensaje(
+                conversacion_id=conversacion_id_db,
+                contenido=req.mensaje,
+                remitente="agente",
+                tipo="texto",
+                status="enviado",
+                metadata={
+                    "canal": req.canal,
+                    "subscriber_id": req.subscriber_id,
+                    "envio_manual": True,
+                },
+                empresa_id=empresa_id_db,
+            )
+            guardado_en_db = True
+            logger.info(
+                "manychat_send_manual guardado — subscriber=%s conversacion=%s",
+                req.subscriber_id, conversacion_id_db,
+            )
         except Exception as exc:
             logger.warning("manychat_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
 
