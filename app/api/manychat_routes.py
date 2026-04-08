@@ -40,6 +40,7 @@ _MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
 STUCK_MESSAGE_MINUTES = 5
+BUFFER_SECONDS = 5.0  # ventana de agrupación de mensajes para canales no-Kapso
 
 FUNNEL_SKIP_TEXTS = {
     "hola", "hola!", "hi", "hello",
@@ -71,6 +72,35 @@ class _InboundProxy:
     contact_name: str | None
     message_type: str = "text"
     has_media: bool = False
+
+
+# ── Buffer de mensajes (agrupa mensajes rápidos antes de llamar al agente) ────
+
+@dataclass
+class _McBufferEntry:
+    mensajes: list[str]
+    request: ManyChatInboundRequest   # primera request — contiene metadata del canal
+    x_api_key: str
+    timer_task: asyncio.Task | None = None
+
+_mc_buffer: dict[str, _McBufferEntry] = {}
+
+
+async def _flush_buffer(buffer_key: str) -> None:
+    """Espera BUFFER_SECONDS y procesa todos los mensajes acumulados como uno solo."""
+    await asyncio.sleep(BUFFER_SECONDS)
+    entry = _mc_buffer.pop(buffer_key, None)
+    if not entry:
+        return
+    mensaje_combinado = "\n".join(entry.mensajes)
+    logger.info(
+        "Buffer flush — key=%s mensajes=%d combinado=%r",
+        buffer_key, len(entry.mensajes), mensaje_combinado[:120],
+    )
+    try:
+        await _procesar_manychat_core(entry.request, mensaje_combinado, entry.x_api_key)
+    except Exception as exc:
+        logger.exception("Buffer flush error key=%s: %s", buffer_key, exc)
 
 
 
@@ -162,12 +192,48 @@ async def manychat_inbound(
     request: ManyChatInboundRequest,
     x_api_key: str = Header(alias="X-Api-Key"),
 ):
+    subscriber_id = request.contacto_identificador.subscriber_id
+    slash_command = _extract_slash_command(request.mensaje)
+
+    # Slash commands → proceso inmediato, sin buffer
+    if slash_command:
+        asyncio.create_task(_procesar_manychat_core(request, request.mensaje, x_api_key))
+        return ManyChatInboundResponse.empty()
+
+    # Mensajes normales → buffer de 5 segundos
+    buffer_key = f"{subscriber_id}:{request.telefono_receptor}"
+
+    if buffer_key in _mc_buffer:
+        entry = _mc_buffer[buffer_key]
+        entry.mensajes.append(request.mensaje)
+        if entry.timer_task and not entry.timer_task.done():
+            entry.timer_task.cancel()
+        logger.debug("Buffer: mensaje añadido key=%s total=%d", buffer_key, len(entry.mensajes))
+    else:
+        _mc_buffer[buffer_key] = _McBufferEntry(
+            mensajes=[request.mensaje],
+            request=request,
+            x_api_key=x_api_key,
+        )
+        logger.debug("Buffer: nueva entrada key=%s", buffer_key)
+
+    _mc_buffer[buffer_key].timer_task = asyncio.create_task(_flush_buffer(buffer_key))
+
+    return ManyChatInboundResponse.empty()
+
+
+# ── Lógica de procesamiento principal (usada por buffer y slash commands) ─────
+
+async def _procesar_manychat_core(
+    request: ManyChatInboundRequest,
+    mensaje: str,
+    x_api_key: str,
+) -> None:
     started_at = time.time()
     settings = get_settings()
 
     subscriber_id = request.contacto_identificador.subscriber_id
-
-    slash_command = _extract_slash_command(request.mensaje)
+    slash_command = _extract_slash_command(mensaje)
 
     try:
         # ── Lookup por telefono_receptor en wp_numeros ────────────────────────
@@ -227,7 +293,7 @@ async def manychat_inbound(
         memory_session_id  = f"mc_{subscriber_id}"
 
         # ═════════════════════════════════════════════════════════════════════
-        # Slash commands — ejecutar y retornar sin correr el agente
+        # Slash commands
         # ═════════════════════════════════════════════════════════════════════
         if slash_command:
             add_kapso_debug_event(
@@ -262,13 +328,13 @@ async def manychat_inbound(
 
             await _send_manychat_reply(api_key=x_api_key, subscriber_id=subscriber_id,
                                        text=reply_text, canal=request.canal)
-            return ManyChatInboundResponse.empty()
+            return
 
         # ── Guardar mensaje entrante ──────────────────────────────────────────
         if conversacion_db_id:
             await db.insertar_mensaje(
                 conversacion_id=conversacion_db_id,
-                contenido=request.mensaje,
+                contenido=mensaje,
                 remitente="usuario",
                 tipo="texto",
                 status="procesando",
@@ -288,7 +354,7 @@ async def manychat_inbound(
                 "subscriber_id": subscriber_id,
                 "contacto_id": contacto_id,
                 "empresa_id": empresa_id,
-                "message": request.mensaje[:200],
+                "message": mensaje[:200],
                 "canal": request.canal,
                 "nuevo_contacto": contacto_creado,
             },
@@ -336,7 +402,7 @@ async def manychat_inbound(
         )
 
         # ── Funnel + Contact Update en background ─────────────────────────────
-        if contacto_id and _should_run_funnel_agent(request.mensaje):
+        if contacto_id and _should_run_funnel_agent(mensaje):
             asyncio.create_task(_bg_funnel(
                 contacto_id=contacto_id, empresa_id=empresa_id, agente_id=agente_id,
                 conversacion_id=conversacion_db_id, memory_session_id=memory_session_id, model=model,
@@ -351,7 +417,7 @@ async def manychat_inbound(
         result = await run_agent(
             ChatRequest(
                 system_prompt=system_prompt,
-                message=request.mensaje,
+                message=mensaje,
                 model=model,
                 mcp_servers=[],
                 conversation_id=conversation_id,
@@ -404,7 +470,6 @@ async def manychat_inbound(
 
         logger.info("ManyChat inbound OK — empresa=%s subscriber=%s elapsed=%.2fs",
                     empresa_id, subscriber_id, elapsed)
-        return ManyChatInboundResponse.empty()
 
     except HTTPException:
         raise
@@ -421,10 +486,7 @@ async def manychat_inbound(
             severity="error",
             fallback=f"Error procesando mensaje ManyChat — subscriber_id={subscriber_id}",
         )
-        raise HTTPException(
-            status_code=500,
-            detail=f"{type(exc).__name__}: {exc}",
-        )
+        raise
 
 
 # ── Retry stuck ManyChat messages ────────────────────────────────────────────
