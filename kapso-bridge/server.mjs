@@ -859,7 +859,7 @@ const PUBLIC_VISUAL_NODE_META = {
 
   t_spam: { label: 'Control spam', desc: 'Protección de canal', detail: 'Aplica controles de seguridad y supresión del canal.', kind: 'tool' },
 
-  instagram: { label: 'Instagram', desc: 'Canal ManyChat / Instagram', detail: 'Canal de mensajería Instagram gestionado via ManyChat. Buffer de mensajes antes de llamar al agente.', kind: 'external' },
+  instagram: { label: 'Instagram', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
 
 };
 
@@ -3767,6 +3767,10 @@ const STAGE_FLOWS={
   http_error:[['n2','n1','#ef4444']],
 
   exception:[['n2','n1','#ef4444']],
+
+  message_received:[['n20','n2','#60a5fa']],
+
+  message_sent:[['n2','n20','#34d399']],
 
 };
 
