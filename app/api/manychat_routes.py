@@ -115,8 +115,13 @@ async def _send_manychat_reply(
     subscriber_id: str,
     text: str,
     canal: str,
-) -> None:
-    """Envía el texto de respuesta al suscriptor via ManyChat API."""
+    raise_on_error: bool = False,
+) -> tuple[bool, str | None]:
+    """Envía el texto de respuesta al suscriptor via ManyChat API.
+
+    Returns:
+        (ok, error_msg) — ok=True si ManyChat devolvió 200.
+    """
     content_type = "instagram" if canal.lower() == "instagram" else "facebook"
     payload = {
         "subscriber_id": subscriber_id,
@@ -140,10 +145,21 @@ async def _send_manychat_reply(
             )
         if resp.status_code == 200:
             logger.info("ManyChat sendContent OK — subscriber=%s", subscriber_id)
+            return True, None
         else:
+            msg = f"ManyChat error {resp.status_code}: {resp.text[:300]}"
             logger.error("ManyChat sendContent error %s: %s", resp.status_code, resp.text)
+            if raise_on_error:
+                raise HTTPException(status_code=502, detail=msg)
+            return False, msg
+    except HTTPException:
+        raise
     except Exception as exc:
+        msg = f"{type(exc).__name__}: {exc}"
         logger.error("ManyChat sendContent excepción: %s", exc)
+        if raise_on_error:
+            raise HTTPException(status_code=502, detail=msg)
+        return False, msg
 
 
 # ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
@@ -162,19 +178,17 @@ async def manychat_send_manual(
     guardado_en_db = False
 
     # ── Enviar mensaje via ManyChat API ───────────────────────────────────────
-    try:
-        await _send_manychat_reply(
-            api_key=x_api_key,
-            subscriber_id=req.subscriber_id,
-            text=req.mensaje,
-            canal=req.canal,
-        )
-    except Exception as exc:
-        logger.error("manychat_send_manual error al enviar: %s", exc)
+    ok, error_msg = await _send_manychat_reply(
+        api_key=x_api_key,
+        subscriber_id=req.subscriber_id,
+        text=req.mensaje,
+        canal=req.canal,
+    )
+    if not ok:
         return ManyChatSendManualResponse(
             ok=False,
             subscriber_id=req.subscriber_id,
-            error=f"Error al enviar mensaje: {exc}",
+            error=error_msg,
         )
 
     # ── Guardar en DB si se provee telefono_receptor ──────────────────────────
