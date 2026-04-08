@@ -6837,6 +6837,7 @@ function renderManyChatHtml(data, debugToken = '') {
     <div class="title">ManyChat / Instagram Debug</div>
     <div class="actions">
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
+      <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
@@ -6880,9 +6881,11 @@ function renderManyChatHtml(data, debugToken = '') {
   }
   function fetchDebug(path){ return fetch(debugPath(path)); }
 
-  const POLL_INTERVAL = 30000;
+  const FALLBACK_POLL_MS = 30000;
   let autoRefresh = true;
   let timer = null;
+  let sseSource = null;
+  let debounceTimer = null;
 
   function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
@@ -6957,18 +6960,51 @@ function renderManyChatHtml(data, debugToken = '') {
     }).catch(function(e){ console.warn('mc poll error',e); });
   }
 
+  function setLiveStatus(live){
+    var el=document.getElementById('sse-status');
+    if(!el) return;
+    if(live){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
+  }
+  function startFallbackPolling(){
+    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
+  }
+  function stopFallbackPolling(){
+    if(timer){ clearInterval(timer); timer=null; }
+  }
+  function connectSSE(){
+    if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
+    sseSource.onopen = function(){ setLiveStatus(true); stopFallbackPolling(); };
+    sseSource.onmessage = function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(poll, 300);
+    };
+    sseSource.onerror = function(){
+      setLiveStatus(false);
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      startFallbackPolling();
+      if(autoRefresh) setTimeout(connectSSE, 5000);
+    };
+  }
+
   function toggleAuto(){
     autoRefresh = !autoRefresh;
     var btn = document.getElementById('toggle-auto');
-    if(autoRefresh){ btn.textContent='⏸ Pausar'; btn.style.background='#16a34a'; timer=setInterval(poll,POLL_INTERVAL); }
-    else { btn.textContent='▶ Reanudar'; btn.style.background='#dc2626'; clearInterval(timer); timer=null; }
+    if(autoRefresh){
+      btn.textContent='⏸ Pausar'; btn.style.background='#16a34a';
+      connectSSE();
+    } else {
+      btn.textContent='▶ Reanudar'; btn.style.background='#dc2626';
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      stopFallbackPolling();
+      setLiveStatus(false);
+    }
   }
 
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
-  timer = setInterval(poll, POLL_INTERVAL);
-
-  var ts = document.getElementById('last-update');
-  if(ts) ts.textContent = 'Última actualización: '+new Date().toLocaleTimeString();
+  poll();
+  connectSSE();
 })();
 </script>
 </body></html>`;
@@ -7096,6 +7132,7 @@ function renderCanalesHtml(data, debugToken = '') {
     <div class="title">Todos los canales</div>
     <div class="actions">
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
+      <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/canales', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
@@ -7134,9 +7171,11 @@ function renderCanalesHtml(data, debugToken = '') {
   }
   function fetchDebug(path){ return fetch(debugPath(path)); }
 
-  const POLL_INTERVAL = 30000;
+  const FALLBACK_POLL_MS = 30000;
   let autoRefresh = true;
   let timer = null;
+  let sseSource = null;
+  let debounceTimer = null;
 
   function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
@@ -7216,18 +7255,51 @@ function renderCanalesHtml(data, debugToken = '') {
     }).catch(function(e){ console.warn('canales poll error',e); });
   }
 
+  function setLiveStatus(live){
+    var el=document.getElementById('sse-status');
+    if(!el) return;
+    if(live){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
+  }
+  function startFallbackPolling(){
+    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
+  }
+  function stopFallbackPolling(){
+    if(timer){ clearInterval(timer); timer=null; }
+  }
+  function connectSSE(){
+    if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
+    sseSource.onopen = function(){ setLiveStatus(true); stopFallbackPolling(); };
+    sseSource.onmessage = function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(poll, 300);
+    };
+    sseSource.onerror = function(){
+      setLiveStatus(false);
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      startFallbackPolling();
+      if(autoRefresh) setTimeout(connectSSE, 5000);
+    };
+  }
+
   function toggleAuto(){
     autoRefresh = !autoRefresh;
     var btn = document.getElementById('toggle-auto');
-    if(autoRefresh){ btn.textContent='⏸ Pausar'; btn.style.background='#16a34a'; timer=setInterval(poll,POLL_INTERVAL); }
-    else { btn.textContent='▶ Reanudar'; btn.style.background='#dc2626'; clearInterval(timer); timer=null; }
+    if(autoRefresh){
+      btn.textContent='⏸ Pausar'; btn.style.background='#16a34a';
+      connectSSE();
+    } else {
+      btn.textContent='▶ Reanudar'; btn.style.background='#dc2626';
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      stopFallbackPolling();
+      setLiveStatus(false);
+    }
   }
 
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
-  timer = setInterval(poll, POLL_INTERVAL);
-
-  var ts = document.getElementById('last-update');
-  if(ts) ts.textContent = 'Última actualización: '+new Date().toLocaleTimeString();
+  poll();
+  connectSSE();
 })();
 </script>
 </body></html>`;
