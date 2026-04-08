@@ -6703,6 +6703,7 @@ function buildManyChatInteractions(events = []) {
         from_phone: subscriberId,
         message_text: payload.command || '',
         message_type: 'slash',
+        canal: payload.canal || event.channel || 'instagram',
         status: 'processing',
         agent_runs: [],
         tools_used: [],
