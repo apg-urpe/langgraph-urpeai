@@ -7164,6 +7164,11 @@ function renderCanalesHtml(data, debugToken = '') {
 
   <div id="canal-interaction-details">${interactionDetails}</div>
 
+  <details style="margin-top:18px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px">
+    <summary style="cursor:pointer;font-weight:700;color:#94a3b8;font-size:12px">🔧 SSE Debug</summary>
+    <pre id="sse-debug-log" style="color:#94a3b8;font-size:11px;margin-top:8px;max-height:200px;overflow-y:auto"></pre>
+  </details>
+
 <script>
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
@@ -7259,6 +7264,16 @@ function renderCanalesHtml(data, debugToken = '') {
     }).catch(function(e){ console.warn('canales poll error',e); });
   }
 
+  var sseLog = [];
+  function dbg(msg){
+    var ts = new Date().toLocaleTimeString();
+    sseLog.unshift('['+ts+'] '+msg);
+    if(sseLog.length > 30) sseLog.pop();
+    var el = document.getElementById('sse-debug-log');
+    if(el) el.textContent = sseLog.join('\n');
+    console.log('[SSE-canales]', msg);
+  }
+
   function setLiveStatus(live){
     var el=document.getElementById('sse-status');
     if(!el) return;
@@ -7266,22 +7281,32 @@ function renderCanalesHtml(data, debugToken = '') {
     else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
   }
   function startFallbackPolling(){
-    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
+    if(!timer && autoRefresh){ timer=setInterval(poll, FALLBACK_POLL_MS); dbg('fallback polling started ('+FALLBACK_POLL_MS+'ms)'); }
   }
   function stopFallbackPolling(){
-    if(timer){ clearInterval(timer); timer=null; }
+    if(timer){ clearInterval(timer); timer=null; dbg('fallback polling stopped'); }
   }
   function connectSSE(){
     if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
-    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
-    sseSource.onopen = function(){ setLiveStatus(true); stopFallbackPolling(); };
-    sseSource.onmessage = function(){
+    var url = debugPath('/debug/kapso/stream');
+    dbg('connecting to: '+url);
+    sseSource = new EventSource(url);
+    dbg('readyState after new: '+sseSource.readyState);
+    sseSource.onopen = function(){
+      dbg('onopen fired — readyState='+sseSource.readyState);
+      setLiveStatus(true);
+      stopFallbackPolling();
+    };
+    sseSource.onmessage = function(e){
+      dbg('onmessage: '+String(e.data).slice(0,60));
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(poll, 300);
     };
-    sseSource.onerror = function(){
+    sseSource.onerror = function(e){
+      var rs = sseSource ? sseSource.readyState : 'null';
+      dbg('onerror — readyState='+rs);
       setLiveStatus(false);
-      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      if(sseSource){ try{ sseSource.close(); }catch(ex){} sseSource=null; }
       startFallbackPolling();
       if(autoRefresh) setTimeout(connectSSE, 5000);
     };
@@ -7306,8 +7331,15 @@ function renderCanalesHtml(data, debugToken = '') {
   connectSSE();
   // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
   setTimeout(function(){
+    var rs = sseSource ? sseSource.readyState : 'null';
+    dbg('3s check — readyState='+rs+' token='+String(DEBUG_TOKEN).slice(0,8)+'...');
     if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
   }, 3000);
+  // Second check at 10s
+  setTimeout(function(){
+    var rs = sseSource ? sseSource.readyState : 'null';
+    dbg('10s check — readyState='+rs);
+  }, 10000);
 })();
 </script>
 </body></html>`;
