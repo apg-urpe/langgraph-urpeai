@@ -940,49 +940,50 @@ function sanitizePublicConstellationGraph(graphData) {
 
 
 
-  // Inyectar nodo Instagram junto a WhatsApp si no está en el schema de Python
-  const igId = PUBLIC_VISUAL_NODE_IDS.instagram;
-  const fbId = PUBLIC_VISUAL_NODE_IDS.facebook;
-  const waId = PUBLIC_VISUAL_NODE_IDS.whatsapp;
+  // Alinear los 3 canales en la parte superior, horizontalmente
+  const igId   = PUBLIC_VISUAL_NODE_IDS.instagram;
+  const fbId   = PUBLIC_VISUAL_NODE_IDS.facebook;
+  const waId   = PUBLIC_VISUAL_NODE_IDS.whatsapp;
   const orchId = PUBLIC_VISUAL_NODE_IDS.orch;
 
+  const _waR = 12;
+  const _topY = 0.11;
+
+  // WhatsApp — reposicionar arriba-izquierda con color de marca
+  const waNode = nodes.find(n => n.id === waId);
+  if (waNode) {
+    waNode.x = 0.22; waNode.hx = 0.22;
+    waNode.y = _topY; waNode.hy = _topY;
+    waNode.color = '#25d366';
+    waNode.glow  = 'rgba(37,211,102,.3)';
+  }
+
+  // Instagram — arriba-centro con gradiente de marca
   if (!nodes.some(n => n.id === igId)) {
-    const waNode = nodes.find(n => n.id === waId);
     nodes.push({
-      id: igId,
-      kind: 'external',
-      // Posicionar simétricamente al lado de WhatsApp
-      x: waNode ? waNode.x + 0.18 : 0.12,
-      y: waNode ? waNode.y : 0.5,
-      hx: waNode ? waNode.x + 0.18 : 0.12,
-      hy: waNode ? waNode.y : 0.5,
-      r: waNode ? waNode.r : 12,
-      color: waNode ? waNode.color : '#60a5fa',
-      glow: 'rgba(96,165,250,.25)',
+      id: igId, kind: 'external',
+      x: 0.50, y: _topY, hx: 0.50, hy: _topY,
+      r: _waR,
+      color: '#e1306c',
+      glow: 'rgba(225,48,108,.3)',
+      gradient: [[0,'#fcb045'],[0.35,'#fd1d1d'],[0.7,'#c13584'],[1,'#833ab4']],
       label: PUBLIC_VISUAL_NODE_META.instagram.label,
-      desc: PUBLIC_VISUAL_NODE_META.instagram.desc,
+      desc:  PUBLIC_VISUAL_NODE_META.instagram.desc,
       detail: PUBLIC_VISUAL_NODE_META.instagram.detail,
     });
     if (orchId) edges.push({ from: igId, to: orchId, dash: false });
   }
 
-  // Inyectar nodo Facebook debajo de Instagram si no está en el schema de Python
+  // Facebook — arriba-derecha con color de marca
   if (!nodes.some(n => n.id === fbId)) {
-    const igNode = nodes.find(n => n.id === igId);
-    const waNode = nodes.find(n => n.id === waId);
     nodes.push({
-      id: fbId,
-      kind: 'external',
-      // Posicionar debajo de Instagram, misma columna
-      x: igNode ? igNode.x : (waNode ? waNode.x + 0.18 : 0.12),
-      y: igNode ? igNode.y + 0.14 : 0.64,
-      hx: igNode ? igNode.x : (waNode ? waNode.x + 0.18 : 0.12),
-      hy: igNode ? igNode.y + 0.14 : 0.64,
-      r: igNode ? igNode.r : 12,
-      color: '#1d4ed8',
-      glow: 'rgba(29,78,216,.25)',
+      id: fbId, kind: 'external',
+      x: 0.78, y: _topY, hx: 0.78, hy: _topY,
+      r: _waR,
+      color: '#1877f2',
+      glow: 'rgba(24,119,242,.3)',
       label: PUBLIC_VISUAL_NODE_META.facebook.label,
-      desc: PUBLIC_VISUAL_NODE_META.facebook.desc,
+      desc:  PUBLIC_VISUAL_NODE_META.facebook.desc,
       detail: PUBLIC_VISUAL_NODE_META.facebook.detail,
     });
     if (orchId) edges.push({ from: fbId, to: orchId, dash: false });
@@ -3761,9 +3762,14 @@ const SPEED_MULT=2;
 
 const PARTICLE_BASE_DURATION=2200;
 
+// Colores de canal — usados en flujos de entrada/salida y respuestas
+const _WA_C='#25d366';   // WhatsApp green
+const _IG_C='#c13584';   // Instagram purple-pink
+const _FB_C='#1877f2';   // Facebook blue
+
 const STAGE_FLOWS={
 
-  inbound_received:[['n1','n2','#60a5fa']],
+  inbound_received:[['n1','n2',_WA_C]],
 
   fallback_numero:[['n2','n2','#f59e0b']],
 
@@ -3779,13 +3785,13 @@ const STAGE_FLOWS={
 
   run_agent_start:[['n2','n3','#a78bfa'],['n2','n4','#fb923c'],['n2','n5','#fb923c']],
 
-  run_agent_done:[['n3','n7','#60a5fa'],['n3','n2','#a78bfa'],['n2','n1','#34d399']],
+  run_agent_done:[['n3','n7','#60a5fa'],['n3','n2','#a78bfa'],['n2','n1',_WA_C]],
 
   run_funnel_done:[['n4','n7','#60a5fa'],['n4','n2','#fb923c']],
 
   run_contact_update_done:[['n5','n7','#60a5fa'],['n5','n6','#f472b6']],
 
-  slash_command_done:[['n2','n1','#34d399']],
+  slash_command_done:[['n2','n1',_WA_C]],
 
   audio_processing:[['n2','n8','#f472b6'],['n2','n9','#60a5fa']],
 
@@ -3793,23 +3799,23 @@ const STAGE_FLOWS={
 
   document_processing:[['n2','n8','#f472b6'],['n2','n9','#60a5fa']],
 
-  call_fastapi_done:[['n2','n1','#34d399']],
+  call_fastapi_done:[['n2','n1',_WA_C]],
 
-  kapso_send_done:[['n2','n1','#34d399']],
+  kapso_send_done:[['n2','n1',_WA_C]],
 
-  kapso_send_reaction_with_text:[['n2','n1','#34d399']],
+  kapso_send_reaction_with_text:[['n2','n1',_WA_C]],
 
   http_error:[['n2','n1','#ef4444']],
 
   exception:[['n2','n1','#ef4444']],
 
-  message_received:[['n20','n2','#60a5fa']],
+  message_received:[['n20','n2',_IG_C]],
 
-  message_sent:[['n2','n20','#34d399']],
+  message_sent:[['n2','n20',_IG_C]],
 
-  fb_message_received:[['n30','n2','#60a5fa']],
+  fb_message_received:[['n30','n2',_FB_C]],
 
-  fb_message_sent:[['n2','n30','#34d399']],
+  fb_message_sent:[['n2','n30',_FB_C]],
 
 };
 
@@ -4182,9 +4188,14 @@ function draw(){
 
     }
 
-    const cg=X.createRadialGradient(p.x-R*.2,p.y-R*.25,R*.1,p.x,p.y,R);
-
-    cg.addColorStop(0,'rgba(255,255,255,.25)');cg.addColorStop(.4,n.color);cg.addColorStop(1,n.color+'99');
+    let cg;
+    if(n.gradient&&Array.isArray(n.gradient)){
+      cg=X.createLinearGradient(p.x-R,p.y+R,p.x+R,p.y-R);
+      n.gradient.forEach(function(s){cg.addColorStop(s[0],s[1]);});
+    }else{
+      cg=X.createRadialGradient(p.x-R*.2,p.y-R*.25,R*.1,p.x,p.y,R);
+      cg.addColorStop(0,'rgba(255,255,255,.25)');cg.addColorStop(.4,n.color);cg.addColorStop(1,n.color+'99');
+    }
 
     X.fillStyle=cg;
 
