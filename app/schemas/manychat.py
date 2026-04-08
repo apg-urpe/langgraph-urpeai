@@ -49,6 +49,21 @@ class _ManyChatContent(BaseModel):
     quick_replies: list = []
 
 
+class ManyChatSendManualRequest(BaseModel):
+    """Envía un mensaje manual a un suscriptor de ManyChat (sin pasar por el agente IA)."""
+    subscriber_id: str
+    mensaje: str
+    canal: str = "instagram"
+    telefono_receptor: str  # necesario para recuperar el token de ManyChat de la conversación
+
+
+class ManyChatSendManualResponse(BaseModel):
+    ok: bool
+    subscriber_id: str
+    guardado_en_db: bool = False
+    error: str | None = None
+
+
 class ManyChatInboundResponse(BaseModel):
     version: str = "v2"
     content: _ManyChatContent

@@ -30,7 +30,12 @@ from app.db import queries as db
 from app.schemas.chat import ChatRequest
 from app.schemas.contact_update import ContactUpdateAgentRequest
 from app.schemas.funnel import FunnelAgentRequest
-from app.schemas.manychat import ManyChatInboundRequest, ManyChatInboundResponse
+from app.schemas.manychat import (
+    ManyChatInboundRequest,
+    ManyChatInboundResponse,
+    ManyChatSendManualRequest,
+    ManyChatSendManualResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +45,7 @@ _MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
 STUCK_MESSAGE_MINUTES = 5
+BUFFER_SECONDS = 5.0  # ventana de agrupación de mensajes para canales no-Kapso
 
 FUNNEL_SKIP_TEXTS = {
     "hola", "hola!", "hi", "hello",
@@ -73,6 +79,33 @@ class _InboundProxy:
     has_media: bool = False
 
 
+# ── Buffer de mensajes (agrupa mensajes rápidos antes de llamar al agente) ────
+
+@dataclass
+class _McBufferEntry:
+    mensajes: list[str]
+    request: ManyChatInboundRequest   # primera request — contiene metadata del canal
+    x_api_key: str
+    timer_task: asyncio.Task | None = None
+
+_mc_buffer: dict[str, _McBufferEntry] = {}
+
+
+async def _flush_buffer(buffer_key: str) -> None:
+    """Espera BUFFER_SECONDS y procesa todos los mensajes acumulados como uno solo."""
+    await asyncio.sleep(BUFFER_SECONDS)
+    entry = _mc_buffer.pop(buffer_key, None)
+    if not entry:
+        return
+    mensaje_combinado = "\n".join(entry.mensajes)
+    logger.info(
+        "Buffer flush — key=%s mensajes=%d combinado=%r",
+        buffer_key, len(entry.mensajes), mensaje_combinado[:120],
+    )
+    try:
+        await _procesar_manychat_core(entry.request, mensaje_combinado, entry.x_api_key)
+    except Exception as exc:
+        logger.exception("Buffer flush error key=%s: %s", buffer_key, exc)
 
 
 # ── Envío de respuesta via ManyChat API ──────────────────────────────────────
@@ -82,8 +115,13 @@ async def _send_manychat_reply(
     subscriber_id: str,
     text: str,
     canal: str,
-) -> None:
-    """Envía el texto de respuesta al suscriptor via ManyChat API."""
+    raise_on_error: bool = False,
+) -> tuple[bool, str | None]:
+    """Envía el texto de respuesta al suscriptor via ManyChat API.
+
+    Returns:
+        (ok, error_msg) — ok=True si ManyChat devolvió 200.
+    """
     content_type = "instagram" if canal.lower() == "instagram" else "facebook"
     payload = {
         "subscriber_id": subscriber_id,
@@ -107,10 +145,110 @@ async def _send_manychat_reply(
             )
         if resp.status_code == 200:
             logger.info("ManyChat sendContent OK — subscriber=%s", subscriber_id)
+            return True, None
         else:
+            msg = f"ManyChat error {resp.status_code}: {resp.text[:300]}"
             logger.error("ManyChat sendContent error %s: %s", resp.status_code, resp.text)
+            if raise_on_error:
+                raise HTTPException(status_code=502, detail=msg)
+            return False, msg
+    except HTTPException:
+        raise
     except Exception as exc:
+        msg = f"{type(exc).__name__}: {exc}"
         logger.error("ManyChat sendContent excepción: %s", exc)
+        if raise_on_error:
+            raise HTTPException(status_code=502, detail=msg)
+        return False, msg
+
+
+# ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
+
+@router.post("/send", response_model=ManyChatSendManualResponse)
+async def manychat_send_manual(req: ManyChatSendManualRequest):
+    """Envía un mensaje directo a un suscriptor de ManyChat sin pasar por el agente IA.
+
+    El token de ManyChat se obtiene automáticamente de la conversación activa
+    (guardado en los mensajes entrantes). No requiere header de autenticación adicional.
+    """
+    guardado_en_db = False
+    manychat_api_key: str | None = None
+    conversacion_id_db: int | None = None
+    empresa_id_db: int | None = None
+
+    # ── Buscar token y conversación desde la BD ───────────────────────────────
+    if req.telefono_receptor:
+        try:
+            numero = await db.get_numero_por_telefono(req.telefono_receptor)
+            if not numero:
+                raise HTTPException(status_code=404, detail=f"Número {req.telefono_receptor} no configurado")
+
+            empresa_id_db = int(numero["empresa_id"])
+            numero_id     = int(numero["id"])
+
+            contacto = await db.get_contacto_por_subscriber_id(req.subscriber_id, empresa_id_db)
+            contacto_id = int(contacto["id"]) if contacto else None
+
+            if contacto_id:
+                conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
+                if conversacion:
+                    conversacion_id_db = int(conversacion["id"])
+                    manychat_api_key = await db.get_manychat_api_key_de_conversacion(conversacion_id_db)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("manychat_send_manual: error buscando token en DB: %s", exc)
+
+    if not manychat_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró el token de ManyChat en la conversación. "
+                   "Asegúrate de que el contacto haya enviado al menos un mensaje primero.",
+        )
+
+    # ── Enviar mensaje via ManyChat API ───────────────────────────────────────
+    ok, error_msg = await _send_manychat_reply(
+        api_key=manychat_api_key,
+        subscriber_id=req.subscriber_id,
+        text=req.mensaje,
+        canal=req.canal,
+    )
+    if not ok:
+        return ManyChatSendManualResponse(
+            ok=False,
+            subscriber_id=req.subscriber_id,
+            error=error_msg,
+        )
+
+    # ── Guardar en DB ─────────────────────────────────────────────────────────
+    if conversacion_id_db:
+        try:
+            await db.insertar_mensaje(
+                conversacion_id=conversacion_id_db,
+                contenido=req.mensaje,
+                remitente="agente",
+                tipo="texto",
+                status="enviado",
+                metadata={
+                    "canal": req.canal,
+                    "subscriber_id": req.subscriber_id,
+                    "envio_manual": True,
+                },
+                empresa_id=empresa_id_db,
+            )
+            guardado_en_db = True
+            logger.info(
+                "manychat_send_manual guardado — subscriber=%s conversacion=%s",
+                req.subscriber_id, conversacion_id_db,
+            )
+        except Exception as exc:
+            logger.warning("manychat_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
+
+    return ManyChatSendManualResponse(
+        ok=True,
+        subscriber_id=req.subscriber_id,
+        guardado_en_db=guardado_en_db,
+    )
 
 
 # ── Tareas background (no bloquean la respuesta a ManyChat) ──────────────────
@@ -162,12 +300,48 @@ async def manychat_inbound(
     request: ManyChatInboundRequest,
     x_api_key: str = Header(alias="X-Api-Key"),
 ):
+    subscriber_id = request.contacto_identificador.subscriber_id
+    slash_command = _extract_slash_command(request.mensaje)
+
+    # Slash commands → proceso inmediato, sin buffer
+    if slash_command:
+        asyncio.create_task(_procesar_manychat_core(request, request.mensaje, x_api_key))
+        return ManyChatInboundResponse.empty()
+
+    # Mensajes normales → buffer de 5 segundos
+    buffer_key = f"{subscriber_id}:{request.telefono_receptor}"
+
+    if buffer_key in _mc_buffer:
+        entry = _mc_buffer[buffer_key]
+        entry.mensajes.append(request.mensaje)
+        if entry.timer_task and not entry.timer_task.done():
+            entry.timer_task.cancel()
+        logger.debug("Buffer: mensaje añadido key=%s total=%d", buffer_key, len(entry.mensajes))
+    else:
+        _mc_buffer[buffer_key] = _McBufferEntry(
+            mensajes=[request.mensaje],
+            request=request,
+            x_api_key=x_api_key,
+        )
+        logger.debug("Buffer: nueva entrada key=%s", buffer_key)
+
+    _mc_buffer[buffer_key].timer_task = asyncio.create_task(_flush_buffer(buffer_key))
+
+    return ManyChatInboundResponse.empty()
+
+
+# ── Lógica de procesamiento principal (usada por buffer y slash commands) ─────
+
+async def _procesar_manychat_core(
+    request: ManyChatInboundRequest,
+    mensaje: str,
+    x_api_key: str,
+) -> None:
     started_at = time.time()
     settings = get_settings()
 
     subscriber_id = request.contacto_identificador.subscriber_id
-
-    slash_command = _extract_slash_command(request.mensaje)
+    slash_command = _extract_slash_command(mensaje)
 
     try:
         # ── Lookup por telefono_receptor en wp_numeros ────────────────────────
@@ -227,7 +401,7 @@ async def manychat_inbound(
         memory_session_id  = f"mc_{subscriber_id}"
 
         # ═════════════════════════════════════════════════════════════════════
-        # Slash commands — ejecutar y retornar sin correr el agente
+        # Slash commands
         # ═════════════════════════════════════════════════════════════════════
         if slash_command:
             add_kapso_debug_event(
@@ -262,13 +436,13 @@ async def manychat_inbound(
 
             await _send_manychat_reply(api_key=x_api_key, subscriber_id=subscriber_id,
                                        text=reply_text, canal=request.canal)
-            return ManyChatInboundResponse.empty()
+            return
 
         # ── Guardar mensaje entrante ──────────────────────────────────────────
         if conversacion_db_id:
             await db.insertar_mensaje(
                 conversacion_id=conversacion_db_id,
-                contenido=request.mensaje,
+                contenido=mensaje,
                 remitente="usuario",
                 tipo="texto",
                 status="procesando",
@@ -288,7 +462,7 @@ async def manychat_inbound(
                 "subscriber_id": subscriber_id,
                 "contacto_id": contacto_id,
                 "empresa_id": empresa_id,
-                "message": request.mensaje[:200],
+                "message": mensaje[:200],
                 "canal": request.canal,
                 "nuevo_contacto": contacto_creado,
             },
@@ -336,7 +510,7 @@ async def manychat_inbound(
         )
 
         # ── Funnel + Contact Update en background ─────────────────────────────
-        if contacto_id and _should_run_funnel_agent(request.mensaje):
+        if contacto_id and _should_run_funnel_agent(mensaje):
             asyncio.create_task(_bg_funnel(
                 contacto_id=contacto_id, empresa_id=empresa_id, agente_id=agente_id,
                 conversacion_id=conversacion_db_id, memory_session_id=memory_session_id, model=model,
@@ -351,7 +525,7 @@ async def manychat_inbound(
         result = await run_agent(
             ChatRequest(
                 system_prompt=system_prompt,
-                message=request.mensaje,
+                message=mensaje,
                 model=model,
                 mcp_servers=[],
                 conversation_id=conversation_id,
@@ -404,7 +578,6 @@ async def manychat_inbound(
 
         logger.info("ManyChat inbound OK — empresa=%s subscriber=%s elapsed=%.2fs",
                     empresa_id, subscriber_id, elapsed)
-        return ManyChatInboundResponse.empty()
 
     except HTTPException:
         raise

@@ -6057,6 +6057,29 @@ app.post('/api/v1/manychat/inbound', async (req, res) => {
 
 });
 
+app.post('/api/v1/manychat/send', async (req, res) => {
+
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/manychat/send', `${baseUrl}/`).toString();
+
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': req.headers['x-api-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'manychat_send_proxy_error', message: err.message });
+  }
+
+});
+
 app.get('/debug/kapso', async (_req, res) => {
 
   if (!requireDebugAccess(_req, res)) return;
