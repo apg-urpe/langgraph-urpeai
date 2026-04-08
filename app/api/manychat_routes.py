@@ -421,7 +421,10 @@ async def manychat_inbound(
             severity="error",
             fallback=f"Error procesando mensaje ManyChat — subscriber_id={subscriber_id}",
         )
-        raise
+        raise HTTPException(
+            status_code=500,
+            detail=f"{type(exc).__name__}: {exc}",
+        )
 
 
 # ── Retry stuck ManyChat messages ────────────────────────────────────────────
