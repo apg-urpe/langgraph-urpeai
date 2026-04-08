@@ -36,7 +36,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
 
-_MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
+_MANYCHAT_SEND_URL  = "https://api.manychat.com/fb/sending/sendContent"
+_GRAPH_API_MESSAGES = "https://graph.facebook.com/v25.0/me/messages"
 FUNNEL_TIMEOUT_SECONDS = 25
 CONTACT_UPDATE_TIMEOUT_SECONDS = 20
 STUCK_MESSAGE_MINUTES = 5
@@ -81,6 +82,7 @@ class _McBufferEntry:
     mensajes: list[str]
     request: ManyChatInboundRequest   # primera request — contiene metadata del canal
     x_api_key: str
+    page_token: str | None = None     # fb_page_token del número para Graph API
     timer_task: asyncio.Task | None = None
 
 _mc_buffer: dict[str, _McBufferEntry] = {}
@@ -97,12 +99,53 @@ async def _flush_buffer(buffer_key: str) -> None:
         "Buffer flush — key=%s mensajes=%d combinado=%r",
         buffer_key, len(entry.mensajes), mensaje_combinado[:120],
     )
+    # Mostrar "escribiendo..." justo antes de llamar al agente
+    subscriber_id = entry.request.contacto_identificador.subscriber_id
+    if entry.page_token:
+        await _send_fb_action(subscriber_id, "typing_on", entry.page_token)
     try:
         await _procesar_manychat_core(entry.request, mensaje_combinado, entry.x_api_key)
     except Exception as exc:
         logger.exception("Buffer flush error key=%s: %s", buffer_key, exc)
+    finally:
+        # Asegurar que typing_on se apague aunque haya error
+        if entry.page_token:
+            await _send_fb_action(subscriber_id, "typing_off", entry.page_token)
 
 
+
+
+# ── Sender actions via Facebook/Instagram Graph API ──────────────────────────
+
+async def _send_fb_action(psid: str, action: str, page_token: str) -> None:
+    """Envía mark_seen / typing_on / typing_off al usuario via Graph API.
+
+    Requiere que wp_numeros.fb_page_token esté configurado.
+    Si falla o no hay token, lo ignora silenciosamente para no bloquear el flujo.
+
+    Args:
+        psid:        PSID (Facebook) o IGSID (Instagram) del contacto.
+        action:      'mark_seen' | 'typing_on' | 'typing_off'
+        page_token:  Page Access Token del número/página.
+    """
+    if not page_token or not psid:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.post(
+                _GRAPH_API_MESSAGES,
+                params={"access_token": page_token},
+                json={"recipient": {"id": psid}, "sender_action": action},
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "Graph API sender_action=%s → %s: %s",
+                action, resp.status_code, resp.text[:200],
+            )
+        else:
+            logger.debug("Graph API sender_action=%s OK — psid=%s", action, psid)
+    except Exception as exc:
+        logger.warning("Graph API sender_action=%s excepción: %s", action, exc)
 
 
 # ── Envío de respuesta via ManyChat API ──────────────────────────────────────
@@ -185,6 +228,18 @@ async def _bg_contact_update(
         logger.warning("ManyChat bg_contact_update falló: %s", exc)
 
 
+# ── Helper: obtiene el fb_page_token del número (si está configurado) ─────────
+
+async def _get_page_token(telefono_receptor: str) -> str | None:
+    """Retorna el fb_page_token del número, o None si no está configurado."""
+    try:
+        numero = await db.get_numero_por_telefono(telefono_receptor)
+        return (numero or {}).get("fb_page_token") or None
+    except Exception as exc:
+        logger.warning("_get_page_token error: %s", exc)
+        return None
+
+
 # ── Endpoint principal ────────────────────────────────────────────────────────
 
 @router.post("/inbound", response_model=ManyChatInboundResponse)
@@ -210,12 +265,17 @@ async def manychat_inbound(
             entry.timer_task.cancel()
         logger.debug("Buffer: mensaje añadido key=%s total=%d", buffer_key, len(entry.mensajes))
     else:
+        # Primera vez: buscar page_token y marcar como visto inmediatamente
+        page_token = await _get_page_token(request.telefono_receptor)
+        if page_token:
+            asyncio.create_task(_send_fb_action(subscriber_id, "mark_seen", page_token))
         _mc_buffer[buffer_key] = _McBufferEntry(
             mensajes=[request.mensaje],
             request=request,
             x_api_key=x_api_key,
+            page_token=page_token,
         )
-        logger.debug("Buffer: nueva entrada key=%s", buffer_key)
+        logger.debug("Buffer: nueva entrada key=%s page_token=%s", buffer_key, bool(page_token))
 
     _mc_buffer[buffer_key].timer_task = asyncio.create_task(_flush_buffer(buffer_key))
 
