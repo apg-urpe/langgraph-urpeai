@@ -815,18 +815,6 @@ async def manychat_debug_events(limit: int = 50):
     return {"events": combined}
 
 
-@router.get("/debug/instagram/events")
-async def manychat_instagram_debug_events(limit: int = 50):
-    """Eventos del canal Instagram solamente."""
-    return {"events": get_channel_debug_events("instagram", limit=limit)}
-
-
-@router.get("/debug/facebook/events")
-async def manychat_facebook_debug_events(limit: int = 50):
-    """Eventos del canal Facebook solamente."""
-    return {"events": get_channel_debug_events("facebook", limit=limit)}
-
-
 @router.get("/debug/config")
 async def manychat_debug_config():
     settings = get_settings()
@@ -838,9 +826,5 @@ async def manychat_debug_config():
         "agentes": ["conversational", "funnel (bg)", "contact_update (bg)"],
         "slash_commands": ["/borrar", "/borrar2"],
         "default_model": settings.DEFAULT_MODEL,
-        "debug_endpoints": {
-            "todos": "/api/v1/manychat/debug/events",
-            "instagram": "/api/v1/manychat/debug/instagram/events",
-            "facebook": "/api/v1/manychat/debug/facebook/events",
-        },
+        "debug_events": "/api/v1/manychat/debug/events",
     }

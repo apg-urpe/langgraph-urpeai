@@ -6677,7 +6677,7 @@ function buildManyChatInteractions(events = []) {
     const subscriberId = payload.subscriber_id;
     if (!subscriberId) continue;
 
-    if (event.stage === 'message_received') {
+    if (event.stage === 'message_received' || event.stage === 'fb_message_received') {
       const interaction = {
         id: `${subscriberId}_${event.timestamp}`,
         message_id: `${subscriberId}_${event.timestamp}`,
@@ -6687,7 +6687,7 @@ function buildManyChatInteractions(events = []) {
         empresa_id: payload.empresa_id,
         message_text: payload.message || '',
         message_type: 'text',
-        canal: payload.canal || 'instagram',
+        canal: payload.canal || (event.stage === 'fb_message_received' ? 'facebook' : 'instagram'),
         status: 'processing',
         agent_runs: [],
         tools_used: [],
@@ -6710,7 +6710,7 @@ function buildManyChatInteractions(events = []) {
       pendingBySubscriber.set(subscriberId, interaction);
       interactions.push(interaction);
 
-    } else if (event.stage === 'message_sent') {
+    } else if (event.stage === 'message_sent' || event.stage === 'fb_message_sent') {
       const pending = pendingBySubscriber.get(subscriberId);
       if (pending) {
         pending.agent_name = payload.agent_name;
@@ -7007,7 +7007,7 @@ async function collectCanalesDebugPayload() {
   const waInteractions = (waResult.status === 'fulfilled' ? (waResult.value.interactions || []) : [])
     .map(i => ({ ...i, _canal: 'whatsapp' }));
   const mcInteractions = (mcResult.status === 'fulfilled' ? (mcResult.value.interactions || []) : [])
-    .map(i => ({ ...i, _canal: 'manychat' }));
+    .map(i => ({ ...i, _canal: i.canal || 'instagram' }));
   const all = [...waInteractions, ...mcInteractions]
     .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
   return { interactions: all, wa_count: waInteractions.length, mc_count: mcInteractions.length };
@@ -7027,6 +7027,8 @@ function renderCanalesHtml(data, debugToken = '') {
         const canal = item._canal || 'whatsapp';
         const canalBadge = canal === 'whatsapp'
           ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+          : canal === 'facebook'
+          ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
           : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
         const totalMs = item.duration_ms != null ? item.duration_ms : (item.timing?.total_ms != null ? Math.round(item.timing.total_ms) : null);
         const tcls = totalMs == null ? '' : totalMs < 20000 ? 'color:#34d399' : totalMs < 30000 ? 'color:#f97316' : 'color:#f87171';
@@ -7144,6 +7146,8 @@ function renderCanalesHtml(data, debugToken = '') {
     var canal = item._canal||'whatsapp';
     var badge = canal==='whatsapp'
       ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+      : canal==='facebook'
+      ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
       : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
     var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
     return '<tr>'
