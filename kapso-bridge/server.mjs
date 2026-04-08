@@ -946,7 +946,7 @@ function sanitizePublicConstellationGraph(graphData) {
   const waId   = PUBLIC_VISUAL_NODE_IDS.whatsapp;
   const orchId = PUBLIC_VISUAL_NODE_IDS.orch;
 
-  const _waR = 12;
+  const _waR = 20;
   const _topY = 0.11;
 
   // WhatsApp — reposicionar arriba-centro con color de marca
@@ -3946,11 +3946,21 @@ function triggerFlows(stage){
 
 }
 
+// Persistir eventos ya vistos para no re-ejecutar al recargar la página
+const _SEEN_KEY='monbrain_seen_v2';
+(function(){try{const r=localStorage.getItem(_SEEN_KEY);if(r)JSON.parse(r).forEach(function(k){seenEventKeys.add(k);});}catch(e){}})();
+
+function _persistSeen(){
+  try{localStorage.setItem(_SEEN_KEY,JSON.stringify(Array.from(seenEventKeys).slice(-400)));}catch(e){}
+}
+
 function processEvents(events){
 
   if(!Array.isArray(events)||!events.length)return;
 
   const fresh=[];
+
+  let anyNew=false;
 
   for(const e of events){
 
@@ -3962,9 +3972,13 @@ function processEvents(events){
 
     seenEventKeys.add(key);
 
+    anyNew=true;
+
     if(STAGE_FLOWS[e.stage])fresh.push(e);
 
   }
+
+  if(anyNew)_persistSeen();
 
   fresh.sort(function(a,b){return new Date(a.timestamp)-new Date(b.timestamp);});
 
@@ -4357,12 +4371,6 @@ if(_injected&&_injected.nodes){
   NODES.forEach(function(n){n.vx=0;n.vy=0;n.hx=n.hx??n.x;n.hy=n.hy??n.y;});
 
   if(LOADER)LOADER.style.display='none';
-
-  setTimeout(function(){triggerFlows('inbound_received');},800);
-
-  setTimeout(function(){triggerFlows('run_agent_start');},1600);
-
-  setTimeout(function(){triggerFlows('run_agent_done');},2600);
 
 }else if(LOADER){
 
