@@ -6234,6 +6234,9 @@ app.get('/debug/kapso/stream', async (req, res) => {
     'Access-Control-Allow-Origin': '*',
   });
   res.flushHeaders();
+  // Send an immediate comment to flush Railway's reverse-proxy buffer
+  // Without this, the proxy holds the response until it sees the first data chunk
+  res.write(': connected\n\n');
 
   const baseUrl = getFastApiBaseUrl();
   let aborted = false;
@@ -7329,17 +7332,24 @@ function renderCanalesHtml(data, debugToken = '') {
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
   poll();
   connectSSE();
-  // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
-  setTimeout(function(){
-    var rs = sseSource ? sseSource.readyState : 'null';
-    dbg('3s check — readyState='+rs+' token='+String(DEBUG_TOKEN).slice(0,8)+'...');
-    if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
-  }, 3000);
-  // Second check at 10s
-  setTimeout(function(){
-    var rs = sseSource ? sseSource.readyState : 'null';
-    dbg('10s check — readyState='+rs);
-  }, 10000);
+
+  // Poll readyState every second — reliable regardless of onopen/onerror firing
+  setInterval(function(){
+    if(!autoRefresh) return;
+    var rs = sseSource ? sseSource.readyState : -1;
+    var el = document.getElementById('sse-status');
+    if(!el) return;
+    if(rs === 1){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else if(rs === 0){ el.textContent='🟡 Conectando...'; el.style.color='#fbbf24'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
+    // Update debug log with readyState
+    var pre = document.getElementById('sse-debug-log');
+    if(pre && !pre._last || pre && pre._last !== rs){
+      pre._last = rs;
+      var line = new Date().toLocaleTimeString()+' readyState='+rs+' ('+['CONNECTING','OPEN','CLOSED'][rs]+')\n';
+      pre.textContent = line + (pre.textContent||'').slice(0,400);
+    }
+  }, 1000);
 })();
 </script>
 </body></html>`;
