@@ -762,6 +762,8 @@ const PUBLIC_VISUAL_NODE_IDS = {
 
   t_spam: 'n19',
 
+  instagram: 'n20',
+
 };
 
 
@@ -808,6 +810,11 @@ const PUBLIC_VISUAL_ALLOWED_STAGES = new Set([
 
   'exception',
 
+  // ManyChat / Instagram
+  'message_received',
+
+  'message_sent',
+
 ]);
 
 
@@ -851,6 +858,8 @@ const PUBLIC_VISUAL_NODE_META = {
   t_update: { label: 'Actualización', desc: 'Datos de contacto', detail: 'Refresca información del contacto sin exponer campos internos.', kind: 'tool' },
 
   t_spam: { label: 'Control spam', desc: 'Protección de canal', detail: 'Aplica controles de seguridad y supresión del canal.', kind: 'tool' },
+
+  instagram: { label: 'Instagram', desc: 'Canal ManyChat / Instagram', detail: 'Canal de mensajería Instagram gestionado via ManyChat. Buffer de mensajes antes de llamar al agente.', kind: 'external' },
 
 };
 
@@ -922,6 +931,33 @@ function sanitizePublicConstellationGraph(graphData) {
 
 
 
+  // Inyectar nodo Instagram junto a WhatsApp si no está en el schema de Python
+  const igId = PUBLIC_VISUAL_NODE_IDS.instagram;
+  const waId = PUBLIC_VISUAL_NODE_IDS.whatsapp;
+  const orchId = PUBLIC_VISUAL_NODE_IDS.orch;
+
+  if (!nodes.some(n => n.id === igId)) {
+    const waNode = nodes.find(n => n.id === waId);
+    nodes.push({
+      id: igId,
+      kind: 'external',
+      // Posicionar simétricamente al lado de WhatsApp
+      x: waNode ? waNode.x + 0.18 : 0.12,
+      y: waNode ? waNode.y : 0.5,
+      hx: waNode ? waNode.x + 0.18 : 0.12,
+      hy: waNode ? waNode.y : 0.5,
+      r: waNode ? waNode.r : 12,
+      color: waNode ? waNode.color : '#60a5fa',
+      glow: 'rgba(96,165,250,.25)',
+      label: PUBLIC_VISUAL_NODE_META.instagram.label,
+      desc: PUBLIC_VISUAL_NODE_META.instagram.desc,
+      detail: PUBLIC_VISUAL_NODE_META.instagram.detail,
+    });
+    if (orchId) edges.push({ from: igId, to: orchId, dash: false });
+  }
+
+
+
   return { nodes, edges };
 
 }
@@ -946,6 +982,8 @@ function sanitizePublicVisualEvent(event) {
 
   if (!event || !event.timestamp || !PUBLIC_VISUAL_ALLOWED_STAGES.has(event.stage)) return null;
 
+  const channel = event.channel || (event.payload && event.payload.canal) || 'whatsapp';
+
   return {
 
     timestamp: event.timestamp,
@@ -953,6 +991,8 @@ function sanitizePublicVisualEvent(event) {
     source: event.source === 'bridge' ? 'bridge' : 'fastapi',
 
     stage: event.stage,
+
+    channel,
 
   };
 
@@ -987,6 +1027,32 @@ async function collectKapsoPublicVisualPayload(empresaId = '') {
     .slice(-100);
 
 
+
+  return { events };
+
+}
+
+
+
+async function collectUnifiedPublicVisualPayload(empresaId = '') {
+
+  const [kapsoResult, manychatResult] = await Promise.allSettled([
+    fetchFastApiDebugJson('/api/v1/kapso/debug/events?limit=100'),
+    fetchFastApiDebugJson('/api/v1/manychat/debug/events?limit=100'),
+  ]);
+
+  const kapsoEvents    = kapsoResult.status    === 'fulfilled' ? (kapsoResult.value.events    || []) : [];
+  const manychatEvents = manychatResult.status === 'fulfilled' ? (manychatResult.value.events || []) : [];
+
+  // Etiquetar eventos de ManyChat con su canal
+  const taggedManychat = manychatEvents.map(e => ({ ...e, channel: 'instagram' }));
+
+  const events = [...bridgeDebugEvents, ...kapsoEvents, ...taggedManychat]
+    .filter(event => matchesPublicVisualEmpresa(event, empresaId))
+    .map(sanitizePublicVisualEvent)
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+    .slice(-150);
 
   return { events };
 
@@ -6184,7 +6250,9 @@ app.get('/debug/kapso/visual', async (req, res) => {
 
 
 
-app.get('/public/kapso/visual', async (req, res) => {
+// ── Unified public visual (todos los canales) ─────────────────────────────────
+
+app.get('/public/visual', async (req, res) => {
 
   res.set('Cache-Control', 'no-store, max-age=0');
 
@@ -6204,13 +6272,11 @@ app.get('/public/kapso/visual', async (req, res) => {
 
   } catch (err) {
 
-    console.warn('[public visual] Could not fetch graph schema:', err.message);
+    console.warn('[public/visual] Could not fetch graph schema:', err.message);
 
   }
 
-
-
-  const dataPathUrl = new URL('/public/kapso/visual/data', 'http://localhost');
+  const dataPathUrl = new URL('/public/visual/data', 'http://localhost');
 
   if (req.query.empresa_id) dataPathUrl.searchParams.set('empresa_id', String(req.query.empresa_id));
 
@@ -6220,11 +6286,43 @@ app.get('/public/kapso/visual', async (req, res) => {
 
 
 
+app.get('/public/visual/data', async (req, res) => {
+
+  try {
+
+    const payload = await collectUnifiedPublicVisualPayload(req.query.empresa_id || '');
+
+    res.set('Cache-Control', 'no-store, max-age=0');
+
+    res.status(200).json(payload);
+
+  } catch (error) {
+
+    res.status(200).json({ events: [] });
+
+  }
+
+});
+
+
+
+// ── Legacy redirect — mantener compatibilidad con URLs existentes ──────────────
+
+app.get('/public/kapso/visual', (req, res) => {
+
+  const qs = req.query.empresa_id ? `?empresa_id=${encodeURIComponent(req.query.empresa_id)}` : '';
+
+  res.redirect(301, `/public/visual${qs}`);
+
+});
+
+
+
 app.get('/public/kapso/visual/data', async (req, res) => {
 
   try {
 
-    const payload = await collectKapsoPublicVisualPayload(req.query.empresa_id || '');
+    const payload = await collectUnifiedPublicVisualPayload(req.query.empresa_id || '');
 
     res.set('Cache-Control', 'no-store, max-age=0');
 
