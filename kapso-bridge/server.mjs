@@ -6718,7 +6718,8 @@ function buildManyChatInteractions(events = []) {
         pending.model_used = payload.model_used;
         pending.response_preview = payload.reply_preview;
         pending.finished_at = event.timestamp;
-        pending.status = 'ok';
+        pending.status = payload.manychat_send_ok === false ? 'send_error' : 'ok';
+        pending.send_error = payload.manychat_send_error || null;
         if (payload.elapsed_s != null) {
           pending.duration_ms = Math.round(payload.elapsed_s * 1000);
           pending.timing = { total_ms: pending.duration_ms };
@@ -6805,8 +6806,10 @@ function renderManyChatHtml(data, debugToken = '') {
         <div style="margin-bottom:8px"><strong>Subscriber ID:</strong> ${escapeHtml(item.from_phone || '—')}</div>
         <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(item.canal || '—')}</div>
         <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
-        <div style="margin:12px 0 6px"><strong>Error</strong></div>
+        <div style="margin:12px 0 6px"><strong>Error agente</strong></div>
         <pre>${escapeHtml(item.error || '—')}</pre>
+        <div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div>
+        <pre style="${item.send_error ? 'color:#f87171' : ''}">${escapeHtml(item.send_error || '—')}</pre>
         <div style="margin-bottom:8px"><strong>Mensaje:</strong></div>
         <pre>${escapeHtml(item.message_text || '—')}</pre>
         <div style="margin:12px 0 6px"><strong>Respuesta</strong></div>
@@ -6913,7 +6916,8 @@ function renderManyChatHtml(data, debugToken = '') {
       +'<div style="margin-bottom:8px"><strong>Subscriber ID:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(item.canal||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
-      +'<div style="margin:12px 0 6px"><strong>Error</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error agente</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div><pre style="'+(item.send_error?'color:#f87171':'')+'">'+esc(item.send_error||'—')+'</pre>'
       +'<div style="margin-bottom:8px"><strong>Mensaje:</strong></div><pre>'+esc(item.message_text||'—')+'</pre>'
       +'<div style="margin:12px 0 6px"><strong>Respuesta</strong></div><pre>'+esc(item.response_preview||'—')+'</pre>'
       +'</div></details>';
@@ -7174,7 +7178,8 @@ function renderCanalesHtml(data, debugToken = '') {
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(canal)+'</div>'
       +'<div style="margin-bottom:8px"><strong>Identificador:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
-      +'<div style="margin:12px 0 6px"><strong>Error</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error agente</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div><pre style="'+(item.send_error?'color:#f87171':'')+'">'+esc(item.send_error||'—')+'</pre>'
       +'<div style="margin-bottom:8px"><strong>Mensaje:</strong></div><pre>'+esc(item.message_text||'—')+'</pre>'
       +'<div style="margin:12px 0 6px"><strong>Respuesta</strong></div><pre>'+esc(item.response_preview||'—')+'</pre>'
       +'</div></details>';

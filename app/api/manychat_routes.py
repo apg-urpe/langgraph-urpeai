@@ -547,12 +547,14 @@ async def _procesar_manychat_core(
             reply_text = ""
 
         # ── Enviar respuesta + guardar en DB ──────────────────────────────────
+        send_ok: bool = False
+        send_error: str | None = None
         if reply_text:
-            await _send_manychat_reply(
+            send_ok, send_error = await _send_manychat_reply(
                 api_key=x_api_key, subscriber_id=subscriber_id,
                 text=reply_text, canal=request.canal,
             )
-            if conversacion_db_id:
+            if send_ok and conversacion_db_id:
                 await db.insertar_mensaje(
                     conversacion_id=conversacion_db_id,
                     contenido=reply_text,
@@ -579,6 +581,8 @@ async def _procesar_manychat_core(
                 "reply_preview": reply_text[:200] if reply_text else "",
                 "elapsed_s": elapsed,
                 "canal": request.canal,
+                "manychat_send_ok": send_ok,
+                "manychat_send_error": send_error,
             },
             channel=_channel,
         )
