@@ -6234,6 +6234,9 @@ app.get('/debug/kapso/stream', async (req, res) => {
     'Access-Control-Allow-Origin': '*',
   });
   res.flushHeaders();
+  // Send an immediate comment to flush Railway's reverse-proxy buffer
+  // Without this, the proxy holds the response until it sees the first data chunk
+  res.write(': connected\n\n');
 
   const baseUrl = getFastApiBaseUrl();
   let aborted = false;
@@ -6871,6 +6874,13 @@ function renderManyChatHtml(data, debugToken = '') {
   </details>
 
 <script>
+function canalToggleMore(a){
+  var s=a.previousElementSibling;
+  if(!s) return false;
+  s.style.display=s.style.display?'':'inline';
+  a.textContent=s.style.display?'ver menos':'ver más...';
+  return false;
+}
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
   function debugPath(path){
@@ -6898,7 +6908,7 @@ function renderManyChatHtml(data, debugToken = '') {
       +'<td>'+esc(item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.canal||'instagram')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';this.textContent=s.style.display===\'\'?\'ver menos\':\'ver más...\';return false;" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
+      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +'<td>'+esc(item.agent_name||'—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
@@ -7164,7 +7174,19 @@ function renderCanalesHtml(data, debugToken = '') {
 
   <div id="canal-interaction-details">${interactionDetails}</div>
 
+  <details style="margin-top:18px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px">
+    <summary style="cursor:pointer;font-weight:700;color:#94a3b8;font-size:12px">🔧 SSE Debug</summary>
+    <pre id="sse-debug-log" style="color:#94a3b8;font-size:11px;margin-top:8px;max-height:200px;overflow-y:auto"></pre>
+  </details>
+
 <script>
+function canalToggleMore(a){
+  var s=a.previousElementSibling;
+  if(!s) return false;
+  s.style.display=s.style.display?'':'inline';
+  a.textContent=s.style.display?'ver menos':'ver más...';
+  return false;
+}
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
   function debugPath(path){
@@ -7199,7 +7221,7 @@ function renderCanalesHtml(data, debugToken = '') {
       +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';return false;" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
+      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +'<td>'+esc(item.agent_name||'—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
@@ -7259,6 +7281,16 @@ function renderCanalesHtml(data, debugToken = '') {
     }).catch(function(e){ console.warn('canales poll error',e); });
   }
 
+  var sseLog = [];
+  function dbg(msg){
+    var ts = new Date().toLocaleTimeString();
+    sseLog.unshift('['+ts+'] '+msg);
+    if(sseLog.length > 30) sseLog.pop();
+    var el = document.getElementById('sse-debug-log');
+    if(el) el.textContent = sseLog.join('\\n');
+    console.log('[SSE-canales]', msg);
+  }
+
   function setLiveStatus(live){
     var el=document.getElementById('sse-status');
     if(!el) return;
@@ -7266,22 +7298,32 @@ function renderCanalesHtml(data, debugToken = '') {
     else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
   }
   function startFallbackPolling(){
-    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
+    if(!timer && autoRefresh){ timer=setInterval(poll, FALLBACK_POLL_MS); dbg('fallback polling started ('+FALLBACK_POLL_MS+'ms)'); }
   }
   function stopFallbackPolling(){
-    if(timer){ clearInterval(timer); timer=null; }
+    if(timer){ clearInterval(timer); timer=null; dbg('fallback polling stopped'); }
   }
   function connectSSE(){
     if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
-    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
-    sseSource.onopen = function(){ setLiveStatus(true); stopFallbackPolling(); };
-    sseSource.onmessage = function(){
+    var url = debugPath('/debug/kapso/stream');
+    dbg('connecting to: '+url);
+    sseSource = new EventSource(url);
+    dbg('readyState after new: '+sseSource.readyState);
+    sseSource.onopen = function(){
+      dbg('onopen fired — readyState='+sseSource.readyState);
+      setLiveStatus(true);
+      stopFallbackPolling();
+    };
+    sseSource.onmessage = function(e){
+      dbg('onmessage: '+String(e.data).slice(0,60));
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(poll, 300);
     };
-    sseSource.onerror = function(){
+    sseSource.onerror = function(e){
+      var rs = sseSource ? sseSource.readyState : 'null';
+      dbg('onerror — readyState='+rs);
       setLiveStatus(false);
-      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      if(sseSource){ try{ sseSource.close(); }catch(ex){} sseSource=null; }
       startFallbackPolling();
       if(autoRefresh) setTimeout(connectSSE, 5000);
     };
@@ -7304,10 +7346,24 @@ function renderCanalesHtml(data, debugToken = '') {
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
   poll();
   connectSSE();
-  // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
-  setTimeout(function(){
-    if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
-  }, 3000);
+
+  // Poll readyState every second — reliable regardless of onopen/onerror firing
+  setInterval(function(){
+    if(!autoRefresh) return;
+    var rs = sseSource ? sseSource.readyState : -1;
+    var el = document.getElementById('sse-status');
+    if(!el) return;
+    if(rs === 1){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else if(rs === 0){ el.textContent='🟡 Conectando...'; el.style.color='#fbbf24'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
+    // Update debug log with readyState
+    var pre = document.getElementById('sse-debug-log');
+    if(pre && !pre._last || pre && pre._last !== rs){
+      pre._last = rs;
+      var line = new Date().toLocaleTimeString()+' readyState='+rs+' ('+['CONNECTING','OPEN','CLOSED'][rs]+')\\n';
+      pre.textContent = line + (pre.textContent||'').slice(0,400);
+    }
+  }, 1000);
 })();
 </script>
 </body></html>`;
