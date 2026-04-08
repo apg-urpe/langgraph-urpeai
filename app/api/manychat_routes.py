@@ -342,6 +342,7 @@ async def _procesar_manychat_core(
 
     subscriber_id = request.contacto_identificador.subscriber_id
     slash_command = _extract_slash_command(mensaje)
+    _channel = request.canal.lower()  # "instagram" o "facebook" — usado en todos los debug events
 
     try:
         # ── Lookup por telefono_receptor en wp_numeros ────────────────────────
@@ -364,13 +365,16 @@ async def _procesar_manychat_core(
         # ── Upsert contacto (solo si no es slash command) ─────────────────────
         contacto = None
         contacto_creado = False
+        nombre_usuario = getattr(request, "nombre_usuario", None)
         if not slash_command:
             contacto, contacto_creado = await db.upsert_contacto_manychat(
                 subscriber_id=subscriber_id,
                 empresa_id=empresa_id,
+                nombre=nombre_usuario,
+                telefono=request.contacto_identificador.telefono or None,
             )
             if contacto_creado:
-                logger.info("ManyChat: nuevo contacto — subscriber=%s empresa=%s", subscriber_id, empresa_id)
+                logger.info("ManyChat: nuevo contacto — subscriber=%s empresa=%s canal=%s", subscriber_id, empresa_id, request.canal)
         else:
             contacto = await db.get_contacto_por_subscriber_id(subscriber_id, empresa_id)
 
@@ -407,7 +411,7 @@ async def _procesar_manychat_core(
             add_kapso_debug_event(
                 "fastapi", "slash_command_detected",
                 {"command": slash_command, "subscriber_id": subscriber_id, "contacto_id": contacto_id},
-                channel="manychat",
+                channel=_channel,
             )
 
             session_ids = {subscriber_id, memory_session_id}
@@ -431,7 +435,7 @@ async def _procesar_manychat_core(
             add_kapso_debug_event(
                 "fastapi", "slash_command_done",
                 {"command": slash_command, "subscriber_id": subscriber_id, "reply": reply_text},
-                channel="manychat",
+                channel=_channel,
             )
 
             await _send_manychat_reply(api_key=x_api_key, subscriber_id=subscriber_id,
@@ -456,8 +460,9 @@ async def _procesar_manychat_core(
             )
 
         # ── Debug event: mensaje recibido ─────────────────────────────────────
+        _stage_recv = "fb_message_received" if request.canal.lower() == "facebook" else "message_received"
         add_kapso_debug_event(
-            "fastapi", "message_received",
+            "fastapi", _stage_recv,
             {
                 "subscriber_id": subscriber_id,
                 "contacto_id": contacto_id,
@@ -466,7 +471,7 @@ async def _procesar_manychat_core(
                 "canal": request.canal,
                 "nuevo_contacto": contacto_creado,
             },
-            channel="manychat",
+            channel=_channel,
         )
 
         # ── Construir system prompt ───────────────────────────────────────────
@@ -482,7 +487,7 @@ async def _procesar_manychat_core(
 
         inbound_proxy = _InboundProxy(
             from_phone=subscriber_id,
-            contact_name=contacto.get("nombre") if contacto else None,
+            contact_name=(contacto.get("nombre") if contacto else None) or nombre_usuario,
         )
 
         context_payload, prompt_extras = build_kapso_context_payload(
@@ -542,12 +547,14 @@ async def _procesar_manychat_core(
             reply_text = ""
 
         # ── Enviar respuesta + guardar en DB ──────────────────────────────────
+        send_ok: bool = False
+        send_error: str | None = None
         if reply_text:
-            await _send_manychat_reply(
+            send_ok, send_error = await _send_manychat_reply(
                 api_key=x_api_key, subscriber_id=subscriber_id,
                 text=reply_text, canal=request.canal,
             )
-            if conversacion_db_id:
+            if send_ok and conversacion_db_id:
                 await db.insertar_mensaje(
                     conversacion_id=conversacion_db_id,
                     contenido=reply_text,
@@ -562,8 +569,9 @@ async def _procesar_manychat_core(
         elapsed = round(time.time() - started_at, 2)
 
         # ── Debug event: respuesta enviada ────────────────────────────────────
+        _stage_sent = "fb_message_sent" if request.canal.lower() == "facebook" else "message_sent"
         add_kapso_debug_event(
-            "fastapi", "message_sent",
+            "fastapi", _stage_sent,
             {
                 "subscriber_id": subscriber_id,
                 "contacto_id": contacto_id,
@@ -572,8 +580,11 @@ async def _procesar_manychat_core(
                 "model_used": result.model_used,
                 "reply_preview": reply_text[:200] if reply_text else "",
                 "elapsed_s": elapsed,
+                "canal": request.canal,
+                "manychat_send_ok": send_ok,
+                "manychat_send_error": send_error,
             },
-            channel="manychat",
+            channel=_channel,
         )
 
         logger.info("ManyChat inbound OK — empresa=%s subscriber=%s elapsed=%.2fs",
@@ -586,7 +597,7 @@ async def _procesar_manychat_core(
         add_kapso_debug_event(
             "fastapi", "error",
             {"subscriber_id": subscriber_id, "error": str(exc)},
-            channel="manychat",
+            channel=_channel,
         )
         await send_error_to_webhook(
             exc,
@@ -801,18 +812,23 @@ async def retry_stuck_manychat_messages() -> dict:
 
 @router.get("/debug/events")
 async def manychat_debug_events(limit: int = 50):
-    return {"events": get_channel_debug_events("manychat", limit=limit)}
+    """Todos los eventos ManyChat (Instagram + Facebook combinados)."""
+    ig = get_channel_debug_events("instagram", limit=limit)
+    fb = get_channel_debug_events("facebook", limit=limit)
+    combined = sorted(ig + fb, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
+    return {"events": combined}
 
 
 @router.get("/debug/config")
 async def manychat_debug_config():
     settings = get_settings()
     return {
-        "canal": "manychat",
+        "canales": ["instagram", "facebook"],
         "endpoint_inbound": "/api/v1/manychat/inbound",
         "send_url": _MANYCHAT_SEND_URL,
         "auth": "X-Api-Key header (ManyChat API key)",
         "agentes": ["conversational", "funnel (bg)", "contact_update (bg)"],
         "slash_commands": ["/borrar", "/borrar2"],
         "default_model": settings.DEFAULT_MODEL,
+        "debug_events": "/api/v1/manychat/debug/events",
     }

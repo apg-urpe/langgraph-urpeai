@@ -5,10 +5,13 @@ from pydantic import BaseModel
 
 class ManyChatContactoIdentificador(BaseModel):
     subscriber_id: str
+    telefono: str | None = None
+    ultima_interaccion: str | None = None
 
 
 class _ManyChatBody(BaseModel):
     mensaje: str
+    nombre_usuario: str | None = None
     contacto_identificador: ManyChatContactoIdentificador
     telefono_receptor: str
     canal: str = "instagram"
@@ -34,6 +37,10 @@ class ManyChatInboundRequest(BaseModel):
     @property
     def canal(self) -> str:
         return self.body.canal
+
+    @property
+    def nombre_usuario(self) -> str | None:
+        return self.body.nombre_usuario
 
 
 # ── ManyChat Dynamic Message response format ─────────────────────────────────

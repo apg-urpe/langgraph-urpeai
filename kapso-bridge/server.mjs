@@ -764,6 +764,8 @@ const PUBLIC_VISUAL_NODE_IDS = {
 
   instagram: 'n20',
 
+  facebook: 'n30',
+
 };
 
 
@@ -815,6 +817,11 @@ const PUBLIC_VISUAL_ALLOWED_STAGES = new Set([
 
   'message_sent',
 
+  // ManyChat / Facebook
+  'fb_message_received',
+
+  'fb_message_sent',
+
 ]);
 
 
@@ -860,6 +867,8 @@ const PUBLIC_VISUAL_NODE_META = {
   t_spam: { label: 'Control spam', desc: 'Protección de canal', detail: 'Aplica controles de seguridad y supresión del canal.', kind: 'tool' },
 
   instagram: { label: 'Instagram', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
+
+  facebook: { label: 'Facebook', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
 
 };
 
@@ -931,29 +940,54 @@ function sanitizePublicConstellationGraph(graphData) {
 
 
 
-  // Inyectar nodo Instagram junto a WhatsApp si no está en el schema de Python
-  const igId = PUBLIC_VISUAL_NODE_IDS.instagram;
-  const waId = PUBLIC_VISUAL_NODE_IDS.whatsapp;
+  // Alinear los 3 canales en la parte superior, horizontalmente
+  const igId   = PUBLIC_VISUAL_NODE_IDS.instagram;
+  const fbId   = PUBLIC_VISUAL_NODE_IDS.facebook;
+  const waId   = PUBLIC_VISUAL_NODE_IDS.whatsapp;
   const orchId = PUBLIC_VISUAL_NODE_IDS.orch;
 
+  const _waR = 20;
+  const _topY = 0.11;
+
+  // WhatsApp — reposicionar arriba-centro con color de marca
+  const waNode = nodes.find(n => n.id === waId);
+  if (waNode) {
+    waNode.x = 0.50; waNode.hx = 0.50;
+    waNode.y = _topY; waNode.hy = _topY;
+    waNode.r = _waR;
+    waNode.color = '#25d366';
+    waNode.glow  = 'rgba(37,211,102,.3)';
+  }
+
+  // Instagram — arriba-izquierda con gradiente de marca
   if (!nodes.some(n => n.id === igId)) {
-    const waNode = nodes.find(n => n.id === waId);
     nodes.push({
-      id: igId,
-      kind: 'external',
-      // Posicionar simétricamente al lado de WhatsApp
-      x: waNode ? waNode.x + 0.18 : 0.12,
-      y: waNode ? waNode.y : 0.5,
-      hx: waNode ? waNode.x + 0.18 : 0.12,
-      hy: waNode ? waNode.y : 0.5,
-      r: waNode ? waNode.r : 12,
-      color: waNode ? waNode.color : '#60a5fa',
-      glow: 'rgba(96,165,250,.25)',
+      id: igId, kind: 'external',
+      x: 0.22, y: _topY, hx: 0.22, hy: _topY,
+      r: _waR,
+      color: '#e1306c',
+      glow: 'rgba(225,48,108,.3)',
+      gradient: [[0,'#fcb045'],[0.35,'#fd1d1d'],[0.7,'#c13584'],[1,'#833ab4']],
       label: PUBLIC_VISUAL_NODE_META.instagram.label,
-      desc: PUBLIC_VISUAL_NODE_META.instagram.desc,
+      desc:  PUBLIC_VISUAL_NODE_META.instagram.desc,
       detail: PUBLIC_VISUAL_NODE_META.instagram.detail,
     });
     if (orchId) edges.push({ from: igId, to: orchId, dash: false });
+  }
+
+  // Facebook — arriba-derecha con color de marca
+  if (!nodes.some(n => n.id === fbId)) {
+    nodes.push({
+      id: fbId, kind: 'external',
+      x: 0.78, y: _topY, hx: 0.78, hy: _topY,
+      r: _waR,
+      color: '#1877f2',
+      glow: 'rgba(24,119,242,.3)',
+      label: PUBLIC_VISUAL_NODE_META.facebook.label,
+      desc:  PUBLIC_VISUAL_NODE_META.facebook.desc,
+      detail: PUBLIC_VISUAL_NODE_META.facebook.detail,
+    });
+    if (orchId) edges.push({ from: fbId, to: orchId, dash: false });
   }
 
 
@@ -1044,8 +1078,11 @@ async function collectUnifiedPublicVisualPayload(empresaId = '') {
   const kapsoEvents    = kapsoResult.status    === 'fulfilled' ? (kapsoResult.value.events    || []) : [];
   const manychatEvents = manychatResult.status === 'fulfilled' ? (manychatResult.value.events || []) : [];
 
-  // Etiquetar eventos de ManyChat con su canal
-  const taggedManychat = manychatEvents.map(e => ({ ...e, channel: 'instagram' }));
+  // Etiquetar eventos de ManyChat con su canal real (instagram o facebook)
+  const taggedManychat = manychatEvents.map(e => {
+    const canal = (e.payload && e.payload.canal) || 'instagram';
+    return { ...e, channel: canal };
+  });
 
   const events = [...bridgeDebugEvents, ...kapsoEvents, ...taggedManychat]
     .filter(event => matchesPublicVisualEmpresa(event, empresaId))
@@ -3726,9 +3763,14 @@ const SPEED_MULT=2;
 
 const PARTICLE_BASE_DURATION=2200;
 
+// Colores de canal — usados en flujos de entrada/salida y respuestas
+const _WA_C='#25d366';   // WhatsApp green
+const _IG_C='#c13584';   // Instagram purple-pink
+const _FB_C='#1877f2';   // Facebook blue
+
 const STAGE_FLOWS={
 
-  inbound_received:[['n1','n2','#60a5fa']],
+  inbound_received:[['n1','n2',_WA_C]],
 
   fallback_numero:[['n2','n2','#f59e0b']],
 
@@ -3744,13 +3786,13 @@ const STAGE_FLOWS={
 
   run_agent_start:[['n2','n3','#a78bfa'],['n2','n4','#fb923c'],['n2','n5','#fb923c']],
 
-  run_agent_done:[['n3','n7','#60a5fa'],['n3','n2','#a78bfa'],['n2','n1','#34d399']],
+  run_agent_done:[['n3','n7','#60a5fa'],['n3','n2','#a78bfa'],['n2','n1',_WA_C]],
 
   run_funnel_done:[['n4','n7','#60a5fa'],['n4','n2','#fb923c']],
 
   run_contact_update_done:[['n5','n7','#60a5fa'],['n5','n6','#f472b6']],
 
-  slash_command_done:[['n2','n1','#34d399']],
+  slash_command_done:[['n2','n1',_WA_C]],
 
   audio_processing:[['n2','n8','#f472b6'],['n2','n9','#60a5fa']],
 
@@ -3758,19 +3800,23 @@ const STAGE_FLOWS={
 
   document_processing:[['n2','n8','#f472b6'],['n2','n9','#60a5fa']],
 
-  call_fastapi_done:[['n2','n1','#34d399']],
+  call_fastapi_done:[['n2','n1',_WA_C]],
 
-  kapso_send_done:[['n2','n1','#34d399']],
+  kapso_send_done:[['n2','n1',_WA_C]],
 
-  kapso_send_reaction_with_text:[['n2','n1','#34d399']],
+  kapso_send_reaction_with_text:[['n2','n1',_WA_C]],
 
   http_error:[['n2','n1','#ef4444']],
 
   exception:[['n2','n1','#ef4444']],
 
-  message_received:[['n20','n2','#60a5fa']],
+  message_received:[['n20','n2',_IG_C]],
 
-  message_sent:[['n2','n20','#34d399']],
+  message_sent:[['n2','n20',_IG_C]],
+
+  fb_message_received:[['n30','n2',_FB_C]],
+
+  fb_message_sent:[['n2','n30',_FB_C]],
 
 };
 
@@ -3900,11 +3946,21 @@ function triggerFlows(stage){
 
 }
 
+// Persistir eventos ya vistos para no re-ejecutar al recargar la página
+const _SEEN_KEY='monbrain_seen_v2';
+(function(){try{const r=localStorage.getItem(_SEEN_KEY);if(r)JSON.parse(r).forEach(function(k){seenEventKeys.add(k);});}catch(e){}})();
+
+function _persistSeen(){
+  try{localStorage.setItem(_SEEN_KEY,JSON.stringify(Array.from(seenEventKeys).slice(-400)));}catch(e){}
+}
+
 function processEvents(events){
 
   if(!Array.isArray(events)||!events.length)return;
 
   const fresh=[];
+
+  let anyNew=false;
 
   for(const e of events){
 
@@ -3916,9 +3972,13 @@ function processEvents(events){
 
     seenEventKeys.add(key);
 
+    anyNew=true;
+
     if(STAGE_FLOWS[e.stage])fresh.push(e);
 
   }
+
+  if(anyNew)_persistSeen();
 
   fresh.sort(function(a,b){return new Date(a.timestamp)-new Date(b.timestamp);});
 
@@ -4143,9 +4203,14 @@ function draw(){
 
     }
 
-    const cg=X.createRadialGradient(p.x-R*.2,p.y-R*.25,R*.1,p.x,p.y,R);
-
-    cg.addColorStop(0,'rgba(255,255,255,.25)');cg.addColorStop(.4,n.color);cg.addColorStop(1,n.color+'99');
+    let cg;
+    if(n.gradient&&Array.isArray(n.gradient)){
+      cg=X.createLinearGradient(p.x-R,p.y+R,p.x+R,p.y-R);
+      n.gradient.forEach(function(s){cg.addColorStop(s[0],s[1]);});
+    }else{
+      cg=X.createRadialGradient(p.x-R*.2,p.y-R*.25,R*.1,p.x,p.y,R);
+      cg.addColorStop(0,'rgba(255,255,255,.25)');cg.addColorStop(.4,n.color);cg.addColorStop(1,n.color+'99');
+    }
 
     X.fillStyle=cg;
 
@@ -4306,12 +4371,6 @@ if(_injected&&_injected.nodes){
   NODES.forEach(function(n){n.vx=0;n.vy=0;n.hx=n.hx??n.x;n.hy=n.hy??n.y;});
 
   if(LOADER)LOADER.style.display='none';
-
-  setTimeout(function(){triggerFlows('inbound_received');},800);
-
-  setTimeout(function(){triggerFlows('run_agent_start');},1600);
-
-  setTimeout(function(){triggerFlows('run_agent_done');},2600);
 
 }else if(LOADER){
 
@@ -6638,7 +6697,7 @@ function buildManyChatInteractions(events = []) {
     const subscriberId = payload.subscriber_id;
     if (!subscriberId) continue;
 
-    if (event.stage === 'message_received') {
+    if (event.stage === 'message_received' || event.stage === 'fb_message_received') {
       const interaction = {
         id: `${subscriberId}_${event.timestamp}`,
         message_id: `${subscriberId}_${event.timestamp}`,
@@ -6648,7 +6707,7 @@ function buildManyChatInteractions(events = []) {
         empresa_id: payload.empresa_id,
         message_text: payload.message || '',
         message_type: 'text',
-        canal: payload.canal || 'instagram',
+        canal: payload.canal || (event.stage === 'fb_message_received' ? 'facebook' : 'instagram'),
         status: 'processing',
         agent_runs: [],
         tools_used: [],
@@ -6664,6 +6723,7 @@ function buildManyChatInteractions(events = []) {
         from_phone: subscriberId,
         message_text: payload.command || '',
         message_type: 'slash',
+        canal: payload.canal || event.channel || 'instagram',
         status: 'processing',
         agent_runs: [],
         tools_used: [],
@@ -6671,14 +6731,15 @@ function buildManyChatInteractions(events = []) {
       pendingBySubscriber.set(subscriberId, interaction);
       interactions.push(interaction);
 
-    } else if (event.stage === 'message_sent') {
+    } else if (event.stage === 'message_sent' || event.stage === 'fb_message_sent') {
       const pending = pendingBySubscriber.get(subscriberId);
       if (pending) {
         pending.agent_name = payload.agent_name;
         pending.model_used = payload.model_used;
         pending.response_preview = payload.reply_preview;
         pending.finished_at = event.timestamp;
-        pending.status = 'ok';
+        pending.status = payload.manychat_send_ok === false ? 'send_error' : 'ok';
+        pending.send_error = payload.manychat_send_error || null;
         if (payload.elapsed_s != null) {
           pending.duration_ms = Math.round(payload.elapsed_s * 1000);
           pending.timing = { total_ms: pending.duration_ms };
@@ -6765,8 +6826,10 @@ function renderManyChatHtml(data, debugToken = '') {
         <div style="margin-bottom:8px"><strong>Subscriber ID:</strong> ${escapeHtml(item.from_phone || '—')}</div>
         <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(item.canal || '—')}</div>
         <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
-        <div style="margin:12px 0 6px"><strong>Error</strong></div>
+        <div style="margin:12px 0 6px"><strong>Error agente</strong></div>
         <pre>${escapeHtml(item.error || '—')}</pre>
+        <div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div>
+        <pre style="${item.send_error ? 'color:#f87171' : ''}">${escapeHtml(item.send_error || '—')}</pre>
         <div style="margin-bottom:8px"><strong>Mensaje:</strong></div>
         <pre>${escapeHtml(item.message_text || '—')}</pre>
         <div style="margin:12px 0 6px"><strong>Respuesta</strong></div>
@@ -6803,7 +6866,7 @@ function renderManyChatHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/manychat', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">WhatsApp</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
     </div>
   </div>
 
@@ -6873,7 +6936,8 @@ function renderManyChatHtml(data, debugToken = '') {
       +'<div style="margin-bottom:8px"><strong>Subscriber ID:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(item.canal||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
-      +'<div style="margin:12px 0 6px"><strong>Error</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error agente</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div><pre style="'+(item.send_error?'color:#f87171':'')+'">'+esc(item.send_error||'—')+'</pre>'
       +'<div style="margin-bottom:8px"><strong>Mensaje:</strong></div><pre>'+esc(item.message_text||'—')+'</pre>'
       +'<div style="margin:12px 0 6px"><strong>Respuesta</strong></div><pre>'+esc(item.response_preview||'—')+'</pre>'
       +'</div></details>';
@@ -6968,7 +7032,7 @@ async function collectCanalesDebugPayload() {
   const waInteractions = (waResult.status === 'fulfilled' ? (waResult.value.interactions || []) : [])
     .map(i => ({ ...i, _canal: 'whatsapp' }));
   const mcInteractions = (mcResult.status === 'fulfilled' ? (mcResult.value.interactions || []) : [])
-    .map(i => ({ ...i, _canal: 'manychat' }));
+    .map(i => ({ ...i, _canal: i.canal || 'instagram' }));
   const all = [...waInteractions, ...mcInteractions]
     .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
   return { interactions: all, wa_count: waInteractions.length, mc_count: mcInteractions.length };
@@ -6988,6 +7052,8 @@ function renderCanalesHtml(data, debugToken = '') {
         const canal = item._canal || 'whatsapp';
         const canalBadge = canal === 'whatsapp'
           ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+          : canal === 'facebook'
+          ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
           : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
         const totalMs = item.duration_ms != null ? item.duration_ms : (item.timing?.total_ms != null ? Math.round(item.timing.total_ms) : null);
         const tcls = totalMs == null ? '' : totalMs < 20000 ? 'color:#34d399' : totalMs < 30000 ? 'color:#f97316' : 'color:#f87171';
@@ -7058,8 +7124,8 @@ function renderCanalesHtml(data, debugToken = '') {
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/canales', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">WhatsApp</a>
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">ManyChat / IG</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
     </div>
   </div>
 
@@ -7105,6 +7171,8 @@ function renderCanalesHtml(data, debugToken = '') {
     var canal = item._canal||'whatsapp';
     var badge = canal==='whatsapp'
       ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+      : canal==='facebook'
+      ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
       : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
     var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
     return '<tr>'
@@ -7130,7 +7198,8 @@ function renderCanalesHtml(data, debugToken = '') {
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(canal)+'</div>'
       +'<div style="margin-bottom:8px"><strong>Identificador:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
-      +'<div style="margin:12px 0 6px"><strong>Error</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error agente</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div><pre style="'+(item.send_error?'color:#f87171':'')+'">'+esc(item.send_error||'—')+'</pre>'
       +'<div style="margin-bottom:8px"><strong>Mensaje:</strong></div><pre>'+esc(item.message_text||'—')+'</pre>'
       +'<div style="margin:12px 0 6px"><strong>Respuesta</strong></div><pre>'+esc(item.response_preview||'—')+'</pre>'
       +'</div></details>';
