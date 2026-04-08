@@ -6123,13 +6123,6 @@ app.post('/api/v1/dispatch', async (req, res) => {
 });
 
 
-app.get('/openapi.json', async (req, res) => {
-
-  await proxyFastApiRequest(req, res, '/openapi.json');
-
-});
-
-
 
 app.post('/api/v1/scheduling/disponibilidad', async (req, res) => {
 
@@ -6380,24 +6373,6 @@ app.get('/public/kapso/visual', (req, res) => {
 });
 
 
-
-app.get('/public/kapso/visual/data', async (req, res) => {
-
-  try {
-
-    const payload = await collectUnifiedPublicVisualPayload(req.query.empresa_id || '');
-
-    res.set('Cache-Control', 'no-store, max-age=0');
-
-    res.status(200).json(payload);
-
-  } catch (error) {
-
-    res.status(200).json({ events: [] });
-
-  }
-
-});
 
 
 

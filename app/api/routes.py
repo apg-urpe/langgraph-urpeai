@@ -1,7 +1,6 @@
 import logging
 from fastapi import APIRouter, HTTPException
 
-from app.core.cache import response_cache
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.agents.conversational import run_agent
 from app.db import queries as db
@@ -59,8 +58,3 @@ async def health():
     return {"status": "ok", "service": "urpe-multiagent", "cache_size": response_cache.size}
 
 
-@router.delete("/cache")
-async def clear_cache():
-    """Limpia el cache de respuestas."""
-    response_cache.clear()
-    return {"status": "ok", "message": "Cache limpiado"}
