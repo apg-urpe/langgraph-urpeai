@@ -764,6 +764,8 @@ const PUBLIC_VISUAL_NODE_IDS = {
 
   instagram: 'n20',
 
+  facebook: 'n30',
+
 };
 
 
@@ -815,6 +817,11 @@ const PUBLIC_VISUAL_ALLOWED_STAGES = new Set([
 
   'message_sent',
 
+  // ManyChat / Facebook
+  'fb_message_received',
+
+  'fb_message_sent',
+
 ]);
 
 
@@ -860,6 +867,8 @@ const PUBLIC_VISUAL_NODE_META = {
   t_spam: { label: 'Control spam', desc: 'Protección de canal', detail: 'Aplica controles de seguridad y supresión del canal.', kind: 'tool' },
 
   instagram: { label: 'Instagram', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
+
+  facebook: { label: 'Facebook', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
 
 };
 
@@ -933,6 +942,7 @@ function sanitizePublicConstellationGraph(graphData) {
 
   // Inyectar nodo Instagram junto a WhatsApp si no está en el schema de Python
   const igId = PUBLIC_VISUAL_NODE_IDS.instagram;
+  const fbId = PUBLIC_VISUAL_NODE_IDS.facebook;
   const waId = PUBLIC_VISUAL_NODE_IDS.whatsapp;
   const orchId = PUBLIC_VISUAL_NODE_IDS.orch;
 
@@ -954,6 +964,28 @@ function sanitizePublicConstellationGraph(graphData) {
       detail: PUBLIC_VISUAL_NODE_META.instagram.detail,
     });
     if (orchId) edges.push({ from: igId, to: orchId, dash: false });
+  }
+
+  // Inyectar nodo Facebook debajo de Instagram si no está en el schema de Python
+  if (!nodes.some(n => n.id === fbId)) {
+    const igNode = nodes.find(n => n.id === igId);
+    const waNode = nodes.find(n => n.id === waId);
+    nodes.push({
+      id: fbId,
+      kind: 'external',
+      // Posicionar debajo de Instagram, misma columna
+      x: igNode ? igNode.x : (waNode ? waNode.x + 0.18 : 0.12),
+      y: igNode ? igNode.y + 0.14 : 0.64,
+      hx: igNode ? igNode.x : (waNode ? waNode.x + 0.18 : 0.12),
+      hy: igNode ? igNode.y + 0.14 : 0.64,
+      r: igNode ? igNode.r : 12,
+      color: '#1d4ed8',
+      glow: 'rgba(29,78,216,.25)',
+      label: PUBLIC_VISUAL_NODE_META.facebook.label,
+      desc: PUBLIC_VISUAL_NODE_META.facebook.desc,
+      detail: PUBLIC_VISUAL_NODE_META.facebook.detail,
+    });
+    if (orchId) edges.push({ from: fbId, to: orchId, dash: false });
   }
 
 
@@ -1044,8 +1076,11 @@ async function collectUnifiedPublicVisualPayload(empresaId = '') {
   const kapsoEvents    = kapsoResult.status    === 'fulfilled' ? (kapsoResult.value.events    || []) : [];
   const manychatEvents = manychatResult.status === 'fulfilled' ? (manychatResult.value.events || []) : [];
 
-  // Etiquetar eventos de ManyChat con su canal
-  const taggedManychat = manychatEvents.map(e => ({ ...e, channel: 'instagram' }));
+  // Etiquetar eventos de ManyChat con su canal real (instagram o facebook)
+  const taggedManychat = manychatEvents.map(e => {
+    const canal = (e.payload && e.payload.canal) || 'instagram';
+    return { ...e, channel: canal };
+  });
 
   const events = [...bridgeDebugEvents, ...kapsoEvents, ...taggedManychat]
     .filter(event => matchesPublicVisualEmpresa(event, empresaId))
@@ -3771,6 +3806,10 @@ const STAGE_FLOWS={
   message_received:[['n20','n2','#60a5fa']],
 
   message_sent:[['n2','n20','#34d399']],
+
+  fb_message_received:[['n30','n2','#60a5fa']],
+
+  fb_message_sent:[['n2','n30','#34d399']],
 
 };
 
