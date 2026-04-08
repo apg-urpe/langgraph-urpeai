@@ -260,6 +260,8 @@ async def _actualizar_asesor_en_contacto(contacto_id: int, asesor_id: int):
 # ════════════════════════════════════════════════════════════
 
 DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
+# Ventana predeterminada para generar slots cuando no hay horarios configurados
+_SLOT_WINDOW_DEFAULT = [{"inicio": "07:00", "fin": "20:00"}]
 
 
 def _ahora_en_tz(tz_name: str) -> datetime:
@@ -274,30 +276,35 @@ def _periodo_dia(hora: int) -> str:
     return "Noche"
 
 
+def _describir_horarios(disponibilidad: dict | None) -> str:
+    """Genera descripción legible de los horarios_normales configurados para el asesor."""
+    if not disponibilidad:
+        return "no configurado"
+    horarios = disponibilidad.get("horarios_normales") or {}
+    dias_con_horario = []
+    for dia in DIAS_SEMANA:
+        franjas = horarios.get(dia, [])
+        if franjas:
+            rangos = ", ".join(f"{f['inicio']}-{f['fin']}" for f in franjas if "inicio" in f and "fin" in f)
+            if rangos:
+                dias_con_horario.append(f"{dia} {rangos}")
+    return ", ".join(dias_con_horario) if dias_con_horario else "no configurado"
+
+
 def _calcular_slots(
     fecha: datetime,
     busy_periods: list[dict[str, int]],
-    disponibilidad: dict[str, Any] | None,
     duracion_min: int,
     tz_name: str,
 ) -> list[dict[str, Any]]:
-    """Calcula slots disponibles para un día cruzando busy periods con horarios del asesor."""
+    """Calcula slots disponibles para un día filtrando únicamente por eventos de Nylas.
+    La disponibilidad se determina por el calendario del asesor, no por horarios configurados."""
     slots: list[dict[str, Any]] = []
-    if not disponibilidad:
-        return slots
-
-    dia_idx = fecha.weekday()  # 0=lunes en Python
-    dia_nombre = DIAS_SEMANA[dia_idx]
-
-    horarios_normales = (disponibilidad.get("horarios_normales") or {}).get(dia_nombre, [])
-    if not horarios_normales:
-        return slots
 
     tz = ZoneInfo(tz_name)
     ahora_unix = int(time.time())
-    fecha_str = fecha.strftime("%Y-%m-%d")
 
-    for horario in horarios_normales:
+    for horario in _SLOT_WINDOW_DEFAULT:
         inicio_h, inicio_m = map(int, horario["inicio"].split(":"))
         fin_h, fin_m = map(int, horario["fin"].split(":"))
 
@@ -464,20 +471,6 @@ async def _seleccionar_mejor_asesor(
             dur = duracion_min or asesor_fijo.get("duracion_cita_minutos") or 30
             end_unix = start_unix + (dur * 60)
 
-            # Validar horarios_normales del asesor fijo
-            dispo = asesor_fijo.get("disponibilidad")
-            if isinstance(dispo, str):
-                import json
-                try:
-                    dispo = json.loads(dispo)
-                except Exception:
-                    dispo = None
-            asesor_tz = _normalizar_tz(asesor_fijo.get("timezone"))
-            if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
-                return {
-                    "error": f"El horario solicitado está fuera del horario de atención del asesor ({asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}). Horario disponible: lunes a viernes 09:00-15:00."
-                }
-
             ocupado = await _asesor_ocupado(nylas, asesor_fijo, start_unix, end_unix, exclude_event_id)
             if ocupado:
                 return {
@@ -491,23 +484,10 @@ async def _seleccionar_mejor_asesor(
     if not asesores:
         return None
 
-    # Free/Busy + validación de horarios_normales + list_events en paralelo por asesor
+    # Verificar disponibilidad por calendario de Nylas
     async def _check(asesor: dict) -> dict:
         dur = duracion_min or asesor.get("duracion_cita_minutos") or 30
         end_unix = start_unix + (dur * 60)
-
-        # Validar horarios_normales primero (sin llamada a Nylas)
-        dispo = asesor.get("disponibilidad")
-        if isinstance(dispo, str):
-            import json
-            try:
-                dispo = json.loads(dispo)
-            except Exception:
-                dispo = None
-        asesor_tz = _normalizar_tz(asesor.get("timezone"))
-        if not _hora_dentro_de_horarios_normales(dt, dispo, asesor_tz, dur):
-            logger.info("Asesor %s descartado: horario %s fuera de horarios_normales", asesor["id"], fecha_hora_iso)
-            return {"asesor": asesor, "ok": True, "ocupado": True}
 
         try:
             ocupado = await _asesor_ocupado(nylas, asesor, start_unix, end_unix, exclude_event_id)
@@ -667,13 +647,6 @@ async def _disponibilidad_agenda_interno(req: DisponibilidadRequest) -> Disponib
                         busy_periods.append({"start": slot["start_time"], "end": slot["end_time"]})
 
         duracion = asesor.get("duracion_cita_minutos") or 30
-        dispo = asesor.get("disponibilidad")
-        if isinstance(dispo, str):
-            import json
-            try:
-                dispo = json.loads(dispo)
-            except Exception:
-                dispo = None
 
         for i in range(7):
             fecha = ahora + timedelta(days=i)
@@ -686,7 +659,7 @@ async def _disponibilidad_agenda_interno(req: DisponibilidadRequest) -> Disponib
                     "horarios_unicos": {},
                 }
 
-            slots = _calcular_slots(fecha, busy_periods, dispo, duracion, tz_name)
+            slots = _calcular_slots(fecha, busy_periods, duracion, tz_name)
 
             dia_data = disponibilidad_por_dia[fecha_key]
             for slot in slots:
