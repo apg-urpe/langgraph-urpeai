@@ -4,9 +4,8 @@ Tests de funciones helper puras de scheduling_routes.
 Cubre lógica de negocio sin llamadas a Nylas ni Supabase:
   - _rangos_solapan: detección de solapamiento de rangos horarios
   - _parse_iso_to_unix: parseo de fechas ISO
-  - _calcular_slots: generación de slots según disponibilidad
+  - _calcular_slots: generación de slots filtrados por busy periods de Nylas
   - _periodo_dia: clasificación mañana/tarde/noche
-  - _hora_dentro_de_horarios_normales: validación de horario laboral
 """
 import pytest
 from datetime import datetime, timezone
@@ -14,7 +13,6 @@ from zoneinfo import ZoneInfo
 
 from app.api.scheduling_routes import (
     _calcular_slots,
-    _hora_dentro_de_horarios_normales,
     _parse_iso_to_unix,
     _periodo_dia,
     _rangos_solapan,
@@ -111,40 +109,13 @@ class TestPeriodoDia:
 class TestCalcularSlots:
     TZ = "America/Bogota"
 
-    def _lunes(self, hora=9):
-        """Retorna un lunes en la timezone de prueba."""
-        # 2024-06-17 es lunes
-        return datetime(2024, 6, 17, hora, 0, 0, tzinfo=ZoneInfo(self.TZ))
-
-    def _domingo(self):
-        return datetime(2024, 6, 16, 9, 0, 0, tzinfo=ZoneInfo(self.TZ))
-
-    def _disponibilidad_lunes(self, inicio="09:00", fin="11:00"):
-        return {"horarios_normales": {"lunes": [{"inicio": inicio, "fin": fin}]}}
-
-    def test_sin_disponibilidad_retorna_vacio(self):
-        fecha = self._lunes()
-        slots = _calcular_slots(fecha, [], None, 30, self.TZ)
-        assert slots == []
-
-    def test_dia_sin_horarios_retorna_vacio(self):
-        # domingo no tiene horarios en disponibilidad
-        fecha = self._domingo()
-        dispo = self._disponibilidad_lunes()
-        slots = _calcular_slots(fecha, [], dispo, 30, self.TZ)
-        assert slots == []
+    def _fecha_futura(self):
+        """Fecha futura garantizada (2099-06-17)."""
+        return datetime(2099, 6, 17, 0, 0, 0, tzinfo=ZoneInfo(self.TZ))
 
     def test_slots_tienen_campos_requeridos(self):
-        # Usar fecha futura con disponibilidad para TODOS los días
-        # (para no depender del día de la semana que caiga 2099-06-17)
-        fecha = datetime(2099, 6, 17, 0, 0, 0, tzinfo=ZoneInfo(self.TZ))
-        dispo = {
-            "horarios_normales": {
-                dia: [{"inicio": "09:00", "fin": "11:00"}]
-                for dia in ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-            }
-        }
-        slots = _calcular_slots(fecha, [], dispo, 60, self.TZ)
+        fecha = self._fecha_futura()
+        slots = _calcular_slots(fecha, [], 60, self.TZ)
         assert len(slots) > 0
         slot = slots[0]
         assert "inicio" in slot
@@ -154,60 +125,20 @@ class TestCalcularSlots:
         assert "endUnix" in slot
 
     def test_slot_ocupado_excluido(self):
-        fecha = datetime(2099, 6, 17, 0, 0, 0, tzinfo=ZoneInfo(self.TZ))
-        dispo = self._disponibilidad_lunes("09:00", "11:00")
-        # Sin ocupado: 2 slots de 60min (9-10 y 10-11)
-        slots_libres = _calcular_slots(fecha, [], dispo, 60, self.TZ)
+        fecha = self._fecha_futura()
+        slots_libres = _calcular_slots(fecha, [], 60, self.TZ)
 
-        # Ocupar el primer slot
+        # Ocupar el primer slot disponible
         if slots_libres:
             busy = [{"start": slots_libres[0]["startUnix"], "end": slots_libres[0]["endUnix"]}]
-            slots_con_ocupado = _calcular_slots(fecha, busy, dispo, 60, self.TZ)
+            slots_con_ocupado = _calcular_slots(fecha, busy, 60, self.TZ)
             assert len(slots_con_ocupado) < len(slots_libres)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# _hora_dentro_de_horarios_normales
-# ══════════════════════════════════════════════════════════════════════════════
-
-class TestHoraDentroDeHorariosNormales:
-    TZ = "America/Bogota"
-    # 2099-06-17 14:00 UTC = 09:00 America/Bogota → miércoles
-    # Se construye la disponibilidad dinámicamente para que siempre coincida con
-    # el día de la semana real en que cae esa fecha.
-
-    @staticmethod
-    def _dia_local(utc_dt):
-        """Devuelve el nombre del día (es) de un datetime UTC en Bogota."""
-        from zoneinfo import ZoneInfo
-        dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-        return dias[utc_dt.astimezone(ZoneInfo("America/Bogota")).weekday()]
-
-    def _dispo_para(self, utc_dt):
-        """Disponibilidad de 09:00-17:00 exactamente en el día de utc_dt."""
-        dia = self._dia_local(utc_dt)
-        return {"horarios_normales": {dia: [{"inicio": "09:00", "fin": "17:00"}]}}
-
-    def test_hora_dentro_del_horario(self):
-        # 2099-06-17 14:00 UTC = 09:00 Bogota — dentro del horario 09-17
-        dt = datetime(2099, 6, 17, 14, 0, 0, tzinfo=timezone.utc)
-        assert _hora_dentro_de_horarios_normales(dt, self._dispo_para(dt), self.TZ, 30) is True
-
-    def test_hora_fuera_del_horario(self):
-        # 2099-06-17 03:00 UTC = 22:00 Bogota → fuera del horario 09-17
-        dt = datetime(2099, 6, 17, 3, 0, 0, tzinfo=timezone.utc)
-        assert _hora_dentro_de_horarios_normales(dt, self._dispo_para(dt), self.TZ, 30) is False
-
-    def test_sin_disponibilidad_permite_todo(self):
-        dt = datetime(2099, 6, 17, 14, 0, 0, tzinfo=timezone.utc)
-        assert _hora_dentro_de_horarios_normales(dt, None, self.TZ, 30) is True
-
-    def test_dia_sin_horarios_bloqueado(self):
-        # Construimos disponibilidad solo para el día siguiente → hoy queda sin horarios
-        dt = datetime(2099, 6, 17, 14, 0, 0, tzinfo=timezone.utc)
-        dias = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
-        from zoneinfo import ZoneInfo
-        dia_actual = dt.astimezone(ZoneInfo(self.TZ)).weekday()
-        otro_dia = dias[(dia_actual + 1) % 7]
-        dispo_otro_dia = {"horarios_normales": {otro_dia: [{"inicio": "09:00", "fin": "17:00"}]}}
-        assert _hora_dentro_de_horarios_normales(dt, dispo_otro_dia, self.TZ, 30) is False
+    def test_todos_ocupados_retorna_vacio(self):
+        fecha = self._fecha_futura()
+        # Bloquear toda la ventana del día (00:00-24:00)
+        start = int(datetime(2099, 6, 17, 0, 0, 0, tzinfo=ZoneInfo(self.TZ)).timestamp())
+        end = int(datetime(2099, 6, 18, 0, 0, 0, tzinfo=ZoneInfo(self.TZ)).timestamp())
+        busy = [{"start": start, "end": end}]
+        slots = _calcular_slots(fecha, busy, 30, self.TZ)
+        assert slots == []
