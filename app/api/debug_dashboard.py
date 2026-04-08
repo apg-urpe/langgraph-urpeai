@@ -558,8 +558,11 @@ async def debug_kapso_stream():
     async def _generate():
         try:
             while True:
-                entry = await q.get()
-                yield f"data: {json.dumps(entry, ensure_ascii=False)}\n\n"
+                try:
+                    entry = await asyncio.wait_for(q.get(), timeout=15.0)
+                    yield f"data: {json.dumps(entry, ensure_ascii=False)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"  # keeps connection alive through proxies
         except asyncio.CancelledError:
             pass
         finally:
