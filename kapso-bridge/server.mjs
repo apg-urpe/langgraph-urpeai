@@ -6866,7 +6866,7 @@ function renderManyChatHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/manychat', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">WhatsApp</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
     </div>
   </div>
 
@@ -7124,8 +7124,8 @@ function renderCanalesHtml(data, debugToken = '') {
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/canales', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">WhatsApp</a>
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">ManyChat / IG</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
     </div>
   </div>
 
