@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>URPE AI Lab — Endpoints de Envío Manual</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #1e293b;
+    background: #fff;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 48px 56px;
+  }
+
+  /* ── Header ── */
+  .doc-header {
+    border-bottom: 3px solid #6366f1;
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+  }
+  .doc-header .logo-line {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #6366f1;
+    margin-bottom: 8px;
+  }
+  h1 {
+    font-size: 26px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.2;
+    margin-bottom: 6px;
+  }
+  .doc-header .subtitle {
+    color: #64748b;
+    font-size: 13px;
+  }
+  .doc-header .meta {
+    margin-top: 12px;
+    font-size: 11px;
+    color: #94a3b8;
+  }
+
+  /* ── Sections ── */
+  h2 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 36px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  h3 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 22px 0 8px;
+  }
+  p { margin-bottom: 10px; color: #374151; }
+
+  /* ── Endpoint card ── */
+  .endpoint-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin: 20px 0 32px;
+    overflow: hidden;
+  }
+  .endpoint-card .card-header {
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .endpoint-card.ghl .card-header { background: #fff7ed; border-bottom: 1px solid #fed7aa; }
+  .endpoint-card.mc .card-header  { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; }
+  .method-badge {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 5px;
+    background: #6366f1;
+    color: #fff;
+    letter-spacing: 0.5px;
+  }
+  .endpoint-url {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: #0f172a;
+  }
+  .canal-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: #e0e7ff;
+    color: #4338ca;
+  }
+  .endpoint-card.ghl .canal-badge { background: #ffedd5; color: #c2410c; }
+  .endpoint-card.mc  .canal-badge { background: #dcfce7; color: #16a34a; }
+
+  .card-body { padding: 20px; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 16px;
+    font-size: 12.5px;
+  }
+  thead th {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 7px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  tbody td {
+    border: 1px solid #e2e8f0;
+    padding: 7px 12px;
+    vertical-align: top;
+  }
+  tbody tr:nth-child(even) td { background: #f8fafc; }
+  code {
+    font-family: 'Courier New', monospace;
+    font-size: 11.5px;
+    background: #f1f5f9;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #0f172a;
+  }
+  .required { color: #dc2626; font-weight: 600; font-size: 10px; }
+  .optional { color: #64748b; font-size: 10px; }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 16px 20px;
+    border-radius: 8px;
+    font-family: 'Courier New', monospace;
+    font-size: 11.5px;
+    line-height: 1.7;
+    margin: 10px 0 16px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  pre .comment { color: #64748b; }
+  pre .key { color: #93c5fd; }
+  pre .str { color: #86efac; }
+  pre .num { color: #fde68a; }
+  pre .url { color: #c4b5fd; }
+
+  /* ── Info boxes ── */
+  .info-box {
+    border-left: 4px solid #6366f1;
+    background: #eef2ff;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    color: #3730a3;
+  }
+  .warn-box {
+    border-left: 4px solid #f59e0b;
+    background: #fffbeb;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    color: #92400e;
+  }
+  .ok-box {
+    border-left: 4px solid #22c55e;
+    background: #f0fdf4;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    color: #166534;
+  }
+
+  /* ── Flow diagram ── */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 14px 0;
+    font-size: 12px;
+  }
+  .flow-step {
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 500;
+    color: #334155;
+    white-space: nowrap;
+  }
+  .flow-arrow { color: #94a3b8; font-size: 16px; }
+
+  /* ── Error table ── */
+  .status-200 { color: #16a34a; font-weight: 600; }
+  .status-400 { color: #d97706; font-weight: 600; }
+  .status-401 { color: #dc2626; font-weight: 600; }
+  .status-404 { color: #dc2626; font-weight: 600; }
+  .status-502 { color: #7c3aed; font-weight: 600; }
+
+  /* ── Print ── */
+  @media print {
+    body { padding: 20px 30px; font-size: 12px; }
+    .endpoint-card { page-break-inside: avoid; }
+    h2 { page-break-before: auto; }
+    pre { font-size: 10.5px; }
+  }
+
+  /* ── Footer ── */
+  .doc-footer {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 11px;
+    color: #94a3b8;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="doc-header">
+  <div class="logo-line">URPE AI Lab · Documentación Técnica</div>
+  <h1>Endpoints de Envío Manual de Mensajes</h1>
+  <div class="subtitle">Referencia completa para los endpoints <code>/send</code> — GHL y ManyChat</div>
+  <div class="meta">Base URL: <strong>https://brain.urpeailab.com</strong> &nbsp;·&nbsp; Versión 1.0 &nbsp;·&nbsp; Abril 2026</div>
+</div>
+
+
+<!-- OVERVIEW -->
+<h2>1. Descripción General</h2>
+
+<p>El sistema URPE AI Lab expone dos endpoints de envío manual que permiten enviar mensajes directamente a un contacto <strong>sin activar el agente de IA</strong>. Son útiles para respuestas de soporte humano, notificaciones automáticas externas, o cualquier caso donde se necesite enviar un mensaje programáticamente.</p>
+
+<p>Ambos endpoints comparten la misma filosofía:</p>
+
+<div class="flow">
+  <div class="flow-step">1. Recibe <code>contacto_id</code></div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">2. Busca en Supabase</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">3. Recupera credenciales</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">4. Envía mensaje</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">5. Guarda en DB</div>
+</div>
+
+<div class="info-box">
+  <strong>Dato clave:</strong> Solo necesitas enviar el <code>contacto_id</code> entero de Supabase (tabla <code>wp_contactos</code>). El sistema recupera automáticamente el subscriber_id/contact_id de la plataforma, el api_key y el canal desde la última conversación activa en la base de datos.
+</div>
+
+<div class="warn-box">
+  <strong>Prerequisito:</strong> El contacto debe haber enviado al menos un mensaje previo al sistema para que exista una conversación con las credenciales almacenadas. Sin historial previo, el endpoint devuelve error 400.
+</div>
+
+
+<!-- AUTENTICACION -->
+<h2>2. Autenticación</h2>
+
+<p>Todos los endpoints <code>/send</code> requieren el header <code>X-Send-Key</code> con el valor de la variable de entorno <code>SEND_API_KEY</code> configurada en el servidor.</p>
+
+<table>
+  <thead>
+    <tr><th>Header</th><th>Valor</th><th>Descripción</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>X-Send-Key</code></td>
+      <td><code>{SEND_API_KEY}</code></td>
+      <td>Clave secreta configurada en la variable de entorno del servidor. Si no está configurada, el endpoint es abierto.</td>
+    </tr>
+    <tr>
+      <td><code>Content-Type</code></td>
+      <td><code>application/json</code></td>
+      <td>Requerido en todas las peticiones POST con body JSON.</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><span class="comment"># Ejemplo con autenticación</span>
+curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -H <span class="str">"X-Send-Key: tu_clave_secreta"</span> \
+  -d '<span class="str">{"contacto_id": 12345, "mensaje": "Hola!"}</span>'</pre>
+
+
+<!-- ENDPOINT GHL -->
+<h2>3. Endpoint GHL — Instagram y Facebook</h2>
+
+<div class="endpoint-card ghl">
+  <div class="card-header">
+    <span class="method-badge">POST</span>
+    <span class="endpoint-url">https://brain.urpeailab.com/api/v1/ghl/send</span>
+    <span class="canal-badge">GHL · IG + FB</span>
+  </div>
+  <div class="card-body">
+
+    <p>Envía un mensaje directo a un contacto de Go High Level (GHL). Compatible con Instagram y Facebook. El canal se detecta automáticamente desde la conversación más reciente en la base de datos.</p>
+
+    <h3>Body de la petición</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Req.</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>contacto_id</code></td>
+          <td><code>integer</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>ID entero del contacto en la tabla <code>wp_contactos</code> de Supabase.</td>
+        </tr>
+        <tr>
+          <td><code>mensaje</code></td>
+          <td><code>string</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>Texto del mensaje a enviar. Soporta split de burbujas con <code>\n\n---\n\n</code> entre mensajes.</td>
+        </tr>
+        <tr>
+          <td><code>location_id</code></td>
+          <td><code>string</code></td>
+          <td><span class="optional">Opcional</span></td>
+          <td>GHL location ID. Si se omite, se recupera automáticamente desde el metadata de la última conversación.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Respuesta exitosa (200)</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ok</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje fue enviado correctamente.</td></tr>
+        <tr><td><code>contacto_id</code></td><td><code>integer</code></td><td>El mismo <code>contacto_id</code> recibido.</td></tr>
+        <tr><td><code>contact_id</code></td><td><code>string</code></td><td>GHL contact_id recuperado desde <code>wp_contactos.subscriber_id</code>.</td></tr>
+        <tr><td><code>guardado_en_db</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje quedó registrado en <code>wp_mensajes</code>.</td></tr>
+        <tr><td><code>error</code></td><td><code>string | null</code></td><td>Mensaje de error en caso de fallo. <code>null</code> si todo fue bien.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Ejemplo — Instagram (contacto_id conocido)</h3>
+    <pre>curl -X POST <span class="url">https://brain.urpeailab.com/api/v1/ghl/send</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -H <span class="str">"X-Send-Key: tu_clave_secreta"</span> \
+  -d '{
+    <span class="key">"contacto_id"</span>: <span class="num">285318</span>,
+    <span class="key">"mensaje"</span>: <span class="str">"Hola! Te escribimos para recordarte tu cita de mañana a las 10am."</span>
+  }'</pre>
+
+    <h3>Ejemplo — Mensaje con múltiples burbujas</h3>
+    <pre>curl -X POST <span class="url">https://brain.urpeailab.com/api/v1/ghl/send</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -H <span class="str">"X-Send-Key: tu_clave_secreta"</span> \
+  -d '{
+    <span class="key">"contacto_id"</span>: <span class="num">285318</span>,
+    <span class="key">"mensaje"</span>: <span class="str">"Primera burbuja de mensaje.\n\n---\n\nSegunda burbuja de mensaje."</span>
+  }'</pre>
+
+    <div class="ok-box">
+      El separador <code>---</code> (con saltos de línea alrededor) divide el mensaje en múltiples burbujas independientes enviadas en secuencia. Cada burbuja queda registrada por separado en la base de datos.
+    </div>
+
+    <h3>Respuesta de ejemplo</h3>
+    <pre>{
+  <span class="key">"ok"</span>: <span class="num">true</span>,
+  <span class="key">"contacto_id"</span>: <span class="num">285318</span>,
+  <span class="key">"contact_id"</span>: <span class="str">"ghl_contact_abc123"</span>,
+  <span class="key">"guardado_en_db"</span>: <span class="num">true</span>,
+  <span class="key">"error"</span>: <span class="num">null</span>
+}</pre>
+
+  </div>
+</div>
+
+
+<!-- ENDPOINT MANYCHAT -->
+<h2>4. Endpoint ManyChat — Instagram y Facebook</h2>
+
+<div class="endpoint-card mc">
+  <div class="card-header">
+    <span class="method-badge">POST</span>
+    <span class="endpoint-url">https://brain.urpeailab.com/api/v1/manychat/send</span>
+    <span class="canal-badge">ManyChat · IG + FB</span>
+  </div>
+  <div class="card-body">
+
+    <p>Envía un mensaje directo a un suscriptor de ManyChat. Compatible con Instagram y Facebook. El canal y el subscriber_id de ManyChat se recuperan automáticamente desde la conversación más reciente en la base de datos.</p>
+
+    <h3>Body de la petición</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Req.</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>contacto_id</code></td>
+          <td><code>integer</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>ID entero del contacto en la tabla <code>wp_contactos</code> de Supabase.</td>
+        </tr>
+        <tr>
+          <td><code>mensaje</code></td>
+          <td><code>string</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>Texto del mensaje a enviar.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Respuesta exitosa (200)</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ok</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje fue enviado correctamente.</td></tr>
+        <tr><td><code>contacto_id</code></td><td><code>integer</code></td><td>El mismo <code>contacto_id</code> recibido.</td></tr>
+        <tr><td><code>subscriber_id</code></td><td><code>string</code></td><td>ManyChat subscriber_id recuperado desde <code>wp_contactos.subscriber_id</code>.</td></tr>
+        <tr><td><code>guardado_en_db</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje quedó registrado en <code>wp_mensajes</code>.</td></tr>
+        <tr><td><code>error</code></td><td><code>string | null</code></td><td>Mensaje de error en caso de fallo. <code>null</code> si todo fue bien.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Ejemplo — Facebook (ManyChat)</h3>
+    <pre>curl -X POST <span class="url">https://brain.urpeailab.com/api/v1/manychat/send</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -H <span class="str">"X-Send-Key: tu_clave_secreta"</span> \
+  -d '{
+    <span class="key">"contacto_id"</span>: <span class="num">142890</span>,
+    <span class="key">"mensaje"</span>: <span class="str">"Gracias por contactarnos. Un asesor te atenderá en breve."</span>
+  }'</pre>
+
+    <h3>Respuesta de ejemplo</h3>
+    <pre>{
+  <span class="key">"ok"</span>: <span class="num">true</span>,
+  <span class="key">"contacto_id"</span>: <span class="num">142890</span>,
+  <span class="key">"subscriber_id"</span>: <span class="str">"mc_subscriber_xyz789"</span>,
+  <span class="key">"guardado_en_db"</span>: <span class="num">true</span>,
+  <span class="key">"error"</span>: <span class="num">null</span>
+}</pre>
+
+  </div>
+</div>
+
+
+<!-- ERRORES -->
+<h2>5. Códigos de Error</h2>
+
+<table>
+  <thead>
+    <tr><th>HTTP</th><th>Código / Condición</th><th>Descripción</th><th>Solución</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="status-401">401</span></td>
+      <td>X-Send-Key inválida</td>
+      <td>El header <code>X-Send-Key</code> está ausente o es incorrecto.</td>
+      <td>Verificar el valor de <code>SEND_API_KEY</code> en el servidor.</td>
+    </tr>
+    <tr>
+      <td><span class="status-404">404</span></td>
+      <td>Contacto no encontrado</td>
+      <td>El <code>contacto_id</code> no existe en <code>wp_contactos</code>.</td>
+      <td>Verificar que el <code>contacto_id</code> sea correcto.</td>
+    </tr>
+    <tr>
+      <td><span class="status-400">400</span></td>
+      <td>Sin subscriber_id</td>
+      <td>El contacto existe pero no tiene <code>subscriber_id</code> registrado.</td>
+      <td>El contacto debe haber iniciado conversación primero.</td>
+    </tr>
+    <tr>
+      <td><span class="status-400">400</span></td>
+      <td>Sin api_key</td>
+      <td>No se encontró el api_key de GHL o ManyChat en la conversación.</td>
+      <td>El contacto debe haber enviado al menos un mensaje previo.</td>
+    </tr>
+    <tr>
+      <td><span class="status-200">200</span> <code>ok: false</code></td>
+      <td>Error de envío</td>
+      <td>El sistema procesó la petición pero la API de GHL/ManyChat devolvió error.</td>
+      <td>Revisar el campo <code>error</code> en la respuesta para diagnóstico.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="warn-box">
+  <strong>Nota:</strong> Un HTTP 200 con <code>"ok": false</code> indica que el sistema procesó correctamente la petición pero el envío externo (GHL o ManyChat API) falló. Revisar el campo <code>error</code> para diagnóstico.
+</div>
+
+
+<!-- FLUJO INTERNO -->
+<h2>6. Flujo Interno Detallado</h2>
+
+<p>Este es el proceso interno que ejecuta el sistema al recibir una petición <code>/send</code>:</p>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>Paso</th><th>Descripción</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>1</td><td>Auth check</td><td>Valida <code>X-Send-Key</code> contra <code>SEND_API_KEY</code>.</td></tr>
+    <tr><td>2</td><td>Lookup contacto</td><td>Busca en <code>wp_contactos</code> por <code>contacto_id</code>. Obtiene <code>subscriber_id</code> y <code>empresa_id</code>.</td></tr>
+    <tr><td>3</td><td>Lookup conversación</td><td>Busca la conversación más reciente del canal correspondiente (<code>ghl_*</code> o <code>manychat</code>) en <code>wp_conversaciones</code>.</td></tr>
+    <tr><td>4</td><td>Recuperar credenciales</td><td>Extrae el <code>api_key</code>, <code>location_id</code> (GHL) y <code>canal</code> desde el <code>metadata</code> de los mensajes de esa conversación.</td></tr>
+    <tr><td>5</td><td>Split de burbujas</td><td>(Solo GHL) Divide el mensaje por el separador <code>---</code> en múltiples burbujas.</td></tr>
+    <tr><td>6</td><td>Enviar a API externa</td><td>Llama a la API de GHL Conversations o ManyChat sendContent con las credenciales recuperadas.</td></tr>
+    <tr><td>7</td><td>Guardar en DB</td><td>Registra el mensaje en <code>wp_mensajes</code> con <code>remitente="agente"</code>, <code>status="enviado"</code> y <code>envio_manual=true</code> en metadata.</td></tr>
+  </tbody>
+</table>
+
+
+<!-- DIFERENCIAS -->
+<h2>7. Diferencias entre GHL y ManyChat</h2>
+
+<table>
+  <thead>
+    <tr><th>Característica</th><th>GHL Send</th><th>ManyChat Send</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>URL</td><td><code>/api/v1/ghl/send</code></td><td><code>/api/v1/manychat/send</code></td></tr>
+    <tr><td>Canales soportados</td><td>Instagram, Facebook</td><td>Instagram, Facebook</td></tr>
+    <tr><td>API destino</td><td>GHL Conversations API (leadconnectorhq.com)</td><td>ManyChat Dynamic Message API</td></tr>
+    <tr><td>Split de burbujas</td><td>Sí — separador <code>---</code></td><td>No (mensaje único)</td></tr>
+    <tr><td>Campo extra opcional</td><td><code>location_id</code></td><td>—</td></tr>
+    <tr><td>Identificador interno</td><td><code>subscriber_id</code> → GHL contact_id</td><td><code>subscriber_id</code> → ManyChat subscriber_id</td></tr>
+    <tr><td>Canal auto-detectado desde</td><td>Metadata del mensaje + canal de la conversación</td><td>Canal de la conversación ManyChat</td></tr>
+  </tbody>
+</table>
+
+
+<!-- VARIABLES DE ENTORNO -->
+<h2>8. Variables de Entorno Requeridas</h2>
+
+<table>
+  <thead>
+    <tr><th>Variable</th><th>Descripción</th><th>Obligatoria</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>SEND_API_KEY</code></td>
+      <td>Clave de autenticación para todos los endpoints <code>/send</code>. Si no se configura, los endpoints quedan abiertos.</td>
+      <td><span class="required">Recomendada</span></td>
+    </tr>
+    <tr>
+      <td><code>GHL_API_KEY</code></td>
+      <td>Fallback global de GHL API key. Solo se usa si no se encontró el api_key en la conversación de DB.</td>
+      <td><span class="optional">Opcional</span></td>
+    </tr>
+    <tr>
+      <td><code>SUPABASE_URL</code></td>
+      <td>URL del proyecto Supabase donde están las tablas <code>wp_contactos</code>, <code>wp_conversaciones</code>, <code>wp_mensajes</code>.</td>
+      <td><span class="required">Requerida</span></td>
+    </tr>
+    <tr>
+      <td><code>SUPABASE_SERVICE_KEY</code></td>
+      <td>Service role key de Supabase para acceso completo a las tablas.</td>
+      <td><span class="required">Requerida</span></td>
+    </tr>
+  </tbody>
+</table>
+
+
+<!-- FOOTER -->
+<div class="doc-footer">
+  <span>URPE AI Lab · brain.urpeailab.com · Documentación Interna</span>
+  <span>Generado: Abril 2026</span>
+</div>
+
+</body>
+</html>
