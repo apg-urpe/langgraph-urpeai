@@ -7,6 +7,7 @@ class _GHLCustomData(BaseModel):
     message_body: str = ""
     multimedia: str | None = None
     telefono_receptor: str = ""   # número en wp_numeros → identifica empresa/agente
+    canal: str | None = None      # "instagram" | "facebook" — override explícito desde el workflow GHL
 
 
 class _GHLMessage(BaseModel):
@@ -71,13 +72,31 @@ class GHLInboundRequest(BaseModel):
 
     @property
     def canal(self) -> str:
-        """Canal detectado desde attributionSource.medium (instagram / facebook)."""
+        """Canal detectado. Orden de prioridad:
+        1. customData.canal (override explícito desde el workflow GHL)
+        2. contact.attributionSource.medium
+        3. Default: instagram
+        """
+        # 1. Override explícito en customData
+        if self.customData and self.customData.canal:
+            c = self.customData.canal.strip().lower()
+            if "facebook" in c or c == "fb":
+                return "facebook"
+            if "instagram" in c or c == "ig":
+                return "instagram"
+
+        # 2. Auto-detección desde attributionSource
         try:
-            medium = self.model_extra.get("contact", {}).get("attributionSource", {}).get("medium", "")
-            if isinstance(medium, str) and medium.lower() == "facebook":
+            contact = self.model_extra.get("contact") or {}
+            medium = (contact.get("attributionSource") or {}).get("medium") or ""
+            source = (contact.get("attributionSource") or {}).get("source") or ""
+            combined = f"{medium} {source}".lower()
+            if "facebook" in combined or " fb" in combined:
                 return "facebook"
         except Exception:
             pass
+
+        # 3. Default
         return "instagram"
 
 
