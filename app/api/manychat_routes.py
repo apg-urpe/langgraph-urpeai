@@ -168,36 +168,44 @@ async def _send_manychat_reply(
 async def manychat_send_manual(req: ManyChatSendManualRequest):
     """Envía un mensaje directo a un suscriptor de ManyChat sin pasar por el agente IA.
 
-    El token de ManyChat se obtiene automáticamente de la conversación activa
-    (guardado en los mensajes entrantes). No requiere header de autenticación adicional.
+    Usa el contacto_id integer de Supabase — recupera automáticamente el subscriber_id
+    y el api_key desde la conversación en DB.
+
+    Ejemplo curl:
+        curl -X POST https://TU_DOMINIO/api/v1/manychat/send \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "contacto_id": 285318,
+            "mensaje": "Hola, ¿en qué te puedo ayudar?",
+            "canal": "instagram"
+          }'
     """
     guardado_en_db = False
     manychat_api_key: str | None = None
     conversacion_id_db: int | None = None
     empresa_id_db: int | None = None
+    subscriber_id: str | None = None
 
-    # ── Buscar token y conversación desde la BD ───────────────────────────────
-    if req.telefono_receptor:
-        try:
-            numero = await db.get_numero_por_telefono(req.telefono_receptor)
-            if not numero:
-                raise HTTPException(status_code=404, detail=f"Número {req.telefono_receptor} no configurado")
+    # ── Lookup contacto → subscriber_id + conversación ────────────────────────
+    try:
+        contacto = await db.get_contacto(req.contacto_id)
+        if not contacto:
+            raise HTTPException(status_code=404, detail=f"Contacto {req.contacto_id} no encontrado en Supabase")
 
-            empresa_id_db = int(numero["empresa_id"])
-            numero_id     = int(numero["id"])
+        subscriber_id = contacto.get("subscriber_id")
+        if not subscriber_id:
+            raise HTTPException(status_code=400, detail="El contacto no tiene subscriber_id (ManyChat) registrado")
 
-            contacto = await db.get_contacto_por_subscriber_id(req.subscriber_id, empresa_id_db)
-            contacto_id = int(contacto["id"]) if contacto else None
+        empresa_id_db = int(contacto["empresa_id"])
 
-            if contacto_id:
-                conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
-                if conversacion:
-                    conversacion_id_db = int(conversacion["id"])
-                    manychat_api_key = await db.get_manychat_api_key_de_conversacion(conversacion_id_db)
-        except HTTPException:
-            raise
-        except Exception as exc:
-            logger.warning("manychat_send_manual: error buscando token en DB: %s", exc)
+        conversacion = await db.get_conversacion_manychat_reciente(req.contacto_id)
+        if conversacion:
+            conversacion_id_db = int(conversacion["id"])
+            manychat_api_key = await db.get_manychat_api_key_de_conversacion(conversacion_id_db)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("manychat_send_manual: error buscando datos en DB: %s", exc)
 
     if not manychat_api_key:
         raise HTTPException(
@@ -209,14 +217,15 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
     # ── Enviar mensaje via ManyChat API ───────────────────────────────────────
     ok, error_msg = await _send_manychat_reply(
         api_key=manychat_api_key,
-        subscriber_id=req.subscriber_id,
+        subscriber_id=subscriber_id,
         text=req.mensaje,
         canal=req.canal,
     )
     if not ok:
         return ManyChatSendManualResponse(
             ok=False,
-            subscriber_id=req.subscriber_id,
+            contacto_id=req.contacto_id,
+            subscriber_id=subscriber_id,
             error=error_msg,
         )
 
@@ -231,7 +240,7 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
                 status="enviado",
                 metadata={
                     "canal": req.canal,
-                    "subscriber_id": req.subscriber_id,
+                    "subscriber_id": subscriber_id,
                     "envio_manual": True,
                 },
                 empresa_id=empresa_id_db,
@@ -239,14 +248,15 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
             guardado_en_db = True
             logger.info(
                 "manychat_send_manual guardado — subscriber=%s conversacion=%s",
-                req.subscriber_id, conversacion_id_db,
+                subscriber_id, conversacion_id_db,
             )
         except Exception as exc:
             logger.warning("manychat_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
 
     return ManyChatSendManualResponse(
         ok=True,
-        subscriber_id=req.subscriber_id,
+        contacto_id=req.contacto_id,
+        subscriber_id=subscriber_id,
         guardado_en_db=guardado_en_db,
     )
 
