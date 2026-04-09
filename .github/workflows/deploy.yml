@@ -47,19 +47,5 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            set -euo pipefail
-
-            REPO_DIR=/opt/aguapp
-
-            echo "==> Pulling latest code in $REPO_DIR..."
-            cd "$REPO_DIR"
-            git pull origin main
-
-            echo "==> Building and restarting container..."
-            docker compose up --build -d
-
-            echo "==> Waiting for health check..."
-            sleep 10
-            docker compose ps
-
-            echo "==> Deploy complete."
+            cd /opt/aguapp
+            bash scripts/deploy.sh main
