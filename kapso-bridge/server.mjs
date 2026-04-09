@@ -6207,6 +6207,31 @@ app.delete('/api/v1/ghl/inspect/clear', async (req, res) => {
   }
 });
 
+app.get('/api/v1/ghl/debug/events', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const targetUrl = new URL(`/api/v1/ghl/debug/events${qs}`, `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_debug_events_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/ghl/debug/config', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/debug/config', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_debug_config_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/ghl/inbound', async (req, res) => {
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();

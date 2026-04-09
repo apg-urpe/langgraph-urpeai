@@ -142,6 +142,8 @@ async def _bg_contact_update(
 class _InboundProxy:
     from_phone: str
     contact_name: str | None = None
+    message_type: str = "text"
+    has_media: bool = False
 
 
 # ── Endpoint principal ────────────────────────────────────────────────────────
@@ -295,6 +297,8 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
         inbound_proxy = _InboundProxy(
             from_phone=contact_id,
             contact_name=nombre_usuario or (contacto.get("nombre") if contacto else None),
+            message_type="text" if not multimedia else "image",
+            has_media=bool(multimedia),
         )
         _pcd = prompt_context_data or {}
         context_payload, prompt_extras = build_kapso_context_payload(
