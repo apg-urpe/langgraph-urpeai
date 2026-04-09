@@ -1,10 +1,15 @@
 ﻿import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 import 'dotenv/config';
 
 import cors from 'cors';
 
 import express from 'express';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 import { WhatsAppClient } from '@kapso/whatsapp-cloud-api';
 
@@ -7737,6 +7742,10 @@ app.get('/debug/canales/data', async (req, res) => {
     res.status(500).json({ error: String(err) });
   }
 });
+
+
+// ── Archivos estáticos: /public → ../docs ────────────────────────────────────
+app.use('/public', express.static(join(__dirname, '..', 'docs')));
 
 
 app.listen(PORT, () => {
