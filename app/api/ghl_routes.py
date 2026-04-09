@@ -18,6 +18,16 @@ from dataclasses import dataclass
 # Separador de burbujas: igual que el bridge de WhatsApp
 _MSG_SEPARATOR = re.compile(r"\n*---\n*")
 
+
+def _extract_slash_command(message: str | None) -> str | None:
+    """Detecta comandos /borrar y /borrar2 al inicio del mensaje."""
+    if not message:
+        return None
+    normalized = str(message).strip()
+    if not normalized.startswith("/"):
+        return None
+    return normalized.split()[0].lower()
+
 import httpx
 from collections import deque
 
@@ -254,6 +264,49 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 
         conversacion_db_id: int | None = conversacion_db.get("id") if conversacion_db else None
         memory_session_id = f"ghl_{contact_id}"
+
+        # 3b. Slash commands — proceso inmediato, sin agentes ─────────────────
+        slash_command = _extract_slash_command(mensaje)
+        if slash_command:
+            session_ids = {contact_id, memory_session_id}
+            if contacto_id:
+                session_ids.add(str(contacto_id))
+
+            add_kapso_debug_event(
+                "fastapi", "slash_command_detected",
+                {"command": slash_command, "contact_id": contact_id, "contacto_id": contacto_id},
+                channel=_channel,
+            )
+
+            if slash_command == "/borrar":
+                deleted = await asyncio.gather(*[db.delete_agent_memory(s) for s in session_ids if s])
+                reply_text = f"Memoria del agente borrada. Registros eliminados: {sum(deleted)}."
+
+            elif slash_command == "/borrar2":
+                await asyncio.gather(*[db.delete_agent_memory(s) for s in session_ids if s])
+                if contacto_id:
+                    await db.reset_contacto_data(contacto_id)
+                    reply_text = "Usuario eliminado correctamente. La siguiente interacción se tratará como usuario nuevo."
+                else:
+                    reply_text = "No se encontró información del usuario para eliminar."
+            else:
+                reply_text = "Comando no reconocido. Usa /borrar o /borrar2."
+
+            add_kapso_debug_event(
+                "fastapi", "slash_command_done",
+                {"command": slash_command, "contact_id": contact_id, "reply": reply_text},
+                channel=_channel,
+            )
+
+            await _send_ghl_reply(
+                api_key=api_key,
+                contact_id=contact_id,
+                conversation_id=None,
+                text=reply_text,
+                canal=canal,
+                location_id=location_id,
+            )
+            return
 
         # 4. Debug — mensaje recibido
         add_kapso_debug_event(
