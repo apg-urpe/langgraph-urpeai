@@ -10,9 +10,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
+
+# Separador de burbujas: igual que el bridge de WhatsApp
+_MSG_SEPARATOR = re.compile(r"\n*---\n*")
 
 import httpx
 from collections import deque
@@ -368,28 +372,40 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 
         elapsed = time.perf_counter() - t_start
 
-        # 10. Enviar respuesta via GHL API
+        # 10. Enviar respuesta via GHL API — con split de burbujas
         send_ok, send_error = False, None
         if reply_text:
-            send_ok, send_error = await _send_ghl_reply(
-                api_key=api_key,
-                contact_id=contact_id,
-                conversation_id=None,   # GHL no envía conversation_id en el webhook
-                text=reply_text,
-                canal=canal,
-                location_id=location_id,
-            )
-            if send_ok and conversacion_db_id:
-                await db.insertar_mensaje(
-                    conversacion_id=conversacion_db_id,
-                    contenido=reply_text,
-                    remitente="agente",
-                    tipo="texto",
-                    status="enviado",
-                    modelo_llm=result.model_used,
-                    metadata={"canal": canal, "ghl_contact_id": contact_id},
-                    empresa_id=empresa_id,
+            # Dividir en burbujas separadas por "---" (igual que WhatsApp)
+            bubbles = [b.strip() for b in _MSG_SEPARATOR.split(reply_text) if b.strip()]
+            if not bubbles:
+                bubbles = [reply_text]
+
+            last_ok, last_error = False, None
+            for bubble in bubbles:
+                ok, err = await _send_ghl_reply(
+                    api_key=api_key,
+                    contact_id=contact_id,
+                    conversation_id=None,   # GHL no envía conversation_id en el webhook
+                    text=bubble,
+                    canal=canal,
+                    location_id=location_id,
                 )
+                last_ok, last_error = ok, err
+                if ok and conversacion_db_id:
+                    await db.insertar_mensaje(
+                        conversacion_id=conversacion_db_id,
+                        contenido=bubble,
+                        remitente="agente",
+                        tipo="texto",
+                        status="enviado",
+                        modelo_llm=result.model_used,
+                        metadata={"canal": canal, "ghl_contact_id": contact_id},
+                        empresa_id=empresa_id,
+                    )
+                elif not ok:
+                    logger.warning("GHL burbuja no enviada: %s | error: %s", bubble[:80], err)
+                    break  # detenemos en el primer error
+            send_ok, send_error = last_ok, last_error
 
         # 11. Debug — respuesta enviada
         add_kapso_debug_event(
@@ -401,6 +417,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 "agent_name": agent.get("nombre_agente") if agent else None,
                 "model_used": result.model_used,
                 "reply_preview": reply_text[:200] if reply_text else "",
+                "bubbles_sent": len(bubbles) if reply_text else 0,
                 "elapsed_s": round(elapsed, 2),
                 "canal": canal,
                 "ghl_send_ok": send_ok,
