@@ -8,6 +8,7 @@ import time
 from typing import Annotated, TypedDict
 
 import httpx
+import openai
 
 from app.core.error_webhook import send_error_to_webhook
 from langchain_core.callbacks.base import Callbacks
@@ -904,7 +905,9 @@ async def run_funnel_agent(request: FunnelAgentRequest) -> FunnelAgentResponse:
     """Ejecuta el agente de embudo."""
     t_start = time.perf_counter()
     
-    model = "x-ai/grok-4.1-fast"
+    PRIMARY_MODEL = "google/gemini-2.5-flash-lite"
+    FALLBACK_MODEL = "x-ai/grok-4.1-fast"
+    model = PRIMARY_MODEL
     max_tokens = request.max_tokens or 512
     temperature = request.temperature if request.temperature is not None else 0.5
     
@@ -967,17 +970,8 @@ async def run_funnel_agent(request: FunnelAgentRequest) -> FunnelAgentResponse:
                 logger.error(f"Error en update_metadata: {e}")
                 return f"Error: {str(e)}"
         
-        # Crear LLM y bindearlo con las herramientas
-        llm = _create_llm(model, max_tokens, temperature)
         tools = [update_metadata]
-        llm_with_tools = llm.bind_tools(tools)
-        
-        # Construir grafo
-        t_graph = time.perf_counter()
-        graph = _build_graph(llm_with_tools, context, request)
-        compiled = graph.compile()
-        graph_build_ms = (time.perf_counter() - t_graph) * 1000
-        
+
         conversacion_memoria_payload = (context.conversacion_memoria or {}).get("data") or {
             "id": request.conversacion_id,
             "total_mensajes": 0,
@@ -1009,7 +1003,7 @@ async def run_funnel_agent(request: FunnelAgentRequest) -> FunnelAgentResponse:
             memory_turns,
             use_memory_only=bool(request.memory_session_id),
         )
-        
+
         # Estado inicial
         initial_state: FunnelAgentState = {
             "messages": [
@@ -1026,9 +1020,29 @@ async def run_funnel_agent(request: FunnelAgentRequest) -> FunnelAgentResponse:
             "short_circuit": False,
             "short_circuit_response": None,
         }
-        
-        # Ejecutar grafo
-        final_state = await compiled.ainvoke(initial_state)
+
+        # Crear LLM, construir grafo y ejecutar — con fallback a grok si rate limit
+        graph_build_ms = 0.0
+        final_state = None
+        for attempt, current_model in enumerate([PRIMARY_MODEL, FALLBACK_MODEL]):
+            model = current_model
+            if attempt > 0:
+                logger.warning(
+                    f"Funnel: rate limit en {PRIMARY_MODEL}, reintentando con {FALLBACK_MODEL}"
+                )
+            try:
+                t_graph = time.perf_counter()
+                llm = _create_llm(model, max_tokens, temperature)
+                llm_with_tools = llm.bind_tools(tools)
+                graph = _build_graph(llm_with_tools, context, request)
+                compiled = graph.compile()
+                graph_build_ms = (time.perf_counter() - t_graph) * 1000
+                final_state = await compiled.ainvoke(initial_state)
+                break  # éxito — salir del loop
+            except openai.RateLimitError:
+                if attempt == 0:
+                    continue  # reintentar con modelo fallback
+                raise  # ambos modelos fallaron
         
         # Extraer respuesta
         short_circuit_response = final_state.get("short_circuit_response")
