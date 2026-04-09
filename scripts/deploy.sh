@@ -18,7 +18,8 @@ set -euo pipefail
 BRANCH="${1:-main}"
 CONTAINER_NAME="aguapp"
 COMPOSE_FILE="docker-compose.yml"
-MAX_WAIT=120          # segundos máximos esperando que el contenedor sea healthy
+MAX_WAIT=210          # segundos máximos esperando que el contenedor sea healthy
+                      # Docker puede tardar hasta 195s (start_period:45 + retries:5 x interval:30)
 POLL_INTERVAL=5       # segundos entre cada consulta al health check
 LOG_FILE="./logs/deploy.log"
 
@@ -83,8 +84,8 @@ wait_healthy() {
 
 # ── Rebuild y arrancar ────────────────────────────────────────────────────────
 rebuild_and_start() {
-  log "Haciendo docker compose up -d --build..."
-  docker compose -f "$COMPOSE_FILE" up -d --build 2>&1 | tee -a "$LOG_FILE"
+  log "Haciendo docker compose up -d --build --force-recreate..."
+  docker compose -f "$COMPOSE_FILE" up -d --build --force-recreate 2>&1 | tee -a "$LOG_FILE"
 }
 
 # ── Rollback ──────────────────────────────────────────────────────────────────
