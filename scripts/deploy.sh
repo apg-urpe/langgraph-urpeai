@@ -20,7 +20,7 @@ CONTAINER_NAME="aguapp"
 COMPOSE_FILE="docker-compose.yml"
 MAX_WAIT=120          # segundos máximos esperando que el contenedor sea healthy
 POLL_INTERVAL=5       # segundos entre cada consulta al health check
-LOG_FILE="/var/log/aguapp/deploy.log"
+LOG_FILE="./logs/deploy.log"
 
 # ── Colores ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
