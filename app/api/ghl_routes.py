@@ -244,7 +244,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
         # 5. Persistir mensaje entrante
         if conversacion_db_id:
             await db.insertar_mensaje(
-                conversacao_id=conversacion_db_id,
+                conversacion_id=conversacion_db_id,
                 contenido=mensaje or f"[{canal} media]",
                 remitente="usuario",
                 tipo="texto",
@@ -348,7 +348,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
             )
             if send_ok and conversacion_db_id:
                 await db.insertar_mensaje(
-                    conversacao_id=conversacion_db_id,
+                    conversacion_id=conversacion_db_id,
                     contenido=reply_text,
                     remitente="agente",
                     tipo="texto",
