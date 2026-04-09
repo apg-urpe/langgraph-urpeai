@@ -267,6 +267,21 @@ async def manychat_send_manual(req: ManyChatSendManualRequest, x_send_key: str |
         except Exception as exc:
             logger.warning("manychat_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
 
+    # ── Inyectar en memoria del agente ────────────────────────────────────────
+    memory_session_id = f"mc_{subscriber_id}"
+    try:
+        await db.insert_agent_memory(
+            memory_session_id,
+            {
+                "role": "assistant",
+                "content": f"[Asesor humano]: {req.mensaje}",
+                "conversation_id": str(conversacion_id_db) if conversacion_id_db else None,
+                "model": "asesor_humano",
+            },
+        )
+    except Exception as exc:
+        logger.warning("manychat_send_manual: error inyectando en agent_memory: %s", exc)
+
     return ManyChatSendManualResponse(
         ok=True,
         contacto_id=req.contacto_id,
