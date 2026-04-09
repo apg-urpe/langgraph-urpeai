@@ -298,13 +298,41 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 channel=_channel,
             )
 
-            await _send_ghl_reply(
-                api_key=api_key,
+            # Fallback: fetch location_id / api_key from DB if not present in webhook
+            _slash_api_key = api_key
+            _slash_location_id = location_id
+            if (not _slash_location_id or not _slash_api_key) and conversacion_db_id:
+                try:
+                    creds = await db.get_ghl_credentials_de_conversacion(conversacion_db_id)
+                    if not _slash_location_id:
+                        _slash_location_id = creds.get("location_id")
+                    if not _slash_api_key:
+                        _slash_api_key = creds.get("api_key") or _slash_api_key
+                except Exception as _cred_exc:
+                    logger.warning("slash_command: error fetching creds from DB: %s", _cred_exc)
+
+            _slash_ok, _slash_err = await _send_ghl_reply(
+                api_key=_slash_api_key or "",
                 contact_id=contact_id,
                 conversation_id=None,
                 text=reply_text,
                 canal=canal,
-                location_id=location_id,
+                location_id=_slash_location_id,
+            )
+            logger.info(
+                "slash_command reply sent: ok=%s err=%s location_id=%s",
+                _slash_ok, _slash_err, _slash_location_id,
+            )
+            add_kapso_debug_event(
+                "fastapi", "slash_command_reply_sent",
+                {
+                    "command": slash_command,
+                    "contact_id": contact_id,
+                    "ok": _slash_ok,
+                    "error": _slash_err,
+                    "location_id": _slash_location_id,
+                },
+                channel=_channel,
             )
             return
 
