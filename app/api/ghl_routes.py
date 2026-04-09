@@ -153,51 +153,47 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
     """Pipeline completo: lookup → upsert contacto → agentes → enviar respuesta."""
     t_start = time.perf_counter()
     try:
-        mensaje = (request.message_body or "").strip()
+        mensaje = request.message_text.strip()
         contact_id = request.ghl_contact_id
-        conversation_id = request.ghl_conversation_id
         nombre_usuario = request.contact_name
-        canal = (request.canal or "instagram").lower()
-        _channel = f"ghl_{canal}"   # canal de debug: "ghl_instagram" | "ghl_facebook"
+        canal = request.canal          # "instagram" | "facebook"
+        _channel = f"ghl_{canal}"     # "ghl_instagram" | "ghl_facebook"
+        multimedia = request.customData.multimedia if request.customData else None
 
         # Ignorar si está vacío y sin media
-        if not mensaje and not request.multimedia:
+        if not mensaje and not multimedia:
             logger.info("GHL inbound: payload vacío ignorado")
             return
 
         # Validar contact_id
         if not contact_id:
-            logger.warning("GHL inbound: sin contact_id — payload recibido: %s", request.model_dump())
+            logger.warning("GHL inbound: sin contact_id — payload: %s", request.model_dump())
             add_kapso_debug_event(
                 "fastapi", "ghl_sin_contact_id",
                 {
-                    "telefono_recept": request.telefono_recept,
+                    "telefono_receptor": request.telefono_receptor,
                     "mensaje": mensaje[:100],
-                    "raw_id_fields": {
-                        "contact_id": request.contact_id,
-                        "id": request.id,
-                    },
                 },
                 channel=_channel,
             )
             return
 
         # 1. Lookup número → empresa + agente
-        numero = await db.get_numero_por_telefono(request.telefono_recept)
+        numero = await db.get_numero_por_telefono(request.telefono_receptor)
         if not numero:
             add_kapso_debug_event(
                 "fastapi", "ghl_numero_no_encontrado",
                 {
-                    "telefono_recept": request.telefono_recept,
+                    "telefono_receptor": request.telefono_receptor,
                     "contact_id": contact_id,
-                    "error": f"telefono_recept={request.telefono_recept} no existe en wp_numeros",
+                    "error": f"telefono_receptor={request.telefono_receptor} no existe en wp_numeros",
                     "dropped": True,
                 },
                 channel=_channel,
             )
             logger.error(
-                "GHL: telefono_recept=%s no existe en wp_numeros — mensaje descartado",
-                request.telefono_recept,
+                "GHL: telefono_receptor=%s no existe en wp_numeros — mensaje descartado",
+                request.telefono_receptor,
             )
             return
 
@@ -256,8 +252,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 metadata={
                     "canal": canal,
                     "ghl_contact_id": contact_id,
-                    "ghl_conversation_id": conversation_id,
-                    "telefono_recept": request.telefono_recept,
+                    "telefono_receptor": request.telefono_receptor,
                     "ghl_api_key": api_key,
                 },
                 empresa_id=empresa_id,
@@ -347,7 +342,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
             send_ok, send_error = await _send_ghl_reply(
                 api_key=api_key,
                 contact_id=contact_id,
-                conversation_id=conversation_id,
+                conversation_id=None,   # GHL no envía conversation_id en el webhook
                 text=reply_text,
                 canal=canal,
             )
