@@ -15,7 +15,9 @@ import uuid
 from dataclasses import dataclass
 
 import httpx
-from fastapi import APIRouter, Header
+from collections import deque
+
+from fastapi import APIRouter, Header, Request
 
 from app.agents.contact_update import run_contact_update_agent
 from app.agents.conversational import CLOSING_FOLLOWUP_MARKER, run_agent
@@ -389,7 +391,48 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
         )
 
 
+# ── Inspect storage (últimos 10 payloads crudos recibidos) ───────────────────
+_inspect_log: deque[dict] = deque(maxlen=10)
+
+
 # ── Debug endpoints ───────────────────────────────────────────────────────────
+
+@router.post("/inspect")
+async def ghl_inspect(req: Request):
+    """Endpoint temporal de inspección.
+    Apunta tu webhook de GHL aquí, envía un mensaje y verás el payload completo
+    (headers + body) en GET /api/v1/ghl/inspect/last
+    """
+    import datetime
+    body_bytes = await req.body()
+    try:
+        import json
+        body_json = json.loads(body_bytes)
+    except Exception:
+        body_json = body_bytes.decode(errors="replace")
+
+    entry = {
+        "received_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "headers": dict(req.headers),
+        "body": body_json,
+    }
+    _inspect_log.appendleft(entry)
+    logger.info("GHL inspect payload recibido: %s", body_json)
+    return {"ok": True, "received": entry}
+
+
+@router.get("/inspect/last")
+async def ghl_inspect_last():
+    """Devuelve los últimos 10 payloads recibidos en /inspect."""
+    return {"count": len(_inspect_log), "payloads": list(_inspect_log)}
+
+
+@router.delete("/inspect/clear")
+async def ghl_inspect_clear():
+    """Limpia el log de inspección."""
+    _inspect_log.clear()
+    return {"cleared": True}
+
 
 @router.get("/debug/events")
 async def ghl_debug_events(limit: int = 50):

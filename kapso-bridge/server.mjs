@@ -6166,6 +6166,23 @@ app.post('/api/v1/scheduling/eliminar-evento', async (req, res) => {
 });
 
 /* ── ManyChat inbound ── */
+// GHL inspect — captura el payload crudo para debuggear
+app.post('/api/v1/ghl/inspect', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/ghl/inbound', async (req, res) => {
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();
