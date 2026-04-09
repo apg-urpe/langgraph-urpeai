@@ -31,7 +31,7 @@ from app.schemas.chat import AgentRunTrace, ChatRequest, MCPServerConfig, Timing
 from app.schemas.channel import ChannelInboundMessage
 from app.schemas.contact_update import ContactUpdateAgentRequest, ContactUpdateAgentResponse
 from app.schemas.funnel import FunnelAgentRequest, FunnelAgentResponse
-from app.schemas.kapso import KapsoInboundRequest, KapsoInboundResponse, KapsoReactionPayload
+from app.schemas.kapso import KapsoInboundRequest, KapsoInboundResponse, KapsoReactionPayload, KapsoSendManualRequest, KapsoSendManualResponse
 from app.services.channel_adapter import normalize_kapso_inbound
 
 logger = logging.getLogger(__name__)
@@ -1001,6 +1001,139 @@ def _require_kapso_debug_access(request: Request, x_kapso_internal_token: str | 
         raise HTTPException(status_code=503, detail="Debug disabled")
     if provided_token not in allowed_tokens:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _require_send_key(x_send_key: str | None) -> None:
+    """Verifica la clave de autenticación para el endpoint de envío manual."""
+    required = get_settings().SEND_API_KEY
+    if not required:
+        return
+    if not x_send_key or x_send_key != required:
+        raise HTTPException(status_code=401, detail="X-Send-Key inválida o ausente")
+
+
+# ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
+
+@router.post("/send", response_model=KapsoSendManualResponse)
+async def kapso_send_manual(req: KapsoSendManualRequest, x_send_key: str | None = Header(default=None)):
+    """Envía un mensaje directo a un contacto de WhatsApp/Kapso sin pasar por el agente IA.
+
+    Usa el contacto_id integer de Supabase — recupera automáticamente el teléfono
+    y el phone_number_id desde la última conversación en DB, y despacha via el bridge.
+
+    Ejemplo curl:
+        curl -X POST https://TU_DOMINIO/api/v1/kapso/send \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "contacto_id": 285318,
+            "mensaje": "Hola, ¿en qué te puedo ayudar?"
+          }'
+    """
+    _require_send_key(x_send_key)
+
+    guardado_en_db = False
+    telefono: str | None = None
+    phone_number_id: str | None = None
+    conversacion_id_db: int | None = None
+    empresa_id_db: int | None = None
+
+    # ── Lookup contacto → teléfono + conversación ─────────────────────────────
+    try:
+        contacto = await db.get_contacto(req.contacto_id)
+        if not contacto:
+            raise HTTPException(status_code=404, detail=f"Contacto {req.contacto_id} no encontrado en Supabase")
+
+        telefono = contacto.get("telefono")
+        if not telefono:
+            raise HTTPException(status_code=400, detail="El contacto no tiene teléfono registrado")
+
+        empresa_id_db = int(contacto["empresa_id"])
+
+        conversacion = await db.get_conversacion_kapso_reciente(req.contacto_id)
+        if conversacion:
+            conversacion_id_db = int(conversacion["id"])
+            creds = await db.get_kapso_credentials_de_conversacion(conversacion_id_db)
+            phone_number_id = creds.get("phone_number_id")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("kapso_send_manual: error buscando datos en DB: %s", exc)
+
+    if not phone_number_id:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró phone_number_id en la conversación. "
+                   "Asegúrate de que el contacto haya enviado al menos un mensaje primero.",
+        )
+
+    # ── Despachar via bridge (/api/v1/dispatch) ───────────────────────────────
+    dispatch_payload = {
+        "reply_type": "text",
+        "reply_text": req.mensaje,
+        "suppress_send": False,
+        "recipient_phone": telefono,
+        "phone_number_id": phone_number_id,
+        "message_id": f"manual_{req.contacto_id}_{int(time.time())}",
+        "conversation_id": str(conversacion_id_db) if conversacion_id_db else f"manual_{req.contacto_id}",
+        "agent_id": 0,
+        "agent_name": "asesor_humano",
+        "model_used": "asesor_humano",
+        "timing": {"total_ms": 0, "llm_ms": 0, "mcp_discovery_ms": 0, "graph_build_ms": 0, "tool_execution_ms": 0},
+        "tools_used": [],
+        "agent_runs": [],
+    }
+
+    result = await _dispatch_to_bridge(dispatch_payload)
+    if result is None:
+        return KapsoSendManualResponse(
+            ok=False,
+            contacto_id=req.contacto_id,
+            telefono=telefono,
+            error="Bridge no disponible o KAPSO_BRIDGE_URL no configurado",
+        )
+
+    # ── Guardar en DB ─────────────────────────────────────────────────────────
+    if conversacion_id_db:
+        try:
+            await db.insertar_mensaje(
+                conversacion_id=conversacion_id_db,
+                contenido=req.mensaje,
+                remitente="agente",
+                tipo="texto",
+                status="enviado",
+                metadata={
+                    "canal": "whatsapp",
+                    "telefono": telefono,
+                    "phone_number_id": phone_number_id,
+                    "envio_manual": True,
+                },
+                empresa_id=empresa_id_db,
+            )
+            guardado_en_db = True
+        except Exception as exc:
+            logger.warning("kapso_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
+
+    # ── Inyectar en memoria del agente ────────────────────────────────────────
+    memory_session_id = str(req.contacto_id)
+    try:
+        await db.insert_agent_memory(
+            memory_session_id,
+            {
+                "role": "assistant",
+                "content": f"[Asesor humano]: {req.mensaje}",
+                "conversation_id": str(conversacion_id_db) if conversacion_id_db else None,
+                "model": "asesor_humano",
+            },
+        )
+    except Exception as exc:
+        logger.warning("kapso_send_manual: error inyectando en agent_memory: %s", exc)
+
+    return KapsoSendManualResponse(
+        ok=True,
+        contacto_id=req.contacto_id,
+        telefono=telefono,
+        guardado_en_db=guardado_en_db,
+    )
 
 
 @router.get("/debug/events")

@@ -74,3 +74,16 @@ class KapsoInboundResponse(BaseModel):
     timing: TimingInfo = Field(..., description="Métricas del procesamiento del agente")
     tools_used: list[ToolCall] = Field(default_factory=list, description="Herramientas usadas por el backend")
     agent_runs: list[AgentRunTrace] = Field(default_factory=list, description="Detalle de ejecución de cada agente del backend")
+
+
+class KapsoSendManualRequest(BaseModel):
+    contacto_id: int = Field(..., description="ID integer del contacto en Supabase (wp_contactos.id)")
+    mensaje: str = Field(..., description="Texto a enviar al contacto por WhatsApp")
+
+
+class KapsoSendManualResponse(BaseModel):
+    ok: bool
+    contacto_id: int
+    telefono: str | None = None
+    guardado_en_db: bool = False
+    error: str | None = None

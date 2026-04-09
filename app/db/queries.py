@@ -660,6 +660,45 @@ async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | No
     return creds.get("api_key")
 
 
+async def get_conversacion_kapso_reciente(contacto_id: int) -> dict | None:
+    """Busca la conversación WhatsApp/Kapso más reciente de un contacto (canal='whatsapp')."""
+    sb = await get_supabase()
+    results = await sb.query(
+        "wp_conversaciones",
+        filters={"contacto_id": contacto_id},
+        order="created_at", order_desc=True,
+        limit=10,
+    ) or []
+    for conv in results:
+        if (conv.get("canal") or "") == "whatsapp":
+            return conv
+    return results[0] if results else None
+
+
+async def get_kapso_credentials_de_conversacion(conversacion_id: int) -> dict:
+    """Recupera phone_number_id del mensaje entrante más reciente de una conversación Kapso."""
+    sb = await get_supabase()
+    msgs = await sb.query(
+        "wp_mensajes",
+        select="metadata",
+        filters={"conversacion_id": conversacion_id, "remitente": "usuario"},
+        order="timestamp", order_desc=True,
+        limit=5,
+    ) or []
+    for msg in msgs:
+        meta = msg.get("metadata") or {}
+        if isinstance(meta, str):
+            import json
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                continue
+        phone_number_id = meta.get("phone_number_id")
+        if phone_number_id:
+            return {"phone_number_id": phone_number_id}
+    return {}
+
+
 async def get_manychat_credentials_de_conversacion(conversacion_id: int) -> dict:
     """Recupera manychat_api_key y canal del mensaje entrante más reciente."""
     sb = await get_supabase()
