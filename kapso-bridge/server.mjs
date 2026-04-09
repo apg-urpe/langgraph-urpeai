@@ -7174,10 +7174,6 @@ function renderCanalesHtml(data, debugToken = '') {
 
   <div id="canal-interaction-details">${interactionDetails}</div>
 
-  <details style="margin-top:18px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px">
-    <summary style="cursor:pointer;font-weight:700;color:#94a3b8;font-size:12px">🔧 SSE Debug</summary>
-    <pre id="sse-debug-log" style="color:#94a3b8;font-size:11px;margin-top:8px;max-height:200px;overflow-y:auto"></pre>
-  </details>
 
 <script>
 function canalToggleMore(a){
@@ -7281,16 +7277,6 @@ function canalToggleMore(a){
     }).catch(function(e){ console.warn('canales poll error',e); });
   }
 
-  var sseLog = [];
-  function dbg(msg){
-    var ts = new Date().toLocaleTimeString();
-    sseLog.unshift('['+ts+'] '+msg);
-    if(sseLog.length > 30) sseLog.pop();
-    var el = document.getElementById('sse-debug-log');
-    if(el) el.textContent = sseLog.join('\\n');
-    console.log('[SSE-canales]', msg);
-  }
-
   function setLiveStatus(live){
     var el=document.getElementById('sse-status');
     if(!el) return;
@@ -7298,32 +7284,25 @@ function canalToggleMore(a){
     else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
   }
   function startFallbackPolling(){
-    if(!timer && autoRefresh){ timer=setInterval(poll, FALLBACK_POLL_MS); dbg('fallback polling started ('+FALLBACK_POLL_MS+'ms)'); }
+    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
   }
   function stopFallbackPolling(){
-    if(timer){ clearInterval(timer); timer=null; dbg('fallback polling stopped'); }
+    if(timer){ clearInterval(timer); timer=null; }
   }
   function connectSSE(){
     if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
-    var url = debugPath('/debug/kapso/stream');
-    dbg('connecting to: '+url);
-    sseSource = new EventSource(url);
-    dbg('readyState after new: '+sseSource.readyState);
+    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
     sseSource.onopen = function(){
-      dbg('onopen fired — readyState='+sseSource.readyState);
       setLiveStatus(true);
       stopFallbackPolling();
     };
     sseSource.onmessage = function(e){
-      dbg('onmessage: '+String(e.data).slice(0,60));
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(poll, 300);
     };
-    sseSource.onerror = function(e){
-      var rs = sseSource ? sseSource.readyState : 'null';
-      dbg('onerror — readyState='+rs);
+    sseSource.onerror = function(){
       setLiveStatus(false);
-      if(sseSource){ try{ sseSource.close(); }catch(ex){} sseSource=null; }
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
       startFallbackPolling();
       if(autoRefresh) setTimeout(connectSSE, 5000);
     };
@@ -7356,13 +7335,6 @@ function canalToggleMore(a){
     if(rs === 1){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
     else if(rs === 0){ el.textContent='🟡 Conectando...'; el.style.color='#fbbf24'; }
     else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
-    // Update debug log with readyState
-    var pre = document.getElementById('sse-debug-log');
-    if(pre && !pre._last || pre && pre._last !== rs){
-      pre._last = rs;
-      var line = new Date().toLocaleTimeString()+' readyState='+rs+' ('+['CONNECTING','OPEN','CLOSED'][rs]+')\\n';
-      pre.textContent = line + (pre.textContent||'').slice(0,400);
-    }
   }, 1000);
 })();
 </script>
