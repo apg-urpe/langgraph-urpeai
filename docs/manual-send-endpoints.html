@@ -79,7 +79,8 @@
     gap: 12px;
   }
   .endpoint-card.ghl .card-header { background: #fff7ed; border-bottom: 1px solid #fed7aa; }
-  .endpoint-card.mc .card-header  { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; }
+  .endpoint-card.mc  .card-header { background: #f0fdf4; border-bottom: 1px solid #bbf7d0; }
+  .endpoint-card.wa  .card-header { background: #f0f9ff; border-bottom: 1px solid #bae6fd; }
   .method-badge {
     font-size: 11px;
     font-weight: 700;
@@ -106,6 +107,7 @@
   }
   .endpoint-card.ghl .canal-badge { background: #ffedd5; color: #c2410c; }
   .endpoint-card.mc  .canal-badge { background: #dcfce7; color: #16a34a; }
+  .endpoint-card.wa  .canal-badge { background: #e0f2fe; color: #0369a1; }
 
   .card-body { padding: 20px; }
 
@@ -192,6 +194,15 @@
     font-size: 12.5px;
     color: #166534;
   }
+  .blue-box {
+    border-left: 4px solid #0ea5e9;
+    background: #f0f9ff;
+    padding: 12px 16px;
+    margin: 12px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+    color: #0c4a6e;
+  }
 
   /* ── Flow diagram ── */
   .flow {
@@ -220,6 +231,19 @@
   .status-404 { color: #dc2626; font-weight: 600; }
   .status-502 { color: #7c3aed; font-weight: 600; }
 
+  /* ── Memory badge ── */
+  .memory-pill {
+    display: inline-block;
+    background: #ede9fe;
+    color: #5b21b6;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
   /* ── Print ── */
   @media print {
     body { padding: 20px 30px; font-size: 12px; }
@@ -246,17 +270,17 @@
 <div class="doc-header">
   <div class="logo-line">URPE AI Lab · Documentación Técnica</div>
   <h1>Endpoints de Envío Manual de Mensajes</h1>
-  <div class="subtitle">Referencia completa para los endpoints <code>/send</code> — GHL y ManyChat</div>
-  <div class="meta">Base URL: <strong>https://brain.urpeailab.com</strong> &nbsp;·&nbsp; Versión 1.0 &nbsp;·&nbsp; Abril 2026</div>
+  <div class="subtitle">Referencia completa para los endpoints <code>/send</code> — GHL, ManyChat y Kapso (WhatsApp)</div>
+  <div class="meta">Base URL: <strong>https://brain.urpeailab.com</strong> &nbsp;·&nbsp; Versión 1.1 &nbsp;·&nbsp; Abril 2026</div>
 </div>
 
 
 <!-- OVERVIEW -->
 <h2>1. Descripción General</h2>
 
-<p>El sistema URPE AI Lab expone dos endpoints de envío manual que permiten enviar mensajes directamente a un contacto <strong>sin activar el agente de IA</strong>. Son útiles para respuestas de soporte humano, notificaciones automáticas externas, o cualquier caso donde se necesite enviar un mensaje programáticamente.</p>
+<p>El sistema URPE AI Lab expone tres endpoints de envío manual que permiten enviar mensajes directamente a un contacto <strong>sin activar el agente de IA</strong>. Son útiles para respuestas de soporte humano, notificaciones automáticas externas, o cualquier caso donde se necesite enviar un mensaje programáticamente.</p>
 
-<p>Ambos endpoints comparten la misma filosofía:</p>
+<p>Los tres endpoints comparten la misma filosofía:</p>
 
 <div class="flow">
   <div class="flow-step">1. Recibe <code>contacto_id</code></div>
@@ -268,10 +292,16 @@
   <div class="flow-step">4. Envía mensaje</div>
   <div class="flow-arrow">→</div>
   <div class="flow-step">5. Guarda en DB</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-step">6. Inyecta en memoria IA</div>
 </div>
 
 <div class="info-box">
-  <strong>Dato clave:</strong> Solo necesitas enviar el <code>contacto_id</code> entero de Supabase (tabla <code>wp_contactos</code>). El sistema recupera automáticamente el subscriber_id/contact_id de la plataforma, el api_key y el canal desde la última conversación activa en la base de datos.
+  <strong>Dato clave:</strong> Solo necesitas enviar el <code>contacto_id</code> entero de Supabase (tabla <code>wp_contactos</code>). El sistema recupera automáticamente el identificador de plataforma, el api_key o phone_number_id, y el canal desde la última conversación activa en la base de datos.
+</div>
+
+<div class="ok-box">
+  <strong>Memoria del agente:</strong> Los tres endpoints inyectan automáticamente el mensaje enviado en <code>agent_memory</code>. La próxima vez que el contacto escriba, el agente verá <code>[Asesor humano]: texto</code> en su historial y entenderá el contexto de lo que el asesor escribió manualmente.
 </div>
 
 <div class="warn-box">
@@ -320,7 +350,7 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
   </div>
   <div class="card-body">
 
-    <p>Envía un mensaje directo a un contacto de Go High Level (GHL). Compatible con Instagram y Facebook. El canal se detecta automáticamente desde la conversación más reciente en la base de datos.</p>
+    <p>Envía un mensaje directo a un contacto de Go High Level (GHL). Compatible con Instagram y Facebook. El canal se detecta automáticamente desde la conversación más reciente en la base de datos. <span class="memory-pill">Inyecta memoria IA</span></p>
 
     <h3>Body de la petición</h3>
     <table>
@@ -409,7 +439,7 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
   </div>
   <div class="card-body">
 
-    <p>Envía un mensaje directo a un suscriptor de ManyChat. Compatible con Instagram y Facebook. El canal y el subscriber_id de ManyChat se recuperan automáticamente desde la conversación más reciente en la base de datos.</p>
+    <p>Envía un mensaje directo a un suscriptor de ManyChat. Compatible con Instagram y Facebook. El canal y el subscriber_id de ManyChat se recuperan automáticamente desde la conversación más reciente. <span class="memory-pill">Inyecta memoria IA</span></p>
 
     <h3>Body de la petición</h3>
     <table>
@@ -468,8 +498,82 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
 </div>
 
 
+<!-- ENDPOINT KAPSO -->
+<h2>5. Endpoint Kapso — WhatsApp</h2>
+
+<div class="endpoint-card wa">
+  <div class="card-header">
+    <span class="method-badge">POST</span>
+    <span class="endpoint-url">https://brain.urpeailab.com/api/v1/kapso/send</span>
+    <span class="canal-badge">Kapso · WhatsApp</span>
+  </div>
+  <div class="card-body">
+
+    <p>Envía un mensaje directo a un contacto de WhatsApp vía el bridge de Kapso. El teléfono y el <code>phone_number_id</code> se recuperan automáticamente desde la última conversación. <span class="memory-pill">Inyecta memoria IA</span></p>
+
+    <div class="blue-box">
+      <strong>Arquitectura diferente:</strong> A diferencia de GHL y ManyChat donde FastAPI llama directamente a la API externa, Kapso utiliza el bridge interno. FastAPI envía el mensaje a <code>KAPSO_BRIDGE_URL/api/v1/dispatch</code> y el bridge se encarga de enviarlo a WhatsApp. Requiere que <code>KAPSO_BRIDGE_URL</code> esté configurado.
+    </div>
+
+    <h3>Body de la petición</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Req.</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>contacto_id</code></td>
+          <td><code>integer</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>ID entero del contacto en la tabla <code>wp_contactos</code> de Supabase.</td>
+        </tr>
+        <tr>
+          <td><code>mensaje</code></td>
+          <td><code>string</code></td>
+          <td><span class="required">Requerido</span></td>
+          <td>Texto del mensaje a enviar por WhatsApp.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Respuesta exitosa (200)</h3>
+    <table>
+      <thead>
+        <tr><th>Campo</th><th>Tipo</th><th>Descripción</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ok</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje fue enviado correctamente.</td></tr>
+        <tr><td><code>contacto_id</code></td><td><code>integer</code></td><td>El mismo <code>contacto_id</code> recibido.</td></tr>
+        <tr><td><code>telefono</code></td><td><code>string</code></td><td>Número de WhatsApp del contacto recuperado desde <code>wp_contactos.telefono</code>.</td></tr>
+        <tr><td><code>guardado_en_db</code></td><td><code>boolean</code></td><td><code>true</code> si el mensaje quedó registrado en <code>wp_mensajes</code>.</td></tr>
+        <tr><td><code>error</code></td><td><code>string | null</code></td><td>Mensaje de error en caso de fallo. <code>null</code> si todo fue bien.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Ejemplo — WhatsApp (Kapso)</h3>
+    <pre>curl -X POST <span class="url">https://brain.urpeailab.com/api/v1/kapso/send</span> \
+  -H <span class="str">"Content-Type: application/json"</span> \
+  -H <span class="str">"X-Send-Key: tu_clave_secreta"</span> \
+  -d '{
+    <span class="key">"contacto_id"</span>: <span class="num">198450</span>,
+    <span class="key">"mensaje"</span>: <span class="str">"Hola Monica, tu cita está confirmada para el jueves a las 3pm."</span>
+  }'</pre>
+
+    <h3>Respuesta de ejemplo</h3>
+    <pre>{
+  <span class="key">"ok"</span>: <span class="num">true</span>,
+  <span class="key">"contacto_id"</span>: <span class="num">198450</span>,
+  <span class="key">"telefono"</span>: <span class="str">"5219991234567"</span>,
+  <span class="key">"guardado_en_db"</span>: <span class="num">true</span>,
+  <span class="key">"error"</span>: <span class="num">null</span>
+}</pre>
+
+  </div>
+</div>
+
+
 <!-- ERRORES -->
-<h2>5. Códigos de Error</h2>
+<h2>6. Códigos de Error</h2>
 
 <table>
   <thead>
@@ -490,72 +594,80 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
     </tr>
     <tr>
       <td><span class="status-400">400</span></td>
-      <td>Sin subscriber_id</td>
-      <td>El contacto existe pero no tiene <code>subscriber_id</code> registrado.</td>
+      <td>Sin subscriber_id / teléfono</td>
+      <td>El contacto existe pero no tiene identificador de plataforma registrado.</td>
       <td>El contacto debe haber iniciado conversación primero.</td>
     </tr>
     <tr>
       <td><span class="status-400">400</span></td>
-      <td>Sin api_key</td>
-      <td>No se encontró el api_key de GHL o ManyChat en la conversación.</td>
+      <td>Sin api_key / phone_number_id</td>
+      <td>No se encontraron credenciales de plataforma en la conversación.</td>
       <td>El contacto debe haber enviado al menos un mensaje previo.</td>
     </tr>
     <tr>
       <td><span class="status-200">200</span> <code>ok: false</code></td>
-      <td>Error de envío</td>
+      <td>Error de envío externo</td>
       <td>El sistema procesó la petición pero la API de GHL/ManyChat devolvió error.</td>
       <td>Revisar el campo <code>error</code> en la respuesta para diagnóstico.</td>
+    </tr>
+    <tr>
+      <td><span class="status-200">200</span> <code>ok: false</code></td>
+      <td>Bridge no disponible (Kapso)</td>
+      <td><code>KAPSO_BRIDGE_URL</code> no configurado o el bridge está caído.</td>
+      <td>Verificar que el bridge esté activo y <code>KAPSO_BRIDGE_URL</code> esté configurado.</td>
     </tr>
   </tbody>
 </table>
 
 <div class="warn-box">
-  <strong>Nota:</strong> Un HTTP 200 con <code>"ok": false</code> indica que el sistema procesó correctamente la petición pero el envío externo (GHL o ManyChat API) falló. Revisar el campo <code>error</code> para diagnóstico.
+  <strong>Nota:</strong> Un HTTP 200 con <code>"ok": false</code> indica que el sistema procesó correctamente la petición pero el envío externo falló. Revisar el campo <code>error</code> para diagnóstico.
 </div>
 
 
 <!-- FLUJO INTERNO -->
-<h2>6. Flujo Interno Detallado</h2>
+<h2>7. Flujo Interno Detallado</h2>
 
 <p>Este es el proceso interno que ejecuta el sistema al recibir una petición <code>/send</code>:</p>
 
 <table>
   <thead>
-    <tr><th>#</th><th>Paso</th><th>Descripción</th></tr>
+    <tr><th>#</th><th>Paso</th><th>GHL</th><th>ManyChat</th><th>Kapso</th></tr>
   </thead>
   <tbody>
-    <tr><td>1</td><td>Auth check</td><td>Valida <code>X-Send-Key</code> contra <code>SEND_API_KEY</code>.</td></tr>
-    <tr><td>2</td><td>Lookup contacto</td><td>Busca en <code>wp_contactos</code> por <code>contacto_id</code>. Obtiene <code>subscriber_id</code> y <code>empresa_id</code>.</td></tr>
-    <tr><td>3</td><td>Lookup conversación</td><td>Busca la conversación más reciente del canal correspondiente (<code>ghl_*</code> o <code>manychat</code>) en <code>wp_conversaciones</code>.</td></tr>
-    <tr><td>4</td><td>Recuperar credenciales</td><td>Extrae el <code>api_key</code>, <code>location_id</code> (GHL) y <code>canal</code> desde el <code>metadata</code> de los mensajes de esa conversación.</td></tr>
-    <tr><td>5</td><td>Split de burbujas</td><td>(Solo GHL) Divide el mensaje por el separador <code>---</code> en múltiples burbujas.</td></tr>
-    <tr><td>6</td><td>Enviar a API externa</td><td>Llama a la API de GHL Conversations o ManyChat sendContent con las credenciales recuperadas.</td></tr>
-    <tr><td>7</td><td>Guardar en DB</td><td>Registra el mensaje en <code>wp_mensajes</code> con <code>remitente="agente"</code>, <code>status="enviado"</code> y <code>envio_manual=true</code> en metadata.</td></tr>
+    <tr><td>1</td><td>Auth check</td><td colspan="3">Valida <code>X-Send-Key</code> contra <code>SEND_API_KEY</code></td></tr>
+    <tr><td>2</td><td>Lookup contacto</td><td>Obtiene <code>subscriber_id</code> (GHL contact_id)</td><td>Obtiene <code>subscriber_id</code> (MC subscriber)</td><td>Obtiene <code>telefono</code> (WA phone)</td></tr>
+    <tr><td>3</td><td>Lookup conversación</td><td>Canal <code>ghl_*</code></td><td>Canal <code>manychat</code></td><td>Canal <code>whatsapp</code></td></tr>
+    <tr><td>4</td><td>Recuperar credenciales</td><td><code>ghl_api_key</code> + <code>location_id</code></td><td><code>manychat_api_key</code></td><td><code>phone_number_id</code></td></tr>
+    <tr><td>5</td><td>Enviar mensaje</td><td>GHL Conversations API (leadconnectorhq.com)</td><td>ManyChat Dynamic Message API</td><td>Bridge → <code>/api/v1/dispatch</code> → Kapso API</td></tr>
+    <tr><td>6</td><td>Guardar en DB</td><td colspan="3"><code>wp_mensajes</code> — <code>remitente="agente"</code>, <code>status="enviado"</code>, <code>envio_manual=true</code></td></tr>
+    <tr><td>7</td><td>Memoria IA</td><td colspan="3"><code>agent_memory</code> — <code>role="assistant"</code>, <code>content="[Asesor humano]: texto"</code>, <code>model="asesor_humano"</code></td></tr>
   </tbody>
 </table>
 
 
 <!-- DIFERENCIAS -->
-<h2>7. Diferencias entre GHL y ManyChat</h2>
+<h2>8. Comparativa de los Tres Endpoints</h2>
 
 <table>
   <thead>
-    <tr><th>Característica</th><th>GHL Send</th><th>ManyChat Send</th></tr>
+    <tr><th>Característica</th><th>GHL</th><th>ManyChat</th><th>Kapso</th></tr>
   </thead>
   <tbody>
-    <tr><td>URL</td><td><code>/api/v1/ghl/send</code></td><td><code>/api/v1/manychat/send</code></td></tr>
-    <tr><td>Canales soportados</td><td>Instagram, Facebook</td><td>Instagram, Facebook</td></tr>
-    <tr><td>API destino</td><td>GHL Conversations API (leadconnectorhq.com)</td><td>ManyChat Dynamic Message API</td></tr>
-    <tr><td>Split de burbujas</td><td>Sí — separador <code>---</code></td><td>No (mensaje único)</td></tr>
-    <tr><td>Campo extra opcional</td><td><code>location_id</code></td><td>—</td></tr>
-    <tr><td>Identificador interno</td><td><code>subscriber_id</code> → GHL contact_id</td><td><code>subscriber_id</code> → ManyChat subscriber_id</td></tr>
-    <tr><td>Canal auto-detectado desde</td><td>Metadata del mensaje + canal de la conversación</td><td>Canal de la conversación ManyChat</td></tr>
+    <tr><td>URL</td><td><code>/api/v1/ghl/send</code></td><td><code>/api/v1/manychat/send</code></td><td><code>/api/v1/kapso/send</code></td></tr>
+    <tr><td>Canal</td><td>Instagram, Facebook</td><td>Instagram, Facebook</td><td>WhatsApp</td></tr>
+    <tr><td>Identificador contacto</td><td><code>subscriber_id</code> → GHL contact_id</td><td><code>subscriber_id</code> → MC subscriber_id</td><td><code>telefono</code> → WA phone</td></tr>
+    <tr><td>Credencial requerida</td><td><code>ghl_api_key</code> + <code>location_id</code></td><td><code>manychat_api_key</code></td><td><code>phone_number_id</code></td></tr>
+    <tr><td>Envío vía</td><td>GHL Conversations API (directo)</td><td>ManyChat API (directo)</td><td>Bridge interno (dispatch)</td></tr>
+    <tr><td>Split de burbujas</td><td>Sí — separador <code>---</code></td><td>No</td><td>No</td></tr>
+    <tr><td>Campo extra opcional</td><td><code>location_id</code></td><td>—</td><td>—</td></tr>
+    <tr><td>Memoria IA</td><td>Sí (<code>ghl_{contact_id}</code>)</td><td>Sí (<code>mc_{subscriber_id}</code>)</td><td>Sí (<code>str(contacto_id)</code>)</td></tr>
+    <tr><td>Campo en respuesta</td><td><code>contact_id</code></td><td><code>subscriber_id</code></td><td><code>telefono</code></td></tr>
   </tbody>
 </table>
 
 
 <!-- VARIABLES DE ENTORNO -->
-<h2>8. Variables de Entorno Requeridas</h2>
+<h2>9. Variables de Entorno Requeridas</h2>
 
 <table>
   <thead>
@@ -566,6 +678,11 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
       <td><code>SEND_API_KEY</code></td>
       <td>Clave de autenticación para todos los endpoints <code>/send</code>. Si no se configura, los endpoints quedan abiertos.</td>
       <td><span class="required">Recomendada</span></td>
+    </tr>
+    <tr>
+      <td><code>KAPSO_BRIDGE_URL</code></td>
+      <td>URL interna del bridge de Kapso. Requerida para <code>/api/v1/kapso/send</code>. Ejemplo: <code>http://localhost:3001</code>.</td>
+      <td><span class="required">Requerida (Kapso)</span></td>
     </tr>
     <tr>
       <td><code>GHL_API_KEY</code></td>
@@ -589,7 +706,7 @@ curl -X POST https://brain.urpeailab.com/api/v1/ghl/send \
 <!-- FOOTER -->
 <div class="doc-footer">
   <span>URPE AI Lab · brain.urpeailab.com · Documentación Interna</span>
-  <span>Generado: Abril 2026</span>
+  <span>Versión 1.1 · Abril 2026</span>
 </div>
 
 </body>
