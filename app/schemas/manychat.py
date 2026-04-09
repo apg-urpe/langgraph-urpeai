@@ -57,16 +57,19 @@ class _ManyChatContent(BaseModel):
 
 
 class ManyChatSendManualRequest(BaseModel):
-    """Envía un mensaje manual a un suscriptor de ManyChat (sin pasar por el agente IA)."""
-    subscriber_id: str
+    """Envía un mensaje manual a un suscriptor de ManyChat (sin pasar por el agente IA).
+
+    Usa contacto_id (integer de Supabase) — el sistema recupera el subscriber_id
+    y el api_key automáticamente desde la conversación en DB.
+    """
+    contacto_id: int                # ID integer de wp_contactos (Supabase)
     mensaje: str
-    canal: str = "instagram"
-    telefono_receptor: str  # necesario para recuperar el token de ManyChat de la conversación
 
 
 class ManyChatSendManualResponse(BaseModel):
     ok: bool
-    subscriber_id: str
+    contacto_id: int
+    subscriber_id: str | None = None    # ManyChat subscriber_id recuperado
     guardado_en_db: bool = False
     error: str | None = None
 

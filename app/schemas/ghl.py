@@ -1,0 +1,124 @@
+"""Schemas para Go High Level (GHL) webhook — basados en payload real recibido."""
+from pydantic import BaseModel, ConfigDict
+
+
+class _GHLCustomData(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    message_body: str = ""
+    multimedia: str | None = None
+    telefono_receptor: str = ""   # número en wp_numeros → identifica empresa/agente
+    canal: str | None = None      # "instagram" | "facebook" — override explícito desde el workflow GHL
+
+
+class _GHLMessage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    type: int | str | None = None
+    body: str = ""
+
+
+class _GHLLocation(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    id: str | None = None         # GHL location ID
+    name: str | None = None
+
+
+class GHLInboundRequest(BaseModel):
+    """Payload real del webhook de GHL (Contact's details + custom data).
+
+    Estructura observada:
+    {
+      contact_id, first_name, full_name, phone,
+      message: { body },
+      location: { id, name },
+      customData: { message_body, multimedia, telefono_receptor },
+      contact: { attributionSource: { medium, igSid } }
+    }
+    """
+    model_config = ConfigDict(extra="allow")
+
+    # ── Campos raíz (standard GHL) ────────────────────────────────────────
+    contact_id: str | None = None       # ID único del contacto en GHL
+    first_name: str | None = None
+    full_name: str | None = None
+    phone: str | None = None            # Teléfono del remitente
+
+    # ── Campos anidados ───────────────────────────────────────────────────
+    message: _GHLMessage | None = None
+    location: _GHLLocation | None = None
+    customData: _GHLCustomData | None = None
+
+    # ── Propiedades de conveniencia ───────────────────────────────────────
+
+    @property
+    def ghl_contact_id(self) -> str:
+        return self.contact_id or ""
+
+    @property
+    def contact_name(self) -> str | None:
+        return self.full_name or self.first_name or None
+
+    @property
+    def message_text(self) -> str:
+        """Texto del mensaje — viene en customData.message_body y en message.body."""
+        if self.customData and self.customData.message_body:
+            return self.customData.message_body
+        if self.message and self.message.body:
+            return self.message.body
+        return ""
+
+    @property
+    def telefono_receptor(self) -> str:
+        return (self.customData.telefono_receptor if self.customData else "") or ""
+
+    @property
+    def canal(self) -> str:
+        """Canal detectado. Orden de prioridad:
+        1. customData.canal (override explícito desde el workflow GHL)
+        2. contact.attributionSource.medium
+        3. Default: instagram
+        """
+        # 1. Override explícito en customData
+        if self.customData and self.customData.canal:
+            c = self.customData.canal.strip().lower()
+            if "facebook" in c or c == "fb":
+                return "facebook"
+            if "instagram" in c or c == "ig":
+                return "instagram"
+
+        # 2. Auto-detección desde attributionSource
+        try:
+            contact = self.model_extra.get("contact") or {}
+            medium = (contact.get("attributionSource") or {}).get("medium") or ""
+            source = (contact.get("attributionSource") or {}).get("source") or ""
+            combined = f"{medium} {source}".lower()
+            if "facebook" in combined or " fb" in combined:
+                return "facebook"
+        except Exception:
+            pass
+
+        # 3. Default
+        return "instagram"
+
+
+class GHLInboundResponse(BaseModel):
+    received: bool = True
+    message: str = "ok"
+
+
+class GHLSendManualRequest(BaseModel):
+    """Envía un mensaje manual a un contacto de GHL sin pasar por el agente IA.
+
+    Usa contacto_id (integer de Supabase) — el sistema recupera el GHL contact_id,
+    api_key y location_id automáticamente desde la conversación en DB.
+    """
+    contacto_id: int                     # ID integer de wp_contactos (Supabase)
+    mensaje: str
+    location_id: str | None = None       # opcional — se recupera de la conversación si se omite
+
+
+class GHLSendManualResponse(BaseModel):
+    ok: bool
+    contacto_id: int
+    contact_id: str | None = None       # GHL contact_id recuperado
+    guardado_en_db: bool = False
+    error: str | None = None

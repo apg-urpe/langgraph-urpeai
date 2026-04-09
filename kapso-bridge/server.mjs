@@ -196,6 +196,17 @@ function isLoopbackRequest(req) {
 
 
 
+function requireSendAccess(req, res) {
+  const required = process.env.SEND_API_KEY;
+  if (!required) return true; // Sin env configurada, acceso libre
+  const key = req.headers['x-send-key'];
+  if (!key || key !== required) {
+    res.status(401).json({ error: 'unauthorized', detail: 'X-Send-Key inválida o ausente' });
+    return false;
+  }
+  return true;
+}
+
 function requireDebugAccess(req, res) {
 
   if (KAPSO_PUBLIC_DEBUG || DEBUG_FLAG.test(String(process.env.DEBUG || '')) || isLoopbackRequest(req)) {
@@ -399,6 +410,7 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
       if (event.stage === 'inbound_entities_resolved') {
         if (payload.empresa_id != null) interaction.empresa_id = payload.empresa_id;
+        if (payload.contacto_id != null) interaction.contacto_id = payload.contacto_id;
       }
 
       if (event.stage === 'run_agent_start') {
@@ -1678,7 +1690,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
           <td>${escapeHtml(item.contact_name || '—')}</td>
 
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
 
           <td>${escapeHtml(item.message_type || 'text')}</td>
 
@@ -4842,7 +4854,7 @@ function renderTable(items){
 
       '<td class="muted">'+rel(it.started_at)+'</td>'+
 
-      '<td><div style="font-weight:600;color:#f1f5f9">'+esc(it.contact_name||'—')+'</div><div class="muted">'+esc(it.from_phone||'')+'</div></td>'+
+      '<td><div style="font-weight:600;color:#f1f5f9">'+esc(it.contact_name||'—')+'</div><div class="muted">'+(it.contacto_id!=null?'ID '+it.contacto_id+' · ':'')+esc(it.from_phone||'')+'</div></td>'+
 
       '<td class="muted">'+esc(it.message_type||'text')+'</td>'+
 
@@ -4899,6 +4911,8 @@ function openM(idx){
       '<div class="dc"><div class="dct">Contacto</div>'+
 
         '<div class="dr"><span class="dk">Nombre</span><span class="dv">'+esc(it.contact_name||'—')+'</span></div>'+
+
+        '<div class="dr"><span class="dk">Contacto ID</span><span class="dv">'+(it.contacto_id!=null?String(it.contacto_id):'—')+'</span></div>'+
 
         '<div class="dr"><span class="dk">Teléfono</span><span class="dv">'+esc(it.from_phone||'—')+'</span></div>'+
 
@@ -6166,6 +6180,111 @@ app.post('/api/v1/scheduling/eliminar-evento', async (req, res) => {
 });
 
 /* ── ManyChat inbound ── */
+// GHL inspect — captura el payload crudo para debuggear
+app.post('/api/v1/ghl/inspect', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/ghl/inspect/last', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect/last', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_get_proxy_error', message: err.message });
+  }
+});
+
+app.delete('/api/v1/ghl/inspect/clear', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect/clear', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, { method: 'DELETE' });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_delete_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/ghl/debug/events', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const targetUrl = new URL(`/api/v1/ghl/debug/events${qs}`, `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_debug_events_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/ghl/debug/config', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/debug/config', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_debug_config_proxy_error', message: err.message });
+  }
+});
+
+app.post('/api/v1/ghl/send', async (req, res) => {
+  if (!requireSendAccess(req, res)) return;
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/send', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-send-key': req.headers['x-send-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_send_proxy_error', message: err.message });
+  }
+});
+
+app.post('/api/v1/ghl/inbound', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ghl-key': req.headers['x-ghl-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/manychat/inbound', async (req, res) => {
 
   const baseUrl = getFastApiBaseUrl();
@@ -6191,7 +6310,7 @@ app.post('/api/v1/manychat/inbound', async (req, res) => {
 });
 
 app.post('/api/v1/manychat/send', async (req, res) => {
-
+  if (!requireSendAccess(req, res)) return;
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/manychat/send', `${baseUrl}/`).toString();
 
@@ -6200,7 +6319,7 @@ app.post('/api/v1/manychat/send', async (req, res) => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': req.headers['x-api-key'] || '',
+        'x-send-key': req.headers['x-send-key'] || '',
       },
       body: JSON.stringify(req.body ?? {}),
     });
@@ -6692,6 +6811,7 @@ function buildManyChatInteractions(events = []) {
         message_id: `${subscriberId}_${event.timestamp}`,
         started_at: event.timestamp,
         from_phone: subscriberId,
+        contacto_id: payload.contacto_id || null,
         contact_name: payload.contact_name || null,
         empresa_id: payload.empresa_id,
         message_text: payload.message || '',
@@ -6763,6 +6883,97 @@ function buildManyChatInteractions(events = []) {
   return interactions.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
 }
 
+// ── GHL interactions builder ──────────────────────────────────────────────────
+
+function buildGHLInteractions(events = []) {
+  const sorted = [...events]
+    .filter(e => e && e.timestamp && e.stage)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  const interactions = [];
+  const pendingByContact = new Map();
+
+  for (const event of sorted) {
+    const payload = event.payload || {};
+    const contactId = payload.contact_id;
+    if (!contactId) continue;
+
+    if (event.stage === 'ghl_message_received') {
+      const interaction = {
+        id: `${contactId}_${event.timestamp}`,
+        message_id: `${contactId}_${event.timestamp}`,
+        started_at: event.timestamp,
+        from_phone: contactId,
+        contacto_id: payload.contacto_id || null,
+        contact_name: payload.contact_name || null,
+        empresa_id: payload.empresa_id,
+        message_text: payload.message || '',
+        message_type: 'text',
+        canal: payload.canal || 'instagram',
+        status: 'processing',
+        agent_runs: [],
+        tools_used: [],
+      };
+      pendingByContact.set(contactId, interaction);
+      interactions.push(interaction);
+
+    } else if (event.stage === 'ghl_message_sent') {
+      const pending = pendingByContact.get(contactId);
+      if (pending) {
+        pending.agent_name = payload.agent_name;
+        pending.model_used = payload.model_used;
+        pending.response_preview = payload.reply_preview;
+        pending.finished_at = event.timestamp;
+        pending.status = payload.ghl_send_ok === false ? 'send_error' : 'ok';
+        pending.send_error = payload.ghl_send_error || null;
+        if (payload.contacto_id) pending.contacto_id = payload.contacto_id;
+        if (payload.elapsed_s != null) {
+          pending.duration_ms = Math.round(payload.elapsed_s * 1000);
+          pending.timing = { total_ms: pending.duration_ms };
+        }
+        pendingByContact.delete(contactId);
+      }
+
+    } else if (event.stage === 'ghl_numero_no_encontrado' || event.stage === 'ghl_sin_contact_id') {
+      const interaction = {
+        id: `${contactId || 'unknown'}_${event.timestamp}`,
+        message_id: `${contactId || 'unknown'}_${event.timestamp}`,
+        started_at: event.timestamp,
+        finished_at: event.timestamp,
+        from_phone: contactId || payload.telefono_recept || '—',
+        phone_number_id: payload.telefono_recept,
+        canal: payload.canal || 'instagram',
+        status: 'error',
+        error: payload.error || event.stage,
+        dropped: true,
+        agent_runs: [],
+        tools_used: [],
+      };
+      interactions.push(interaction);
+    }
+  }
+
+  return interactions.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+}
+
+async function collectGHLDebugPayload() {
+  const [eventsResult, configResult] = await Promise.allSettled([
+    fetchFastApiDebugJson('/api/v1/ghl/debug/events?limit=100'),
+    fetchFastApiDebugJson('/api/v1/ghl/debug/config'),
+  ]);
+  const events = eventsResult.status === 'fulfilled' ? (eventsResult.value.events || []) : [{
+    timestamp: new Date().toISOString(),
+    source: 'bridge',
+    stage: 'fastapi_debug_error',
+    payload: { error: String(eventsResult.reason) },
+  }];
+  return {
+    fastapi_config: configResult.status === 'fulfilled' ? configResult.value : { error: String(configResult.reason) },
+    events,
+    interactions: buildGHLInteractions(events),
+  };
+}
+
 async function collectManyChatDebugPayload() {
   const [eventsResult, configResult] = await Promise.allSettled([
     fetchFastApiDebugJson('/api/v1/manychat/debug/events?limit=100'),
@@ -6796,7 +7007,7 @@ function renderManyChatHtml(data, debugToken = '') {
     ? interactions.map((item, idx) => `
         <tr>
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td>${escapeHtml(item.canal || 'instagram')}</td>
           <td>${escapeHtml(item.message_type || 'text')}</td>
           <td style="max-width:280px;word-break:break-word">${(function(){ const txt = item.message_text || '—'; if (txt.length <= 200) return escapeHtml(txt); return `${escapeHtml(txt.slice(0,200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px;white-space:nowrap">ver más...</a>`; })()}</td>
@@ -6857,6 +7068,7 @@ function renderManyChatHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
     </div>
   </div>
 
@@ -6916,7 +7128,7 @@ function canalToggleMore(a){
     var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
     return '<tr>'
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
-      +'<td>'+esc(item.from_phone||'—')+'</td>'
+      +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.canal||'instagram')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
@@ -6932,6 +7144,7 @@ function canalToggleMore(a){
     return '<details class="section" id="mc-interaction-'+idx+'">'
       +'<summary>'+esc(item.from_phone||'Interacción '+(idx+1))+' · '+esc(item.status||'processing')+' · '+fms(item.duration_ms)+'</summary>'
       +'<div style="margin-top:12px">'
+      +'<div style="margin-bottom:8px"><strong>Contacto ID:</strong> '+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</div>'
       +'<div style="margin-bottom:8px"><strong>Subscriber ID:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(item.canal||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
@@ -7058,6 +7271,143 @@ app.get('/debug/manychat/data', async (req, res) => {
 });
 
 
+// ── GHL debug panel ───────────────────────────────────────────────────────────
+
+function renderGHLHtml(data, debugToken = '') {
+  const interactions = Array.isArray(data.interactions) ? data.interactions : [];
+  const config = data.fastapi_config || {};
+
+  const okCount = interactions.filter(i => i.status === 'ok').length;
+  const errorCount = interactions.filter(i => i.status === 'error' || i.dropped).length;
+  const withTiming = interactions.filter(i => i.duration_ms != null);
+  const avgDuration = withTiming.length
+    ? Math.round(withTiming.reduce((acc, i) => acc + (i.duration_ms || 0), 0) / withTiming.length)
+    : null;
+
+  const interactionRows = interactions.length
+    ? interactions.map((item, idx) => {
+        const canalBadge = (item.canal || 'instagram').toLowerCase() === 'facebook'
+          ? '<span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·FB</span>'
+          : '<span style="background:#f97316;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·IG</span>';
+        const tcls = item.duration_ms == null ? '' : item.duration_ms < 20000 ? 'color:#34d399' : item.duration_ms < 30000 ? 'color:#f97316' : 'color:#f87171';
+        const txt = item.message_text || '—';
+        const msgCell = txt.length <= 200 ? escapeHtml(txt)
+          : `${escapeHtml(txt.slice(0,200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px">ver más...</a>`;
+        const droppedBadge = item.dropped ? ' <span style="background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px;font-size:10px">⛔ rechazado</span>' : '';
+        return `<tr${item.dropped ? ' style="background:#1a0a0a"' : ''}>
+          <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
+          <td>${canalBadge}</td>
+          <td>${escapeHtml(item.contact_name || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
+          <td style="max-width:280px;word-break:break-word">${msgCell}</td>
+          <td>${escapeHtml(item.agent_name || '—')}</td>
+          <td>${escapeHtml(item.model_used || '—')}</td>
+          <td style="${tcls}"><b>${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</b></td>
+          <td>${escapeHtml(item.status || 'processing')}${droppedBadge}</td>
+          <td><a href="#ghl-interaction-${idx}" style="color:#93c5fd">Ver detalle</a></td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="10" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
+
+  const interactionDetails = interactions.map((item, idx) => `
+    <details class="section" id="ghl-interaction-${idx}">
+      <summary>${escapeHtml(item.from_phone || item.contact_name || 'Interacción '+(idx+1))} · ${escapeHtml(item.status || 'processing')} · ${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</summary>
+      <div style="margin-top:12px">
+        <div style="margin-bottom:8px"><strong>Contact ID (GHL):</strong> ${escapeHtml(item.from_phone || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Nombre:</strong> ${escapeHtml(item.contact_name || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(item.canal || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
+        <div style="margin:12px 0 6px"><strong>Error envío GHL</strong></div>
+        <pre style="${item.send_error ? 'color:#f87171' : ''}">${escapeHtml(item.send_error || '—')}</pre>
+        <div style="margin-bottom:8px"><strong>Mensaje:</strong></div>
+        <pre>${escapeHtml(item.message_text || '—')}</pre>
+        <div style="margin:12px 0 6px"><strong>Respuesta</strong></div>
+        <pre>${escapeHtml(item.response_preview || '—')}</pre>
+      </div>
+    </details>`).join('');
+
+  return `<!doctype html><html lang="es"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GHL Debug</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+    .title{font-size:20px;font-weight:700}
+    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
+    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
+    .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
+    .value{font-size:22px;font-weight:700;margin-top:6px}
+    table{width:100%;border-collapse:collapse;background:#111827;border:1px solid #334155}
+    th,td{padding:10px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;font-size:12px}
+    th{background:#1e293b;color:#f97316}
+    .section{margin-top:18px}
+    details{margin-top:12px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px}
+    summary{cursor:pointer;font-weight:700}
+    pre{white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font-size:12px}
+  </style>
+</head><body>
+  <div class="top">
+    <div class="title">GHL — Instagram / Facebook Debug</div>
+    <div class="actions">
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}">Refrescar</a>
+      <a href="${appendDebugToken('/debug/ghl/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="card"><div class="label">Total</div><div class="value">${interactions.length}</div></div>
+    <div class="card"><div class="label">OK</div><div class="value">${okCount}</div></div>
+    <div class="card"><div class="label">Errores/Rechazados</div><div class="value">${errorCount}</div></div>
+    <div class="card"><div class="label">Tiempo AVG</div><div class="value">${avgDuration != null ? (avgDuration/1000).toFixed(1)+' s' : '—'}</div></div>
+  </div>
+
+  <div class="section">
+    <table>
+      <thead><tr>
+        <th>Hora</th><th>Canal</th><th>Contacto</th><th>Contact ID</th><th>Mensaje</th>
+        <th>Agente</th><th>Modelo</th><th style="min-width:60px">Total</th><th>Status</th><th>Detalle</th>
+      </tr></thead>
+      <tbody>${interactionRows}</tbody>
+    </table>
+  </div>
+
+  <div id="ghl-interaction-details">${interactionDetails}</div>
+
+  <details class="section">
+    <summary>FastAPI Config</summary>
+    <pre>${escapeHtml(JSON.stringify(config, null, 2))}</pre>
+  </details>
+
+</body></html>`;
+}
+
+app.get('/debug/ghl', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectGHLDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).type('html').send(renderGHLHtml(data, extractAccessToken(req)));
+  } catch (err) {
+    res.status(500).type('html').send(`<pre>${escapeHtml(String(err))}</pre>`);
+  }
+});
+
+app.get('/debug/ghl/data', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectGHLDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+
 // ── Unified all-channels debug panel ─────────────────────────────────────────
 
 async function fetchEmpresasMap() {
@@ -7107,6 +7457,10 @@ function renderCanalesHtml(data, debugToken = '') {
           ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
           : canal === 'facebook'
           ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
+          : canal === 'ghl_instagram'
+          ? '<span style="background:#f97316;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·IG</span>'
+          : canal === 'ghl_facebook'
+          ? '<span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·FB</span>'
           : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
         const totalMs = item.duration_ms != null ? item.duration_ms : (item.timing?.total_ms != null ? Math.round(item.timing.total_ms) : null);
         const tcls = totalMs == null ? '' : totalMs < 20000 ? 'color:#34d399' : totalMs < 30000 ? 'color:#f97316' : 'color:#f87171';
@@ -7119,7 +7473,7 @@ function renderCanalesHtml(data, debugToken = '') {
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
           <td>${canalBadge}</td>
           <td>${escapeHtml(item.contact_name || item.from_phone || '—')}</td>
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td>${escapeHtml(item.message_type || 'text')}</td>
           <td style="max-width:280px;word-break:break-word">${msgCell}</td>
           <td>${(() => {
@@ -7185,6 +7539,7 @@ function renderCanalesHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
     </div>
   </div>
 
@@ -7248,7 +7603,7 @@ function canalToggleMore(a){
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
       +'<td>'+badge+'</td>'
       +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
-      +'<td>'+esc(item.from_phone||'—')+'</td>'
+      +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +(function(){

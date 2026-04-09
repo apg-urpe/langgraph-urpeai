@@ -448,6 +448,42 @@ async def upsert_contacto_manychat(
     return (creado, True)
 
 
+async def upsert_contacto_ghl(
+    contact_id: str,
+    empresa_id: int,
+    nombre: str | None = None,
+    telefono: str | None = None,
+) -> tuple[dict, bool]:
+    """Crea o actualiza un contacto de GHL usando contact_id como clave (subscriber_id)."""
+    sb = await get_supabase()
+    timestamp = datetime.now(timezone.utc).isoformat()
+    existente = await get_contacto_por_subscriber_id(contact_id, empresa_id)
+
+    if existente and existente.get("id") is not None:
+        update_data: dict[str, Any] = {"ultima_interaccion": timestamp}
+        if nombre and not existente.get("nombre"):
+            update_data["nombre"] = nombre
+        if telefono and not existente.get("telefono"):
+            update_data["telefono"] = telefono
+        updated = await sb.update("wp_contactos", {"id": existente["id"]}, update_data)
+        return ((updated[0] if updated else existente), False)
+
+    insert_data: dict[str, Any] = {
+        "subscriber_id": contact_id,
+        "empresa_id": empresa_id,
+        "origen": "GHL",
+        "notas": "",
+        "fecha_registro": timestamp,
+        "ultima_interaccion": timestamp,
+        "telefono": telefono or f"ghl_{contact_id}",
+    }
+    if nombre:
+        insert_data["nombre"] = nombre
+
+    creado = await sb.insert("wp_contactos", insert_data)
+    return (creado, True)
+
+
 async def get_contacto_notas(contacto_id: int, limit: int = 10) -> list[dict]:
     """Obtiene las notas visibles para IA de un contacto."""
     sb = await get_supabase()
@@ -515,6 +551,37 @@ async def get_conversacion_activa(contacto_id: int, numero_id: int) -> dict | No
     return results[0] if results else None
 
 
+async def get_conversacion_manychat_reciente(contacto_id: int) -> dict | None:
+    """Busca la conversación ManyChat más reciente de un contacto (canal='manychat')."""
+    sb = await get_supabase()
+    results = await sb.query(
+        "wp_conversaciones",
+        filters={"contacto_id": contacto_id},
+        order="created_at", order_desc=True,
+        limit=10,
+    ) or []
+    for conv in results:
+        if (conv.get("canal") or "") == "manychat":
+            return conv
+    return results[0] if results else None
+
+
+async def get_conversacion_ghl_reciente(contacto_id: int) -> dict | None:
+    """Busca la conversación GHL más reciente de un contacto (ghl_instagram o ghl_facebook)."""
+    sb = await get_supabase()
+    results = await sb.query(
+        "wp_conversaciones",
+        filters={"contacto_id": contacto_id},
+        order="created_at", order_desc=True,
+        limit=10,
+    ) or []
+    for conv in results:
+        canal = conv.get("canal") or ""
+        if canal.startswith("ghl_"):
+            return conv
+    return results[0] if results else None
+
+
 async def get_conversaciones_contacto(contacto_id: int) -> list[dict]:
     """Lista conversaciones de un contacto."""
     sb = await get_supabase()
@@ -562,8 +629,39 @@ async def get_mensajes_recientes(conversacion_id: int, limit: int = 20) -> list[
     return data
 
 
+async def get_ghl_credentials_de_conversacion(conversacion_id: int) -> dict:
+    """Recupera ghl_api_key y location_id del mensaje entrante más reciente de la conversación."""
+    sb = await get_supabase()
+    msgs = await sb.query(
+        "wp_mensajes",
+        select="metadata",
+        filters={"conversacion_id": conversacion_id, "remitente": "usuario"},
+        order="timestamp", order_desc=True,
+        limit=5,
+    ) or []
+    for msg in msgs:
+        meta = msg.get("metadata") or {}
+        if isinstance(meta, str):
+            import json
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                continue
+        api_key = meta.get("ghl_api_key")
+        if api_key:
+            raw_canal = meta.get("canal") or "instagram"
+            return {"api_key": api_key, "location_id": meta.get("location_id"), "canal": raw_canal}
+    return {}
+
+
 async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | None:
     """Recupera el manychat_api_key del mensaje entrante más reciente de la conversación."""
+    creds = await get_manychat_credentials_de_conversacion(conversacion_id)
+    return creds.get("api_key")
+
+
+async def get_manychat_credentials_de_conversacion(conversacion_id: int) -> dict:
+    """Recupera manychat_api_key y canal del mensaje entrante más reciente."""
     sb = await get_supabase()
     msgs = await sb.query(
         "wp_mensajes",
@@ -582,8 +680,8 @@ async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | No
                 continue
         key = meta.get("manychat_api_key")
         if key:
-            return key
-    return None
+            return {"api_key": key, "canal": meta.get("canal") or "instagram"}
+    return {}
 
 
 async def insertar_mensaje(
