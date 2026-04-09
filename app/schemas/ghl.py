@@ -84,3 +84,19 @@ class GHLInboundRequest(BaseModel):
 class GHLInboundResponse(BaseModel):
     received: bool = True
     message: str = "ok"
+
+
+class GHLSendManualRequest(BaseModel):
+    """Envía un mensaje manual a un contacto de GHL sin pasar por el agente IA."""
+    contact_id: str                      # GHL contact ID (subscriber ID)
+    mensaje: str
+    canal: str = "instagram"            # "instagram" | "facebook"
+    telefono_receptor: str               # identifica empresa/agente en wp_numeros
+    location_id: str | None = None      # si se omite se recupera de la conversación
+
+
+class GHLSendManualResponse(BaseModel):
+    ok: bool
+    contact_id: str
+    guardado_en_db: bool = False
+    error: str | None = None

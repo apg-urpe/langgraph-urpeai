@@ -6232,6 +6232,22 @@ app.get('/api/v1/ghl/debug/config', async (req, res) => {
   }
 });
 
+app.post('/api/v1/ghl/send', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/send', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_send_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/ghl/inbound', async (req, res) => {
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();

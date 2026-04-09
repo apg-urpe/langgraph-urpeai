@@ -34,7 +34,7 @@ from app.db import queries as db
 from app.schemas.chat import ChatRequest
 from app.schemas.contact_update import ContactUpdateAgentRequest
 from app.schemas.funnel import FunnelAgentRequest
-from app.schemas.ghl import GHLInboundRequest, GHLInboundResponse
+from app.schemas.ghl import GHLInboundRequest, GHLInboundResponse, GHLSendManualRequest, GHLSendManualResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/ghl", tags=["ghl"])
@@ -273,6 +273,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                     "ghl_contact_id": contact_id,
                     "telefono_receptor": request.telefono_receptor,
                     "ghl_api_key": api_key,
+                    "location_id": location_id,
                 },
                 empresa_id=empresa_id,
             )
@@ -435,6 +436,110 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
             severity="error",
             fallback="El procesamiento del mensaje de GHL falló. No se envió respuesta al contacto. El sistema sigue activo.",
         )
+
+
+# ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
+
+@router.post("/send", response_model=GHLSendManualResponse)
+async def ghl_send_manual(req: GHLSendManualRequest):
+    """Envía un mensaje directo a un contacto de GHL sin pasar por el agente IA.
+
+    El api_key y location_id se recuperan automáticamente de la conversación activa
+    guardada en DB. También se pueden pasar location_id en el body.
+
+    Ejemplo curl:
+        curl -X POST https://TU_DOMINIO/api/v1/ghl/send \\
+          -H "Content-Type: application/json" \\
+          -d '{
+            "contact_id": "34JHwyphbgJBepQILwcA",
+            "mensaje": "Hola, ¿en qué te puedo ayudar?",
+            "canal": "instagram",
+            "telefono_receptor": "+1234567890"
+          }'
+    """
+    guardado_en_db = False
+    ghl_api_key: str | None = None
+    location_id: str | None = req.location_id
+    conversacion_id_db: int | None = None
+    empresa_id_db: int | None = None
+
+    # ── Buscar credenciales y conversación desde la BD ────────────────────────
+    try:
+        numero = await db.get_numero_por_telefono(req.telefono_receptor)
+        if not numero:
+            raise HTTPException(status_code=404, detail=f"Número {req.telefono_receptor} no configurado")
+
+        empresa_id_db = int(numero["empresa_id"])
+        numero_id = int(numero["id"])
+
+        contacto = await db.get_contacto_por_subscriber_id(req.contact_id, empresa_id_db)
+        contacto_id = int(contacto["id"]) if contacto else None
+
+        if contacto_id:
+            conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
+            if conversacion:
+                conversacion_id_db = int(conversacion["id"])
+                creds = await db.get_ghl_credentials_de_conversacion(conversacion_id_db)
+                ghl_api_key = creds.get("api_key")
+                if not location_id:
+                    location_id = creds.get("location_id")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("ghl_send_manual: error buscando credenciales en DB: %s", exc)
+
+    # Fallback al settings global si no se encontró en DB
+    if not ghl_api_key:
+        ghl_api_key = settings.GHL_API_KEY or ""
+
+    if not ghl_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No se encontró el api_key de GHL. "
+                   "Asegúrate de que el contacto haya enviado al menos un mensaje primero "
+                   "o configura GHL_API_KEY en settings.",
+        )
+
+    # ── Enviar mensaje via GHL API (con split de burbujas) ────────────────────
+    bubbles = [b.strip() for b in _MSG_SEPARATOR.split(req.mensaje) if b.strip()] or [req.mensaje]
+    last_ok, last_error = False, None
+    for bubble in bubbles:
+        ok, err = await _send_ghl_reply(
+            api_key=ghl_api_key,
+            contact_id=req.contact_id,
+            conversation_id=None,
+            text=bubble,
+            canal=req.canal,
+            location_id=location_id,
+        )
+        last_ok, last_error = ok, err
+        if not ok:
+            break
+
+    if not last_ok:
+        return GHLSendManualResponse(ok=False, contact_id=req.contact_id, error=last_error)
+
+    # ── Guardar en DB ─────────────────────────────────────────────────────────
+    if conversacion_id_db:
+        try:
+            await db.insertar_mensaje(
+                conversacion_id=conversacion_id_db,
+                contenido=req.mensaje,
+                remitente="agente",
+                tipo="texto",
+                status="enviado",
+                metadata={
+                    "canal": req.canal,
+                    "ghl_contact_id": req.contact_id,
+                    "envio_manual": True,
+                },
+                empresa_id=empresa_id_db,
+            )
+            guardado_en_db = True
+        except Exception as exc:
+            logger.warning("ghl_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
+
+    return GHLSendManualResponse(ok=True, contact_id=req.contact_id, guardado_en_db=guardado_en_db)
 
 
 # ── Inspect storage (últimos 10 payloads crudos recibidos) ───────────────────
