@@ -42,6 +42,7 @@ async def _persist_debug_event(entry: dict[str, Any]) -> None:
                 "source": entry.get("source", "kapso"),
                 "stage": entry["stage"],
                 "payload": payload,
+                "channel": entry.get("channel", "whatsapp"),
                 "empresa_id": payload.get("empresa_id"),
                 "contacto_id": payload.get("contacto_id"),
                 "message_id": payload.get("message_id"),
