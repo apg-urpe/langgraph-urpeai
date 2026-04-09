@@ -7031,6 +7031,7 @@ function renderManyChatHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
     </div>
   </div>
 
@@ -7232,6 +7233,143 @@ app.get('/debug/manychat/data', async (req, res) => {
 });
 
 
+// ── GHL debug panel ───────────────────────────────────────────────────────────
+
+function renderGHLHtml(data, debugToken = '') {
+  const interactions = Array.isArray(data.interactions) ? data.interactions : [];
+  const config = data.fastapi_config || {};
+
+  const okCount = interactions.filter(i => i.status === 'ok').length;
+  const errorCount = interactions.filter(i => i.status === 'error' || i.dropped).length;
+  const withTiming = interactions.filter(i => i.duration_ms != null);
+  const avgDuration = withTiming.length
+    ? Math.round(withTiming.reduce((acc, i) => acc + (i.duration_ms || 0), 0) / withTiming.length)
+    : null;
+
+  const interactionRows = interactions.length
+    ? interactions.map((item, idx) => {
+        const canalBadge = (item.canal || 'instagram').toLowerCase() === 'facebook'
+          ? '<span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·FB</span>'
+          : '<span style="background:#f97316;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·IG</span>';
+        const tcls = item.duration_ms == null ? '' : item.duration_ms < 20000 ? 'color:#34d399' : item.duration_ms < 30000 ? 'color:#f97316' : 'color:#f87171';
+        const txt = item.message_text || '—';
+        const msgCell = txt.length <= 200 ? escapeHtml(txt)
+          : `${escapeHtml(txt.slice(0,200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px">ver más...</a>`;
+        const droppedBadge = item.dropped ? ' <span style="background:#dc2626;color:#fff;border-radius:4px;padding:1px 5px;font-size:10px">⛔ rechazado</span>' : '';
+        return `<tr${item.dropped ? ' style="background:#1a0a0a"' : ''}>
+          <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
+          <td>${canalBadge}</td>
+          <td>${escapeHtml(item.contact_name || '—')}</td>
+          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td style="max-width:280px;word-break:break-word">${msgCell}</td>
+          <td>${escapeHtml(item.agent_name || '—')}</td>
+          <td>${escapeHtml(item.model_used || '—')}</td>
+          <td style="${tcls}"><b>${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</b></td>
+          <td>${escapeHtml(item.status || 'processing')}${droppedBadge}</td>
+          <td><a href="#ghl-interaction-${idx}" style="color:#93c5fd">Ver detalle</a></td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="10" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
+
+  const interactionDetails = interactions.map((item, idx) => `
+    <details class="section" id="ghl-interaction-${idx}">
+      <summary>${escapeHtml(item.from_phone || item.contact_name || 'Interacción '+(idx+1))} · ${escapeHtml(item.status || 'processing')} · ${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</summary>
+      <div style="margin-top:12px">
+        <div style="margin-bottom:8px"><strong>Contact ID (GHL):</strong> ${escapeHtml(item.from_phone || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Nombre:</strong> ${escapeHtml(item.contact_name || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(item.canal || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
+        <div style="margin:12px 0 6px"><strong>Error envío GHL</strong></div>
+        <pre style="${item.send_error ? 'color:#f87171' : ''}">${escapeHtml(item.send_error || '—')}</pre>
+        <div style="margin-bottom:8px"><strong>Mensaje:</strong></div>
+        <pre>${escapeHtml(item.message_text || '—')}</pre>
+        <div style="margin:12px 0 6px"><strong>Respuesta</strong></div>
+        <pre>${escapeHtml(item.response_preview || '—')}</pre>
+      </div>
+    </details>`).join('');
+
+  return `<!doctype html><html lang="es"><head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GHL Debug</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+    .title{font-size:20px;font-weight:700}
+    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
+    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
+    .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
+    .value{font-size:22px;font-weight:700;margin-top:6px}
+    table{width:100%;border-collapse:collapse;background:#111827;border:1px solid #334155}
+    th,td{padding:10px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;font-size:12px}
+    th{background:#1e293b;color:#f97316}
+    .section{margin-top:18px}
+    details{margin-top:12px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px}
+    summary{cursor:pointer;font-weight:700}
+    pre{white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font-size:12px}
+  </style>
+</head><body>
+  <div class="top">
+    <div class="title">GHL — Instagram / Facebook Debug</div>
+    <div class="actions">
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}">Refrescar</a>
+      <a href="${appendDebugToken('/debug/ghl/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="card"><div class="label">Total</div><div class="value">${interactions.length}</div></div>
+    <div class="card"><div class="label">OK</div><div class="value">${okCount}</div></div>
+    <div class="card"><div class="label">Errores/Rechazados</div><div class="value">${errorCount}</div></div>
+    <div class="card"><div class="label">Tiempo AVG</div><div class="value">${avgDuration != null ? (avgDuration/1000).toFixed(1)+' s' : '—'}</div></div>
+  </div>
+
+  <div class="section">
+    <table>
+      <thead><tr>
+        <th>Hora</th><th>Canal</th><th>Contacto</th><th>Contact ID</th><th>Mensaje</th>
+        <th>Agente</th><th>Modelo</th><th style="min-width:60px">Total</th><th>Status</th><th>Detalle</th>
+      </tr></thead>
+      <tbody>${interactionRows}</tbody>
+    </table>
+  </div>
+
+  <div id="ghl-interaction-details">${interactionDetails}</div>
+
+  <details class="section">
+    <summary>FastAPI Config</summary>
+    <pre>${escapeHtml(JSON.stringify(config, null, 2))}</pre>
+  </details>
+
+</body></html>`;
+}
+
+app.get('/debug/ghl', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectGHLDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).type('html').send(renderGHLHtml(data, extractAccessToken(req)));
+  } catch (err) {
+    res.status(500).type('html').send(`<pre>${escapeHtml(String(err))}</pre>`);
+  }
+});
+
+app.get('/debug/ghl/data', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await collectGHLDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+
 // ── Unified all-channels debug panel ─────────────────────────────────────────
 
 async function collectCanalesDebugPayload() {
@@ -7350,6 +7488,7 @@ function renderCanalesHtml(data, debugToken = '') {
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
     </div>
   </div>
 
