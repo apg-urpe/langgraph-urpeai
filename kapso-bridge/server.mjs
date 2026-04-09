@@ -6166,6 +6166,25 @@ app.post('/api/v1/scheduling/eliminar-evento', async (req, res) => {
 });
 
 /* ── ManyChat inbound ── */
+app.post('/api/v1/ghl/inbound', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-ghl-key': req.headers['x-ghl-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/manychat/inbound', async (req, res) => {
 
   const baseUrl = getFastApiBaseUrl();
@@ -6763,6 +6782,95 @@ function buildManyChatInteractions(events = []) {
   return interactions.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
 }
 
+// ── GHL interactions builder ──────────────────────────────────────────────────
+
+function buildGHLInteractions(events = []) {
+  const sorted = [...events]
+    .filter(e => e && e.timestamp && e.stage)
+    .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+  const interactions = [];
+  const pendingByContact = new Map();
+
+  for (const event of sorted) {
+    const payload = event.payload || {};
+    const contactId = payload.contact_id;
+    if (!contactId) continue;
+
+    if (event.stage === 'ghl_message_received') {
+      const interaction = {
+        id: `${contactId}_${event.timestamp}`,
+        message_id: `${contactId}_${event.timestamp}`,
+        started_at: event.timestamp,
+        from_phone: contactId,
+        contact_name: payload.contact_name || null,
+        empresa_id: payload.empresa_id,
+        message_text: payload.message || '',
+        message_type: 'text',
+        canal: payload.canal || 'instagram',
+        status: 'processing',
+        agent_runs: [],
+        tools_used: [],
+      };
+      pendingByContact.set(contactId, interaction);
+      interactions.push(interaction);
+
+    } else if (event.stage === 'ghl_message_sent') {
+      const pending = pendingByContact.get(contactId);
+      if (pending) {
+        pending.agent_name = payload.agent_name;
+        pending.model_used = payload.model_used;
+        pending.response_preview = payload.reply_preview;
+        pending.finished_at = event.timestamp;
+        pending.status = payload.ghl_send_ok === false ? 'send_error' : 'ok';
+        pending.send_error = payload.ghl_send_error || null;
+        if (payload.elapsed_s != null) {
+          pending.duration_ms = Math.round(payload.elapsed_s * 1000);
+          pending.timing = { total_ms: pending.duration_ms };
+        }
+        pendingByContact.delete(contactId);
+      }
+
+    } else if (event.stage === 'ghl_numero_no_encontrado' || event.stage === 'ghl_sin_contact_id') {
+      const interaction = {
+        id: `${contactId || 'unknown'}_${event.timestamp}`,
+        message_id: `${contactId || 'unknown'}_${event.timestamp}`,
+        started_at: event.timestamp,
+        finished_at: event.timestamp,
+        from_phone: contactId || payload.telefono_recept || '—',
+        phone_number_id: payload.telefono_recept,
+        canal: payload.canal || 'instagram',
+        status: 'error',
+        error: payload.error || event.stage,
+        dropped: true,
+        agent_runs: [],
+        tools_used: [],
+      };
+      interactions.push(interaction);
+    }
+  }
+
+  return interactions.sort((a, b) => new Date(b.started_at) - new Date(a.started_at));
+}
+
+async function collectGHLDebugPayload() {
+  const [eventsResult, configResult] = await Promise.allSettled([
+    fetchFastApiDebugJson('/api/v1/ghl/debug/events?limit=100'),
+    fetchFastApiDebugJson('/api/v1/ghl/debug/config'),
+  ]);
+  const events = eventsResult.status === 'fulfilled' ? (eventsResult.value.events || []) : [{
+    timestamp: new Date().toISOString(),
+    source: 'bridge',
+    stage: 'fastapi_debug_error',
+    payload: { error: String(eventsResult.reason) },
+  }];
+  return {
+    fastapi_config: configResult.status === 'fulfilled' ? configResult.value : { error: String(configResult.reason) },
+    events,
+    interactions: buildGHLInteractions(events),
+  };
+}
+
 async function collectManyChatDebugPayload() {
   const [eventsResult, configResult] = await Promise.allSettled([
     fetchFastApiDebugJson('/api/v1/manychat/debug/events?limit=100'),
@@ -7061,17 +7169,25 @@ app.get('/debug/manychat/data', async (req, res) => {
 // ── Unified all-channels debug panel ─────────────────────────────────────────
 
 async function collectCanalesDebugPayload() {
-  const [waResult, mcResult] = await Promise.allSettled([
+  const [waResult, mcResult, ghlResult] = await Promise.allSettled([
     collectKapsoDebugPayload(),
     collectManyChatDebugPayload(),
+    collectGHLDebugPayload(),
   ]);
   const waInteractions = (waResult.status === 'fulfilled' ? (waResult.value.interactions || []) : [])
     .map(i => ({ ...i, _canal: 'whatsapp' }));
   const mcInteractions = (mcResult.status === 'fulfilled' ? (mcResult.value.interactions || []) : [])
     .map(i => ({ ...i, _canal: i.canal || 'instagram' }));
-  const all = [...waInteractions, ...mcInteractions]
+  const ghlInteractions = (ghlResult.status === 'fulfilled' ? (ghlResult.value.interactions || []) : [])
+    .map(i => ({ ...i, _canal: `ghl_${i.canal || 'instagram'}` }));
+  const all = [...waInteractions, ...mcInteractions, ...ghlInteractions]
     .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
-  return { interactions: all, wa_count: waInteractions.length, mc_count: mcInteractions.length };
+  return {
+    interactions: all,
+    wa_count: waInteractions.length,
+    mc_count: mcInteractions.length,
+    ghl_count: ghlInteractions.length,
+  };
 }
 
 function renderCanalesHtml(data, debugToken = '') {
@@ -7090,6 +7206,10 @@ function renderCanalesHtml(data, debugToken = '') {
           ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
           : canal === 'facebook'
           ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
+          : canal === 'ghl_instagram'
+          ? '<span style="background:#f97316;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·IG</span>'
+          : canal === 'ghl_facebook'
+          ? '<span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·FB</span>'
           : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
         const totalMs = item.duration_ms != null ? item.duration_ms : (item.timing?.total_ms != null ? Math.round(item.timing.total_ms) : null);
         const tcls = totalMs == null ? '' : totalMs < 20000 ? 'color:#34d399' : totalMs < 30000 ? 'color:#f97316' : 'color:#f87171';

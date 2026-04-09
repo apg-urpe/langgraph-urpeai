@@ -448,6 +448,42 @@ async def upsert_contacto_manychat(
     return (creado, True)
 
 
+async def upsert_contacto_ghl(
+    contact_id: str,
+    empresa_id: int,
+    nombre: str | None = None,
+    telefono: str | None = None,
+) -> tuple[dict, bool]:
+    """Crea o actualiza un contacto de GHL usando contact_id como clave (subscriber_id)."""
+    sb = await get_supabase()
+    timestamp = datetime.now(timezone.utc).isoformat()
+    existente = await get_contacto_por_subscriber_id(contact_id, empresa_id)
+
+    if existente and existente.get("id") is not None:
+        update_data: dict[str, Any] = {"ultima_interaccion": timestamp}
+        if nombre and not existente.get("nombre"):
+            update_data["nombre"] = nombre
+        if telefono and not existente.get("telefono"):
+            update_data["telefono"] = telefono
+        updated = await sb.update("wp_contactos", {"id": existente["id"]}, update_data)
+        return ((updated[0] if updated else existente), False)
+
+    insert_data: dict[str, Any] = {
+        "subscriber_id": contact_id,
+        "empresa_id": empresa_id,
+        "origen": "GHL",
+        "notas": "",
+        "fecha_registro": timestamp,
+        "ultima_interaccion": timestamp,
+        "telefono": telefono or f"ghl_{contact_id}",
+    }
+    if nombre:
+        insert_data["nombre"] = nombre
+
+    creado = await sb.insert("wp_contactos", insert_data)
+    return (creado, True)
+
+
 async def get_contacto_notas(contacto_id: int, limit: int = 10) -> list[dict]:
     """Obtiene las notas visibles para IA de un contacto."""
     sb = await get_supabase()

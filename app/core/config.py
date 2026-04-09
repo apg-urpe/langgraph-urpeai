@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     NYLAS_API_KEY: str | None = None
     NYLAS_API_KEY_2: str | None = None
     NYLAS_API_URL: str = "https://api.us.nylas.com"
+    # Go High Level (GHL)
+    GHL_API_KEY: str | None = None
     # Error webhook
     ERROR_WEBHOOK_URL: str | None = None
     APP_NAME: str = "URPE AI Lab - Multi-Agent System"

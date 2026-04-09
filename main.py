@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.kapso_routes import router as kapso_router, retry_stuck_messages
+from app.api.ghl_routes import router as ghl_router
 from app.api.manychat_routes import router as manychat_router, retry_stuck_manychat_messages
 from app.api.routes import router
 from app.api.db_routes import router as db_router
@@ -112,6 +113,7 @@ async def error_webhook_middleware(request: Request, call_next):
 app.include_router(router)
 app.include_router(kapso_router)
 app.include_router(manychat_router)
+app.include_router(ghl_router)
 app.include_router(db_router)
 app.include_router(debug_dashboard_router)
 app.include_router(funnel_router)
