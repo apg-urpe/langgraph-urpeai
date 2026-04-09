@@ -52,6 +52,7 @@ async def _send_ghl_reply(
     conversation_id: str | None,
     text: str,
     canal: str = "instagram",
+    location_id: str | None = None,
 ) -> tuple[bool, str | None]:
     """Envía respuesta via GHL Conversations API."""
     if not api_key:
@@ -62,6 +63,7 @@ async def _send_ghl_reply(
         "Authorization": f"Bearer {api_key}",
         "Version": _GHL_API_VERSION,
         "Content-Type": "application/json",
+        "accept": "application/json",
     }
 
     try:
@@ -69,12 +71,20 @@ async def _send_ghl_reply(
             if conversation_id:
                 # Preferimos usar conversation_id (más preciso)
                 url = f"{_GHL_API_BASE}/conversations/{conversation_id}/messages"
-                payload = {"type": message_type, "message": text}
+                payload: dict = {"type": message_type, "message": text}
+                if location_id:
+                    payload["locationId"] = location_id
             else:
-                # Fallback: usar contactId
+                # Usar contactId + locationId (requerido por GHL para IG/FB)
                 url = f"{_GHL_API_BASE}/conversations/messages"
                 payload = {"type": message_type, "contactId": contact_id, "message": text}
+                if location_id:
+                    payload["locationId"] = location_id
 
+            logger.info(
+                "GHL send → url=%s payload_keys=%s location_id=%s",
+                url, list(payload.keys()), location_id,
+            )
             resp = await client.post(url, json=payload, headers=headers)
 
         if resp.status_code in (200, 201):
@@ -161,6 +171,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
         canal = request.canal          # "instagram" | "facebook"
         _channel = f"ghl_{canal}"     # "ghl_instagram" | "ghl_facebook"
         multimedia = request.customData.multimedia if request.customData else None
+        location_id = (request.location.id if request.location else None) or None
 
         # Ignorar si está vacío y sin media
         if not mensaje and not multimedia:
@@ -362,6 +373,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 conversation_id=None,   # GHL no envía conversation_id en el webhook
                 text=reply_text,
                 canal=canal,
+                location_id=location_id,
             )
             if send_ok and conversacion_db_id:
                 await db.insertar_mensaje(
@@ -389,6 +401,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 "canal": canal,
                 "ghl_send_ok": send_ok,
                 "ghl_send_error": send_error,
+                "location_id": location_id,
             },
             channel=_channel,
         )
