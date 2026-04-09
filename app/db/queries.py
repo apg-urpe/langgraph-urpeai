@@ -551,6 +551,22 @@ async def get_conversacion_activa(contacto_id: int, numero_id: int) -> dict | No
     return results[0] if results else None
 
 
+async def get_conversacion_ghl_reciente(contacto_id: int) -> dict | None:
+    """Busca la conversación GHL más reciente de un contacto (ghl_instagram o ghl_facebook)."""
+    sb = await get_supabase()
+    results = await sb.query(
+        "wp_conversaciones",
+        filters={"contacto_id": contacto_id},
+        order="created_at", order_desc=True,
+        limit=10,
+    ) or []
+    for conv in results:
+        canal = conv.get("canal") or ""
+        if canal.startswith("ghl_"):
+            return conv
+    return results[0] if results else None
+
+
 async def get_conversaciones_contacto(contacto_id: int) -> list[dict]:
     """Lista conversaciones de un contacto."""
     sb = await get_supabase()

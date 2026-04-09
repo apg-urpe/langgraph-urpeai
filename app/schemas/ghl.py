@@ -87,16 +87,20 @@ class GHLInboundResponse(BaseModel):
 
 
 class GHLSendManualRequest(BaseModel):
-    """Envía un mensaje manual a un contacto de GHL sin pasar por el agente IA."""
-    contact_id: str                      # GHL contact ID (subscriber ID)
+    """Envía un mensaje manual a un contacto de GHL sin pasar por el agente IA.
+
+    Usa contacto_id (integer de Supabase) — el sistema recupera el GHL contact_id,
+    api_key y location_id automáticamente desde la conversación en DB.
+    """
+    contacto_id: int                     # ID integer de wp_contactos (Supabase)
     mensaje: str
-    canal: str = "instagram"            # "instagram" | "facebook"
-    telefono_receptor: str               # identifica empresa/agente en wp_numeros
-    location_id: str | None = None      # si se omite se recupera de la conversación
+    canal: str = "instagram"             # "instagram" | "facebook"
+    location_id: str | None = None       # opcional — se recupera de la conversación si se omite
 
 
 class GHLSendManualResponse(BaseModel):
     ok: bool
-    contact_id: str
+    contacto_id: int
+    contact_id: str | None = None       # GHL contact_id recuperado
     guardado_en_db: bool = False
     error: str | None = None

@@ -444,17 +444,15 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 async def ghl_send_manual(req: GHLSendManualRequest):
     """Envía un mensaje directo a un contacto de GHL sin pasar por el agente IA.
 
-    El api_key y location_id se recuperan automáticamente de la conversación activa
-    guardada en DB. También se pueden pasar location_id en el body.
+    Usa el contacto_id integer de Supabase — recupera automáticamente el GHL contact_id,
+    api_key y location_id desde la conversación en DB.
 
     Ejemplo curl:
         curl -X POST https://TU_DOMINIO/api/v1/ghl/send \\
           -H "Content-Type: application/json" \\
           -d '{
-            "contact_id": "34JHwyphbgJBepQILwcA",
-            "mensaje": "Hola, ¿en qué te puedo ayudar?",
-            "canal": "instagram",
-            "telefono_receptor": "+1234567890"
+            "contacto_id": 285318,
+            "mensaje": "Hola, ¿en qué te puedo ayudar?"
           }'
     """
     guardado_en_db = False
@@ -462,31 +460,32 @@ async def ghl_send_manual(req: GHLSendManualRequest):
     location_id: str | None = req.location_id
     conversacion_id_db: int | None = None
     empresa_id_db: int | None = None
+    ghl_contact_id: str | None = None
 
-    # ── Buscar credenciales y conversación desde la BD ────────────────────────
+    # ── Lookup contacto → GHL contact_id + conversación ──────────────────────
     try:
-        numero = await db.get_numero_por_telefono(req.telefono_receptor)
-        if not numero:
-            raise HTTPException(status_code=404, detail=f"Número {req.telefono_receptor} no configurado")
+        contacto = await db.get_contacto(req.contacto_id)
+        if not contacto:
+            raise HTTPException(status_code=404, detail=f"Contacto {req.contacto_id} no encontrado en Supabase")
 
-        empresa_id_db = int(numero["empresa_id"])
-        numero_id = int(numero["id"])
+        ghl_contact_id = contacto.get("subscriber_id")
+        if not ghl_contact_id:
+            raise HTTPException(status_code=400, detail="El contacto no tiene subscriber_id (GHL contact_id) registrado")
 
-        contacto = await db.get_contacto_por_subscriber_id(req.contact_id, empresa_id_db)
-        contacto_id = int(contacto["id"]) if contacto else None
+        empresa_id_db = int(contacto["empresa_id"])
 
-        if contacto_id:
-            conversacion = await db.get_conversacion_activa(contacto_id, numero_id)
-            if conversacion:
-                conversacion_id_db = int(conversacion["id"])
-                creds = await db.get_ghl_credentials_de_conversacion(conversacion_id_db)
-                ghl_api_key = creds.get("api_key")
-                if not location_id:
-                    location_id = creds.get("location_id")
+        # Buscar conversación GHL más reciente del contacto
+        conversacion = await db.get_conversacion_ghl_reciente(req.contacto_id)
+        if conversacion:
+            conversacion_id_db = int(conversacion["id"])
+            creds = await db.get_ghl_credentials_de_conversacion(conversacion_id_db)
+            ghl_api_key = creds.get("api_key")
+            if not location_id:
+                location_id = creds.get("location_id")
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("ghl_send_manual: error buscando credenciales en DB: %s", exc)
+        logger.warning("ghl_send_manual: error buscando datos en DB: %s", exc)
 
     # Fallback al settings global si no se encontró en DB
     if not ghl_api_key:
@@ -506,7 +505,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
     for bubble in bubbles:
         ok, err = await _send_ghl_reply(
             api_key=ghl_api_key,
-            contact_id=req.contact_id,
+            contact_id=ghl_contact_id,
             conversation_id=None,
             text=bubble,
             canal=req.canal,
@@ -517,7 +516,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
             break
 
     if not last_ok:
-        return GHLSendManualResponse(ok=False, contact_id=req.contact_id, error=last_error)
+        return GHLSendManualResponse(ok=False, contacto_id=req.contacto_id, contact_id=ghl_contact_id, error=last_error)
 
     # ── Guardar en DB ─────────────────────────────────────────────────────────
     if conversacion_id_db:
@@ -530,7 +529,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
                 status="enviado",
                 metadata={
                     "canal": req.canal,
-                    "ghl_contact_id": req.contact_id,
+                    "ghl_contact_id": ghl_contact_id,
                     "envio_manual": True,
                 },
                 empresa_id=empresa_id_db,
@@ -539,7 +538,12 @@ async def ghl_send_manual(req: GHLSendManualRequest):
         except Exception as exc:
             logger.warning("ghl_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
 
-    return GHLSendManualResponse(ok=True, contact_id=req.contact_id, guardado_en_db=guardado_en_db)
+    return GHLSendManualResponse(
+        ok=True,
+        contacto_id=req.contacto_id,
+        contact_id=ghl_contact_id,
+        guardado_en_db=guardado_en_db,
+    )
 
 
 # ── Inspect storage (últimos 10 payloads crudos recibidos) ───────────────────
