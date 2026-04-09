@@ -142,7 +142,9 @@ async def ghl_inbound(
     x_ghl_key: str | None = Header(default=None),
 ):
     """Recibe webhook de GHL y procesa con agentes IA de forma asíncrona."""
-    api_key = x_ghl_key or settings.GHL_API_KEY or ""
+    # X-Ghl-Key puede llegar como header HTTP o como campo en customData
+    _custom_key = (request.customData.model_extra.get("X-Ghl-Key") if request.customData else None)
+    api_key = x_ghl_key or _custom_key or settings.GHL_API_KEY or ""
     asyncio.create_task(_procesar_ghl_core(request, api_key))
     return GHLInboundResponse()
 
@@ -283,16 +285,31 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
             from_phone=contact_id,
             contact_name=nombre_usuario or (contacto.get("nombre") if contacto else None),
         )
+        _pcd = prompt_context_data or {}
         context_payload, prompt_extras = build_kapso_context_payload(
-            request=inbound_proxy,
-            prompt_context_data=prompt_context_data,
-            empresa_id=empresa_id,
-            agente_id=agente_id,
+            contacto=contacto,
+            agent=agent or {},
+            empresa=_pcd.get("empresa"),
+            rol_agente=_pcd.get("rol_agente"),
+            team_humano=_pcd.get("team_humano"),
+            contextos=_pcd.get("contextos") or [],
+            citas=_pcd.get("citas") or [],
+            notificaciones=_pcd.get("notificaciones") or [],
+            mensajes_recientes=_pcd.get("mensajes_recientes") or [],
+            etapas_embudo=_pcd.get("etapas_embudo") or [],
+            notas=_pcd.get("notas") or [],
+            contexto_embudo_snapshot=_pcd.get("contexto_embudo_snapshot"),
+            etapas_embudo_snapshot=_pcd.get("etapas_embudo_snapshot"),
+            conversacion_memoria_snapshot=_pcd.get("conversacion_memoria_snapshot"),
+            inbound=inbound_proxy,
         )
         system_prompt = build_kapso_system_prompt(
+            agent=agent or {},
+            inbound=inbound_proxy,
+            contacto=contacto,
             context_payload=context_payload,
             extras=prompt_extras,
-            agent=agent,
+            rol_agente=_pcd.get("rol_agente"),
         )
 
         # 8. Funnel + contact_update en background (paralelo)
