@@ -410,6 +410,7 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
       if (event.stage === 'inbound_entities_resolved') {
         if (payload.empresa_id != null) interaction.empresa_id = payload.empresa_id;
+        if (payload.contacto_id != null) interaction.contacto_id = payload.contacto_id;
       }
 
       if (event.stage === 'run_agent_start') {
@@ -4853,7 +4854,7 @@ function renderTable(items){
 
       '<td class="muted">'+rel(it.started_at)+'</td>'+
 
-      '<td><div style="font-weight:600;color:#f1f5f9">'+esc(it.contact_name||'—')+'</div><div class="muted">'+esc(it.from_phone||'')+'</div></td>'+
+      '<td><div style="font-weight:600;color:#f1f5f9">'+esc(it.contact_name||'—')+'</div><div class="muted">'+(it.contacto_id!=null?'ID '+it.contacto_id+' · ':'')+esc(it.from_phone||'')+'</div></td>'+
 
       '<td class="muted">'+esc(it.message_type||'text')+'</td>'+
 
@@ -4910,6 +4911,8 @@ function openM(idx){
       '<div class="dc"><div class="dct">Contacto</div>'+
 
         '<div class="dr"><span class="dk">Nombre</span><span class="dv">'+esc(it.contact_name||'—')+'</span></div>'+
+
+        '<div class="dr"><span class="dk">Contacto ID</span><span class="dv">'+(it.contacto_id!=null?String(it.contacto_id):'—')+'</span></div>'+
 
         '<div class="dr"><span class="dk">Teléfono</span><span class="dv">'+esc(it.from_phone||'—')+'</span></div>'+
 
