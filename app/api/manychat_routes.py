@@ -185,6 +185,7 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
     conversacion_id_db: int | None = None
     empresa_id_db: int | None = None
     subscriber_id: str | None = None
+    canal: str = "instagram"
 
     # ── Lookup contacto → subscriber_id + conversación ────────────────────────
     try:
@@ -201,7 +202,9 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
         conversacion = await db.get_conversacion_manychat_reciente(req.contacto_id)
         if conversacion:
             conversacion_id_db = int(conversacion["id"])
-            manychat_api_key = await db.get_manychat_api_key_de_conversacion(conversacion_id_db)
+            creds = await db.get_manychat_credentials_de_conversacion(conversacion_id_db)
+            manychat_api_key = creds.get("api_key")
+            canal = creds.get("canal") or "instagram"
     except HTTPException:
         raise
     except Exception as exc:
@@ -219,7 +222,7 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
         api_key=manychat_api_key,
         subscriber_id=subscriber_id,
         text=req.mensaje,
-        canal=req.canal,
+        canal=canal,
     )
     if not ok:
         return ManyChatSendManualResponse(
@@ -239,7 +242,7 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
                 tipo="texto",
                 status="enviado",
                 metadata={
-                    "canal": req.canal,
+                    "canal": canal,
                     "subscriber_id": subscriber_id,
                     "envio_manual": True,
                 },

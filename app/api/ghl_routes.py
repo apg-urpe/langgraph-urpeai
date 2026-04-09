@@ -461,6 +461,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
     conversacion_id_db: int | None = None
     empresa_id_db: int | None = None
     ghl_contact_id: str | None = None
+    canal: str = "instagram"
 
     # ── Lookup contacto → GHL contact_id + conversación ──────────────────────
     try:
@@ -482,6 +483,8 @@ async def ghl_send_manual(req: GHLSendManualRequest):
             ghl_api_key = creds.get("api_key")
             if not location_id:
                 location_id = creds.get("location_id")
+            # Canal desde el metadata del mensaje ("instagram" / "facebook")
+            canal = creds.get("canal") or conversacion.get("canal", "ghl_instagram").replace("ghl_", "") or "instagram"
     except HTTPException:
         raise
     except Exception as exc:
@@ -508,7 +511,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
             contact_id=ghl_contact_id,
             conversation_id=None,
             text=bubble,
-            canal=req.canal,
+            canal=canal,
             location_id=location_id,
         )
         last_ok, last_error = ok, err
@@ -528,7 +531,7 @@ async def ghl_send_manual(req: GHLSendManualRequest):
                 tipo="texto",
                 status="enviado",
                 metadata={
-                    "canal": req.canal,
+                    "canal": canal,
                     "ghl_contact_id": ghl_contact_id,
                     "envio_manual": True,
                 },

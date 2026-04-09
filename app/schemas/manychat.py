@@ -64,7 +64,6 @@ class ManyChatSendManualRequest(BaseModel):
     """
     contacto_id: int                # ID integer de wp_contactos (Supabase)
     mensaje: str
-    canal: str = "instagram"        # "instagram" | "facebook" | "whatsapp"
 
 
 class ManyChatSendManualResponse(BaseModel):

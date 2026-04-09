@@ -6793,6 +6793,7 @@ function buildManyChatInteractions(events = []) {
         message_id: `${subscriberId}_${event.timestamp}`,
         started_at: event.timestamp,
         from_phone: subscriberId,
+        contacto_id: payload.contacto_id || null,
         contact_name: payload.contact_name || null,
         empresa_id: payload.empresa_id,
         message_text: payload.message || '',
@@ -6885,6 +6886,7 @@ function buildGHLInteractions(events = []) {
         message_id: `${contactId}_${event.timestamp}`,
         started_at: event.timestamp,
         from_phone: contactId,
+        contacto_id: payload.contacto_id || null,
         contact_name: payload.contact_name || null,
         empresa_id: payload.empresa_id,
         message_text: payload.message || '',
@@ -6906,6 +6908,7 @@ function buildGHLInteractions(events = []) {
         pending.finished_at = event.timestamp;
         pending.status = payload.ghl_send_ok === false ? 'send_error' : 'ok';
         pending.send_error = payload.ghl_send_error || null;
+        if (payload.contacto_id) pending.contacto_id = payload.contacto_id;
         if (payload.elapsed_s != null) {
           pending.duration_ms = Math.round(payload.elapsed_s * 1000);
           pending.timing = { total_ms: pending.duration_ms };
@@ -7276,7 +7279,7 @@ function renderGHLHtml(data, debugToken = '') {
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
           <td>${canalBadge}</td>
           <td>${escapeHtml(item.contact_name || '—')}</td>
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td style="max-width:280px;word-break:break-word">${msgCell}</td>
           <td>${escapeHtml(item.agent_name || '—')}</td>
           <td>${escapeHtml(item.model_used || '—')}</td>
@@ -7442,7 +7445,7 @@ function renderCanalesHtml(data, debugToken = '') {
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
           <td>${canalBadge}</td>
           <td>${escapeHtml(item.contact_name || item.from_phone || '—')}</td>
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td>${escapeHtml(item.message_type || 'text')}</td>
           <td style="max-width:280px;word-break:break-word">${msgCell}</td>
           <td>${escapeHtml(item.agent_name || '—')}</td>

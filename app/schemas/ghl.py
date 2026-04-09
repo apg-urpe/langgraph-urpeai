@@ -94,7 +94,6 @@ class GHLSendManualRequest(BaseModel):
     """
     contacto_id: int                     # ID integer de wp_contactos (Supabase)
     mensaje: str
-    canal: str = "instagram"             # "instagram" | "facebook"
     location_id: str | None = None       # opcional — se recupera de la conversación si se omite
 
 

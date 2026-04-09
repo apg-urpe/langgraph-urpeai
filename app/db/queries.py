@@ -649,12 +649,19 @@ async def get_ghl_credentials_de_conversacion(conversacion_id: int) -> dict:
                 continue
         api_key = meta.get("ghl_api_key")
         if api_key:
-            return {"api_key": api_key, "location_id": meta.get("location_id")}
+            raw_canal = meta.get("canal") or "instagram"
+            return {"api_key": api_key, "location_id": meta.get("location_id"), "canal": raw_canal}
     return {}
 
 
 async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | None:
     """Recupera el manychat_api_key del mensaje entrante más reciente de la conversación."""
+    creds = await get_manychat_credentials_de_conversacion(conversacion_id)
+    return creds.get("api_key")
+
+
+async def get_manychat_credentials_de_conversacion(conversacion_id: int) -> dict:
+    """Recupera manychat_api_key y canal del mensaje entrante más reciente."""
     sb = await get_supabase()
     msgs = await sb.query(
         "wp_mensajes",
@@ -673,8 +680,8 @@ async def get_manychat_api_key_de_conversacion(conversacion_id: int) -> str | No
                 continue
         key = meta.get("manychat_api_key")
         if key:
-            return key
-    return None
+            return {"api_key": key, "canal": meta.get("canal") or "instagram"}
+    return {}
 
 
 async def insertar_mensaje(
