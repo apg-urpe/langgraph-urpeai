@@ -6183,6 +6183,30 @@ app.post('/api/v1/ghl/inspect', async (req, res) => {
   }
 });
 
+app.get('/api/v1/ghl/inspect/last', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect/last', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_get_proxy_error', message: err.message });
+  }
+});
+
+app.delete('/api/v1/ghl/inspect/clear', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/ghl/inspect/clear', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, { method: 'DELETE' });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'ghl_inspect_delete_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/ghl/inbound', async (req, res) => {
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/ghl/inbound', `${baseUrl}/`).toString();
