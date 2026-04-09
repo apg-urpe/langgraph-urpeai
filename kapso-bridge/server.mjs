@@ -7060,22 +7060,39 @@ app.get('/debug/manychat/data', async (req, res) => {
 
 // ── Unified all-channels debug panel ─────────────────────────────────────────
 
+async function fetchEmpresasMap() {
+  try {
+    const data = await fetchFastApiDebugJson('/api/v1/kapso/debug/empresas');
+    const map = {};
+    for (const e of (data.empresas || [])) map[String(e.id)] = e.nombre || `Empresa ${e.id}`;
+    return map;
+  } catch { return {}; }
+}
+
 async function collectCanalesDebugPayload() {
-  const [waResult, mcResult] = await Promise.allSettled([
-    collectKapsoDebugPayload(),
-    collectManyChatDebugPayload(),
+  const [waResult, mcResult, ghlResult, empresasMap] = await Promise.all([
+    collectKapsoDebugPayload().catch(() => ({ interactions: [] })),
+    collectManyChatDebugPayload().catch(() => ({ interactions: [] })),
+    collectGHLDebugPayload().catch(() => ({ interactions: [] })),
+    fetchEmpresasMap(),
   ]);
-  const waInteractions = (waResult.status === 'fulfilled' ? (waResult.value.interactions || []) : [])
-    .map(i => ({ ...i, _canal: 'whatsapp' }));
-  const mcInteractions = (mcResult.status === 'fulfilled' ? (mcResult.value.interactions || []) : [])
-    .map(i => ({ ...i, _canal: i.canal || 'instagram' }));
-  const all = [...waInteractions, ...mcInteractions]
+  const waInteractions = (waResult.interactions || []).map(i => ({ ...i, _canal: 'whatsapp' }));
+  const mcInteractions = (mcResult.interactions || []).map(i => ({ ...i, _canal: i.canal || 'instagram' }));
+  const ghlInteractions = (ghlResult.interactions || []).map(i => ({ ...i, _canal: `ghl_${i.canal || 'instagram'}` }));
+  const all = [...waInteractions, ...mcInteractions, ...ghlInteractions]
     .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
-  return { interactions: all, wa_count: waInteractions.length, mc_count: mcInteractions.length };
+  return {
+    interactions: all,
+    empresasMap,
+    wa_count: waInteractions.length,
+    mc_count: mcInteractions.length,
+    ghl_count: ghlInteractions.length,
+  };
 }
 
 function renderCanalesHtml(data, debugToken = '') {
   const interactions = Array.isArray(data.interactions) ? data.interactions : [];
+  const empresasMap = data.empresasMap || {};
   const okCount = interactions.filter(i => i.status === 'ok').length;
   const errorCount = interactions.filter(i => i.status === 'error').length;
   const withTiming = interactions.filter(i => i.duration_ms != null || i.timing?.total_ms != null);
@@ -7105,7 +7122,11 @@ function renderCanalesHtml(data, debugToken = '') {
           <td>${escapeHtml(item.from_phone || '—')}</td>
           <td>${escapeHtml(item.message_type || 'text')}</td>
           <td style="max-width:280px;word-break:break-word">${msgCell}</td>
-          <td>${escapeHtml(item.agent_name || '—')}</td>
+          <td>${(() => {
+            const agente = escapeHtml(item.agent_name || '—');
+            const empresa = empresasMap[String(item.empresa_id)] ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${escapeHtml(empresasMap[String(item.empresa_id)])}</div>` : '';
+            return agente + empresa;
+          })()}</td>
           <td>${escapeHtml(item.model_used || '—')}</td>
           <td style="${tcls}"><b>${fms(totalMs)}</b></td>
           <td>${item.dropped ? '<span style="color:#f87171">⛔ rechazado</span>' : escapeHtml(item.status || 'processing')}</td>
@@ -7230,7 +7251,11 @@ function canalToggleMore(a){
       +'<td>'+esc(item.from_phone||'—')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
-      +'<td>'+esc(item.agent_name||'—')+'</td>'
+      +(function(){
+          var a=esc(item.agent_name||'—');
+          var en=empresasMap[String(item.empresa_id)];
+          return '<td>'+a+(en?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(en)+'</div>':'')+'</td>';
+        })()
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
       +'<td>'+esc(item.status||'processing')+'</td>'
@@ -7254,6 +7279,7 @@ function canalToggleMore(a){
   }
 
   function update(data){
+    if(data.empresasMap) empresasMap = data.empresasMap;
     var items = Array.isArray(data.interactions) ? data.interactions : [];
     var ok = items.filter(function(i){ return i.status==='ok'; }).length;
     var err = items.filter(function(i){ return i.status==='error'; }).length;
