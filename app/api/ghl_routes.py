@@ -21,7 +21,7 @@ _MSG_SEPARATOR = re.compile(r"\n*---\n*")
 import httpx
 from collections import deque
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 
 from app.agents.contact_update import run_contact_update_agent
 from app.agents.conversational import CLOSING_FOLLOWUP_MARKER, run_agent
@@ -46,6 +46,15 @@ CONTACT_UPDATE_TIMEOUT_SECONDS = 20
 # GHL Conversations API
 _GHL_API_BASE = "https://services.leadconnectorhq.com"
 _GHL_API_VERSION = "2021-04-15"
+
+
+def _require_send_key(x_send_key: str | None) -> None:
+    """Verifica la clave de autenticación para endpoints de envío manual."""
+    required = settings.SEND_API_KEY
+    if not required:
+        return  # Si no está configurada, no se requiere auth
+    if not x_send_key or x_send_key != required:
+        raise HTTPException(status_code=401, detail="X-Send-Key inválida o ausente")
 
 
 # ── GHL API — Envío de respuesta ─────────────────────────────────────────────
@@ -441,7 +450,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 # ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
 
 @router.post("/send", response_model=GHLSendManualResponse)
-async def ghl_send_manual(req: GHLSendManualRequest):
+async def ghl_send_manual(req: GHLSendManualRequest, x_send_key: str | None = Header(default=None)):
     """Envía un mensaje directo a un contacto de GHL sin pasar por el agente IA.
 
     Usa el contacto_id integer de Supabase — recupera automáticamente el GHL contact_id,
@@ -455,6 +464,8 @@ async def ghl_send_manual(req: GHLSendManualRequest):
             "mensaje": "Hola, ¿en qué te puedo ayudar?"
           }'
     """
+    _require_send_key(x_send_key)
+
     guardado_en_db = False
     ghl_api_key: str | None = None
     location_id: str | None = req.location_id

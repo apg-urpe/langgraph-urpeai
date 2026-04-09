@@ -196,6 +196,17 @@ function isLoopbackRequest(req) {
 
 
 
+function requireSendAccess(req, res) {
+  const required = process.env.SEND_API_KEY;
+  if (!required) return true; // Sin env configurada, acceso libre
+  const key = req.headers['x-send-key'];
+  if (!key || key !== required) {
+    res.status(401).json({ error: 'unauthorized', detail: 'X-Send-Key inválida o ausente' });
+    return false;
+  }
+  return true;
+}
+
 function requireDebugAccess(req, res) {
 
   if (KAPSO_PUBLIC_DEBUG || DEBUG_FLAG.test(String(process.env.DEBUG || '')) || isLoopbackRequest(req)) {
@@ -1678,7 +1689,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
           <td>${escapeHtml(item.contact_name || '—')}</td>
 
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
 
           <td>${escapeHtml(item.message_type || 'text')}</td>
 
@@ -6233,12 +6244,16 @@ app.get('/api/v1/ghl/debug/config', async (req, res) => {
 });
 
 app.post('/api/v1/ghl/send', async (req, res) => {
+  if (!requireSendAccess(req, res)) return;
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/ghl/send', `${baseUrl}/`).toString();
   try {
     const upstream = await fetch(targetUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        'x-send-key': req.headers['x-send-key'] || '',
+      },
       body: JSON.stringify(req.body ?? {}),
     });
     const data = await upstream.json();
@@ -6292,7 +6307,7 @@ app.post('/api/v1/manychat/inbound', async (req, res) => {
 });
 
 app.post('/api/v1/manychat/send', async (req, res) => {
-
+  if (!requireSendAccess(req, res)) return;
   const baseUrl = getFastApiBaseUrl();
   const targetUrl = new URL('/api/v1/manychat/send', `${baseUrl}/`).toString();
 
@@ -6301,7 +6316,7 @@ app.post('/api/v1/manychat/send', async (req, res) => {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-api-key': req.headers['x-api-key'] || '',
+        'x-send-key': req.headers['x-send-key'] || '',
       },
       body: JSON.stringify(req.body ?? {}),
     });
@@ -6989,7 +7004,7 @@ function renderManyChatHtml(data, debugToken = '') {
     ? interactions.map((item, idx) => `
         <tr>
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
-          <td>${escapeHtml(item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td>${escapeHtml(item.canal || 'instagram')}</td>
           <td>${escapeHtml(item.message_type || 'text')}</td>
           <td style="max-width:280px;word-break:break-word">${(function(){ const txt = item.message_text || '—'; if (txt.length <= 200) return escapeHtml(txt); return `${escapeHtml(txt.slice(0,200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px;white-space:nowrap">ver más...</a>`; })()}</td>
@@ -7110,7 +7125,7 @@ function canalToggleMore(a){
     var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
     return '<tr>'
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
-      +'<td>'+esc(item.from_phone||'—')+'</td>'
+      +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.canal||'instagram')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
@@ -7126,6 +7141,7 @@ function canalToggleMore(a){
     return '<details class="section" id="mc-interaction-'+idx+'">'
       +'<summary>'+esc(item.from_phone||'Interacción '+(idx+1))+' · '+esc(item.status||'processing')+' · '+fms(item.duration_ms)+'</summary>'
       +'<div style="margin-top:12px">'
+      +'<div style="margin-bottom:8px"><strong>Contacto ID:</strong> '+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</div>'
       +'<div style="margin-bottom:8px"><strong>Subscriber ID:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(item.canal||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
@@ -7571,7 +7587,7 @@ function canalToggleMore(a){
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
       +'<td>'+badge+'</td>'
       +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
-      +'<td>'+esc(item.from_phone||'—')+'</td>'
+      +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
       +'<td>'+esc(item.agent_name||'—')+'</td>'

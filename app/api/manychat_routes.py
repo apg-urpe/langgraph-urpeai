@@ -40,6 +40,7 @@ from app.schemas.manychat import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/manychat", tags=["manychat"])
+settings = get_settings()
 
 _MANYCHAT_SEND_URL = "https://api.manychat.com/fb/sending/sendContent"
 FUNNEL_TIMEOUT_SECONDS = 25
@@ -164,8 +165,16 @@ async def _send_manychat_reply(
 
 # ── Endpoint: envío manual de mensaje (sin agente IA) ────────────────────────
 
+def _require_send_key(x_send_key: str | None) -> None:
+    required = settings.SEND_API_KEY
+    if not required:
+        return
+    if not x_send_key or x_send_key != required:
+        raise HTTPException(status_code=401, detail="X-Send-Key inválida o ausente")
+
+
 @router.post("/send", response_model=ManyChatSendManualResponse)
-async def manychat_send_manual(req: ManyChatSendManualRequest):
+async def manychat_send_manual(req: ManyChatSendManualRequest, x_send_key: str | None = Header(default=None)):
     """Envía un mensaje directo a un suscriptor de ManyChat sin pasar por el agente IA.
 
     Usa el contacto_id integer de Supabase — recupera automáticamente el subscriber_id
@@ -180,6 +189,8 @@ async def manychat_send_manual(req: ManyChatSendManualRequest):
             "canal": "instagram"
           }'
     """
+    _require_send_key(x_send_key)
+
     guardado_en_db = False
     manychat_api_key: str | None = None
     conversacion_id_db: int | None = None
