@@ -1,4 +1,5 @@
 import logging
+import time
 import traceback
 from datetime import datetime, timezone
 
@@ -10,6 +11,8 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 _http_client: httpx.AsyncClient | None = None
+_startup_time: float = time.time()   # momento en que arrancó el proceso
+_STARTUP_GRACE_SECONDS = 90          # ignorar errores de transición al arrancar
 
 
 def _get_client() -> httpx.AsyncClient:
@@ -47,14 +50,20 @@ async def send_error_to_webhook(
         Description of what plan B was executed so the reader knows
         the system is still running and what the user actually received.
     """
-    # Ignorar errores de red/transporte — ocurren normalmente durante restarts
-    # y no representan bugs del sistema (mensaje vacío = sin información útil)
+    # 1. Ignorar errores de red/transporte — ocurren normalmente durante restarts
     _NOISE_TYPES = (
         "ConnectionResetError", "BrokenPipeError", "ConnectionAbortedError",
         "RemoteProtocolError", "DisconnectedError", "ClientDisconnect",
     )
     if type(exc).__name__ in _NOISE_TYPES or not str(exc):
         logger.debug("Error webhook omitido (ruido de red): %s", type(exc).__name__)
+        return
+
+    # 2. Grace period de arranque — los primeros 90s pueden tener errores de transición
+    #    (health checks fallando, peticiones entrando antes de que FastAPI esté listo)
+    uptime = time.time() - _startup_time
+    if uptime < _STARTUP_GRACE_SECONDS:
+        logger.debug("Error webhook omitido (grace period %.0fs/90s): %s", uptime, type(exc).__name__)
         return
 
     settings = get_settings()
