@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: aguapp
-    restart: unless-stopped
+    restart: on-failure:5
     env_file:
       - .env
     ports:
