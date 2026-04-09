@@ -47,6 +47,16 @@ async def send_error_to_webhook(
         Description of what plan B was executed so the reader knows
         the system is still running and what the user actually received.
     """
+    # Ignorar errores de red/transporte — ocurren normalmente durante restarts
+    # y no representan bugs del sistema (mensaje vacío = sin información útil)
+    _NOISE_TYPES = (
+        "ConnectionResetError", "BrokenPipeError", "ConnectionAbortedError",
+        "RemoteProtocolError", "DisconnectedError", "ClientDisconnect",
+    )
+    if type(exc).__name__ in _NOISE_TYPES or not str(exc):
+        logger.debug("Error webhook omitido (ruido de red): %s", type(exc).__name__)
+        return
+
     settings = get_settings()
     url = settings.ERROR_WEBHOOK_URL
     if not url:
