@@ -470,6 +470,15 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
 
 
+      if (event.stage === 'numero_no_encontrado') {
+        if (payload.from_phone) interaction.from_phone = payload.from_phone;
+        if (payload.phone_number_id) interaction.phone_number_id = payload.phone_number_id;
+        interaction.status = 'error';
+        interaction.error = payload.error || `Número no configurado: phone_number_id=${payload.phone_number_id}`;
+        interaction.finished_at = event.timestamp;
+        interaction.dropped = true;
+      }
+
       if (event.stage === 'http_error' || event.stage === 'exception') {
 
         interaction.status = 'error';
@@ -1685,7 +1694,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
           ${renderTimingCells(item)}
 
-          <td>${escapeHtml(item.status || 'processing')}</td>
+          <td>${item.dropped ? '<span style="color:#f87171">⛔ rechazado</span>' : escapeHtml(item.status || 'processing')}</td>
 
            <td><a href="#interaction-${index}" style="color:#93c5fd">Ver detalle</a></td>
 
@@ -1704,6 +1713,8 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
         <summary>${escapeHtml(item.contact_name || item.from_phone || item.message_id || `Interacción ${index + 1}`)} · ${escapeHtml(item.status || 'processing')} · ${escapeHtml(item.duration_ms != null ? `${(item.duration_ms / 1000).toFixed(1)} s` : '—')}</summary>
 
         <div style="margin-top:12px">
+
+          ${item.dropped ? `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px">⛔ <strong>Rechazado antes de procesar</strong> — No se guardó en Supabase ni se envió al agente. El número <code>${escapeHtml(item.phone_number_id || '—')}</code> no existe en <code>wp_numeros</code>.</div>` : ''}
 
           <div style="margin-bottom:8px"><strong>Message ID:</strong> ${escapeHtml(item.message_id || '—')}</div>
 
@@ -7097,7 +7108,7 @@ function renderCanalesHtml(data, debugToken = '') {
           <td>${escapeHtml(item.agent_name || '—')}</td>
           <td>${escapeHtml(item.model_used || '—')}</td>
           <td style="${tcls}"><b>${fms(totalMs)}</b></td>
-          <td>${escapeHtml(item.status || 'processing')}</td>
+          <td>${item.dropped ? '<span style="color:#f87171">⛔ rechazado</span>' : escapeHtml(item.status || 'processing')}</td>
           <td><a href="#canal-interaction-${idx}" style="color:#93c5fd">Ver detalle</a></td>
         </tr>`;
       }).join('')
@@ -7108,6 +7119,7 @@ function renderCanalesHtml(data, debugToken = '') {
     return `<details class="section" id="canal-interaction-${idx}">
       <summary>${escapeHtml(item.contact_name || item.from_phone || 'Interacción '+(idx+1))} · ${canal} · ${escapeHtml(item.status || 'processing')} · ${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</summary>
       <div style="margin-top:12px">
+        ${item.dropped ? `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px">⛔ <strong>Rechazado antes de procesar</strong> — No se guardó en Supabase ni se envió al agente. El número <code>${escapeHtml(item.phone_number_id || '—')}</code> no existe en <code>wp_numeros</code>.</div>` : ''}
         <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(canal)}</div>
         <div style="margin-bottom:8px"><strong>Identificador:</strong> ${escapeHtml(item.from_phone || '—')}</div>
         <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
