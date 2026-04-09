@@ -7757,12 +7757,6 @@ app.get('/debug/canales/data', async (req, res) => {
 });
 
 
-// ── Proxy estático: /public/* → FastAPI /public/* ────────────────────────────
-app.get('/public/*', async (req, res) => {
-  await proxyFastApiRequest(req, res, req.path);
-});
-
-
 app.listen(PORT, () => {
 
   console.log(`[KapsoBridge] escuchando en http://localhost:${PORT}`);
