@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.kapso_routes import router as kapso_router, retry_stuck_messages
 from app.api.ghl_routes import router as ghl_router
@@ -109,6 +110,8 @@ async def error_webhook_middleware(request: Request, call_next):
         )
 
     return response
+
+app.mount("/public", StaticFiles(directory="docs"), name="public-docs")
 
 app.include_router(router)
 app.include_router(kapso_router)
