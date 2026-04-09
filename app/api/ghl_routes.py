@@ -18,6 +18,16 @@ from dataclasses import dataclass
 # Separador de burbujas: igual que el bridge de WhatsApp
 _MSG_SEPARATOR = re.compile(r"\n*---\n*")
 
+
+def _extract_slash_command(message: str | None) -> str | None:
+    """Detecta comandos /borrar y /borrar2 al inicio del mensaje."""
+    if not message:
+        return None
+    normalized = str(message).strip()
+    if not normalized.startswith("/"):
+        return None
+    return normalized.split()[0].lower()
+
 import httpx
 from collections import deque
 
@@ -254,6 +264,77 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 
         conversacion_db_id: int | None = conversacion_db.get("id") if conversacion_db else None
         memory_session_id = f"ghl_{contact_id}"
+
+        # 3b. Slash commands — proceso inmediato, sin agentes ─────────────────
+        slash_command = _extract_slash_command(mensaje)
+        if slash_command:
+            session_ids = {contact_id, memory_session_id}
+            if contacto_id:
+                session_ids.add(str(contacto_id))
+
+            add_kapso_debug_event(
+                "fastapi", "slash_command_detected",
+                {"command": slash_command, "contact_id": contact_id, "contacto_id": contacto_id},
+                channel=_channel,
+            )
+
+            if slash_command == "/borrar":
+                deleted = await asyncio.gather(*[db.delete_agent_memory(s) for s in session_ids if s])
+                reply_text = f"Memoria del agente borrada. Registros eliminados: {sum(deleted)}."
+
+            elif slash_command == "/borrar2":
+                await asyncio.gather(*[db.delete_agent_memory(s) for s in session_ids if s])
+                if contacto_id:
+                    await db.reset_contacto_data(contacto_id)
+                    reply_text = "Usuario eliminado correctamente. La siguiente interacción se tratará como usuario nuevo."
+                else:
+                    reply_text = "No se encontró información del usuario para eliminar."
+            else:
+                reply_text = "Comando no reconocido. Usa /borrar o /borrar2."
+
+            add_kapso_debug_event(
+                "fastapi", "slash_command_done",
+                {"command": slash_command, "contact_id": contact_id, "reply": reply_text},
+                channel=_channel,
+            )
+
+            # Fallback: fetch location_id / api_key from DB if not present in webhook
+            _slash_api_key = api_key
+            _slash_location_id = location_id
+            if (not _slash_location_id or not _slash_api_key) and conversacion_db_id:
+                try:
+                    creds = await db.get_ghl_credentials_de_conversacion(conversacion_db_id)
+                    if not _slash_location_id:
+                        _slash_location_id = creds.get("location_id")
+                    if not _slash_api_key:
+                        _slash_api_key = creds.get("api_key") or _slash_api_key
+                except Exception as _cred_exc:
+                    logger.warning("slash_command: error fetching creds from DB: %s", _cred_exc)
+
+            _slash_ok, _slash_err = await _send_ghl_reply(
+                api_key=_slash_api_key or "",
+                contact_id=contact_id,
+                conversation_id=None,
+                text=reply_text,
+                canal=canal,
+                location_id=_slash_location_id,
+            )
+            logger.info(
+                "slash_command reply sent: ok=%s err=%s location_id=%s",
+                _slash_ok, _slash_err, _slash_location_id,
+            )
+            add_kapso_debug_event(
+                "fastapi", "slash_command_reply_sent",
+                {
+                    "command": slash_command,
+                    "contact_id": contact_id,
+                    "ok": _slash_ok,
+                    "error": _slash_err,
+                    "location_id": _slash_location_id,
+                },
+                channel=_channel,
+            )
+            return
 
         # 4. Debug — mensaje recibido
         add_kapso_debug_event(
@@ -551,6 +632,23 @@ async def ghl_send_manual(req: GHLSendManualRequest, x_send_key: str | None = He
             guardado_en_db = True
         except Exception as exc:
             logger.warning("ghl_send_manual: error guardando en DB (mensaje ya enviado): %s", exc)
+
+    # ── Inyectar en memoria del agente ────────────────────────────────────────
+    # El agente verá este mensaje en su historial la próxima vez que procese
+    # un mensaje del contacto, evitando confusión por contexto perdido.
+    memory_session_id = f"ghl_{ghl_contact_id}"
+    try:
+        await db.insert_agent_memory(
+            memory_session_id,
+            {
+                "role": "assistant",
+                "content": f"[Asesor humano]: {req.mensaje}",
+                "conversation_id": str(conversacion_id_db) if conversacion_id_db else None,
+                "model": "asesor_humano",
+            },
+        )
+    except Exception as exc:
+        logger.warning("ghl_send_manual: error inyectando en agent_memory: %s", exc)
 
     return GHLSendManualResponse(
         ok=True,

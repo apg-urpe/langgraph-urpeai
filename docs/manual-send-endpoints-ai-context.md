@@ -6,18 +6,29 @@
 
 ## Resumen del sistema
 
-El sistema URPE AI Lab expone una API en `https://brain.urpeailab.com` que permite enviar mensajes directamente a contactos en Instagram o Facebook **sin activar el agente de IA conversacional**. Esto es útil para:
+El sistema URPE AI Lab expone una API en `https://brain.urpeailab.com` que permite enviar mensajes directamente a contactos **sin activar el agente de IA conversacional**. Esto es útil para:
 
 - Enviar notificaciones automáticas desde flujos externos (n8n, Zapier, etc.)
-- Permitir a un agente de soporte humano enviar mensajes programáticamente
+- Permitir a un asesor humano enviar mensajes programáticamente
 - Confirmar citas, enviar recordatorios, o responder consultas simples sin IA
 
-Existen **dos endpoints** dependiendo de la plataforma de mensajería del contacto:
+Existen **tres endpoints** dependiendo de la plataforma de mensajería del contacto:
 
 | Canal | Endpoint |
 |---|---|
 | GHL (Instagram o Facebook vía Go High Level) | `POST /api/v1/ghl/send` |
 | ManyChat (Instagram o Facebook vía ManyChat) | `POST /api/v1/manychat/send` |
+| Kapso / WhatsApp | `POST /api/v1/kapso/send` |
+
+### Inyección en memoria del agente
+
+Los tres endpoints inyectan automáticamente el mensaje enviado en la tabla `agent_memory` de Supabase. Esto significa que la próxima vez que el contacto escriba, el agente de IA verá en su historial:
+
+```
+[Asesor humano]: <texto del mensaje enviado>
+```
+
+Esto permite que el agente entienda el contexto de lo que el asesor escribió manualmente y no trate la siguiente interacción como si no hubiera antecedentes.
 
 ---
 
@@ -27,13 +38,13 @@ El único identificador que necesitas conocer es el **`contacto_id`** — un nú
 
 El sistema se encarga de:
 1. Buscar el contacto en la base de datos
-2. Recuperar su `subscriber_id` (identificador en GHL o ManyChat)
-3. Recuperar el `api_key` de la plataforma desde la última conversación
-4. Detectar si el canal es Instagram o Facebook
-5. Enviar el mensaje
-6. Guardar el mensaje en la base de datos
+2. Recuperar su identificador en la plataforma (GHL contact_id, ManyChat subscriber_id, o teléfono)
+3. Recuperar las credenciales y configuración del canal desde la última conversación
+4. Enviar el mensaje
+5. Guardar el mensaje en la base de datos
+6. Inyectar el mensaje en la memoria del agente
 
-**No necesitas saber el subscriber_id, el api_key ni el canal** — todo se resuelve automáticamente.
+**No necesitas saber el subscriber_id, el api_key, el phone_number_id ni el canal** — todo se resuelve automáticamente.
 
 ---
 
@@ -151,14 +162,60 @@ X-Send-Key: {SEND_API_KEY}
 
 ---
 
+## Endpoint 3: Kapso Send (WhatsApp)
+
+### Cuándo usarlo
+Cuando el contacto se comunicó a través de **WhatsApp vía Kapso**. Estos contactos llegaron por el webhook `/api/v1/kapso/inbound`. Se reconocen porque su conversación tiene el canal `whatsapp` en `wp_conversaciones`.
+
+### Cómo funciona (diferencia técnica)
+
+A diferencia de GHL y ManyChat donde FastAPI llama directamente a la API de la plataforma, Kapso funciona mediante un **bridge interno**. FastAPI envía el mensaje al bridge en `KAPSO_BRIDGE_URL/api/v1/dispatch`, y el bridge se encarga de enviarlo a WhatsApp vía la API de Kapso.
+
+Para que este endpoint funcione, la variable de entorno `KAPSO_BRIDGE_URL` debe estar configurada en el servidor.
+
+### Llamada
+
+```
+POST https://brain.urpeailab.com/api/v1/kapso/send
+```
+
+**Headers:**
+```
+Content-Type: application/json
+X-Send-Key: {SEND_API_KEY}
+```
+
+**Body:**
+```json
+{
+  "contacto_id": 198450,
+  "mensaje": "Hola, te confirmamos tu consulta para mañana."
+}
+```
+
+### Respuesta exitosa
+
+```json
+{
+  "ok": true,
+  "contacto_id": 198450,
+  "telefono": "5219991234567",
+  "guardado_en_db": true,
+  "error": null
+}
+```
+
+> A diferencia de GHL/ManyChat, la respuesta devuelve `telefono` (el número de WhatsApp del contacto) en lugar de `contact_id` o `subscriber_id`, ya que ese es el identificador usado en WhatsApp.
+
+---
+
 ## Cómo determinar qué endpoint usar
 
-Si tienes el `contacto_id` pero no sabes qué plataforma usa el contacto, puedes consultar la tabla `wp_conversaciones` en Supabase:
+Si tienes el `contacto_id` pero no sabes qué plataforma usa el contacto, consulta la tabla `wp_conversaciones` en Supabase:
 
 - Si el campo `canal` es `ghl_instagram` o `ghl_facebook` → usar **GHL send**
 - Si el campo `canal` es `manychat` → usar **ManyChat send**
-
-Alternativamente, el campo `subscriber_id` en `wp_contactos` es el mismo identificador para ambas plataformas — lo que cambia es a qué API se envía.
+- Si el campo `canal` es `whatsapp` → usar **Kapso send**
 
 ---
 
@@ -179,8 +236,10 @@ El endpoint siempre devuelve HTTP `200` si la petición fue procesada. El result
 |---|---|---|
 | `401` | `X-Send-Key` ausente o incorrecta | Verificar la clave con el administrador del sistema |
 | `404` | `contacto_id` no existe en Supabase | Verificar que el ID sea correcto |
-| `400` | Contacto sin `subscriber_id` | El contacto no ha enviado mensajes previos; no se puede contactar |
-| `400` | Sin api_key de la plataforma | Igual que el anterior — sin historial previo no hay credenciales |
+| `400` | Contacto sin `subscriber_id` o `telefono` | El contacto no ha enviado mensajes previos; no se puede contactar |
+| `400` | Sin credenciales de la plataforma | Sin historial previo no hay credenciales almacenadas |
+| `400` | Sin `phone_number_id` (Kapso) | El contacto no ha enviado mensajes vía WhatsApp |
+| `200` `ok:false` | Bridge no disponible (Kapso) | `KAPSO_BRIDGE_URL` no configurado o bridge caído |
 
 ### Prerequisito importante
 
@@ -223,6 +282,17 @@ curl -X POST https://brain.urpeailab.com/api/v1/manychat/send \
   }'
 ```
 
+### Kapso — WhatsApp
+```bash
+curl -X POST https://brain.urpeailab.com/api/v1/kapso/send \
+  -H "Content-Type: application/json" \
+  -H "X-Send-Key: mi_clave_secreta" \
+  -d '{
+    "contacto_id": 198450,
+    "mensaje": "Hola Monica, tu cita está confirmada para el jueves a las 3pm."
+  }'
+```
+
 ---
 
 ## Variables de entorno necesarias en el servidor
@@ -239,30 +309,51 @@ SUPABASE_SERVICE_KEY=service_role_key
 
 # GHL fallback (opcional — se usa solo si no hay api_key en la conversación)
 GHL_API_KEY=Bearer xxxx
+
+# Kapso bridge (requerido para el endpoint /api/v1/kapso/send)
+KAPSO_BRIDGE_URL=http://localhost:3001
 ```
 
 ---
 
 ## Comportamiento interno del sistema (referencia técnica)
 
-Cuando se llama a `/api/v1/ghl/send`:
-
+### `/api/v1/ghl/send`
 1. Valida `X-Send-Key`
-2. Hace `SELECT * FROM wp_contactos WHERE id = contacto_id`
+2. `SELECT * FROM wp_contactos WHERE id = contacto_id`
 3. Obtiene `subscriber_id` (= GHL contact_id) y `empresa_id`
-4. Hace `SELECT * FROM wp_conversaciones WHERE contacto_id = ? AND canal LIKE 'ghl_%' ORDER BY created_at DESC LIMIT 1`
+4. `SELECT * FROM wp_conversaciones WHERE contacto_id = ? AND canal LIKE 'ghl_%' ORDER BY created_at DESC`
 5. Desde los mensajes de esa conversación, extrae `metadata.ghl_api_key`, `metadata.location_id` y `metadata.canal`
-6. Llama a `POST https://services.leadconnectorhq.com/conversations/messages` con `type: "IG"` o `type: "FB"`, `contactId`, `locationId` y `message`
+6. Llama a `POST https://services.leadconnectorhq.com/conversations/messages` con `type: "IG"/"FB"`, `contactId`, `locationId` y `message`
 7. Registra en `wp_mensajes` con `remitente="agente"`, `status="enviado"`, `metadata.envio_manual=true`
+8. Inserta en `agent_memory` con `role="assistant"`, `content="[Asesor humano]: mensaje"`, `model="asesor_humano"`
 
-El mismo flujo aplica para `/api/v1/manychat/send`, pero llamando a `POST https://api.manychat.com/fb/sending/sendContent` con el `subscriber_id` y el token Bearer de ManyChat.
+### `/api/v1/manychat/send`
+1. Valida `X-Send-Key`
+2. `SELECT * FROM wp_contactos WHERE id = contacto_id`
+3. Obtiene `subscriber_id` y `empresa_id`
+4. `SELECT * FROM wp_conversaciones WHERE contacto_id = ? AND canal = 'manychat' ORDER BY created_at DESC`
+5. Extrae `metadata.manychat_api_key` y `metadata.canal`
+6. Llama a la ManyChat Dynamic Message API con el subscriber_id y el Bearer token
+7. Registra en `wp_mensajes` y en `agent_memory`
+
+### `/api/v1/kapso/send`
+1. Valida `X-Send-Key`
+2. `SELECT * FROM wp_contactos WHERE id = contacto_id` → obtiene `telefono`
+3. `SELECT * FROM wp_conversaciones WHERE contacto_id = ? AND canal = 'whatsapp' ORDER BY created_at DESC`
+4. Extrae `metadata.phone_number_id` de los mensajes de la conversación
+5. Llama a `POST {KAPSO_BRIDGE_URL}/api/v1/dispatch` con `recipient_phone`, `phone_number_id`, `reply_text` y `reply_type="text"`
+6. El bridge reenvía el mensaje a WhatsApp vía la API de Kapso
+7. Registra en `wp_mensajes` y en `agent_memory` con `memory_session_id = str(contacto_id)`
 
 ---
 
 ## Notas adicionales para el agente
 
 - **No activa el agente IA:** Estos endpoints solo envían el mensaje indicado. No hay razonamiento, no hay contexto de conversación, no hay agentes de funnel ni contact_update.
+- **Memoria del agente:** Los tres endpoints inyectan el mensaje en `agent_memory` como `[Asesor humano]: texto`. El agente verá este mensaje en su historial la próxima vez que el contacto escriba.
 - **El mensaje se guarda con `envio_manual: true`** en el campo `metadata` de `wp_mensajes`. Esto permite distinguirlos en auditorías.
-- **El canal es auto-detectado:** No hay que especificar si es Instagram o Facebook. El sistema lo sabe por la conversación más reciente.
-- **Burbujas solo en GHL:** El split por `---` solo funciona en el endpoint de GHL. ManyChat envía el mensaje como texto único.
-- **Los errores de la API externa se devuelven en `ok: false`:** Si GHL o ManyChat rechaza el mensaje, la respuesta HTTP es `200` pero el campo `ok` es `false` y `error` contiene el detalle.
+- **El canal es auto-detectado:** No hay que especificar si es Instagram, Facebook o WhatsApp. El sistema lo sabe por la conversación más reciente.
+- **Burbujas solo en GHL:** El split por `---` solo funciona en el endpoint de GHL. ManyChat y Kapso envían el mensaje como texto único.
+- **Los errores de la API externa se devuelven en `ok: false`:** Si GHL, ManyChat o el bridge de Kapso rechaza el mensaje, la respuesta HTTP es `200` pero el campo `ok` es `false` y `error` contiene el detalle.
+- **Kapso depende del bridge:** Si `KAPSO_BRIDGE_URL` no está configurado o el bridge está caído, el endpoint devuelve `ok: false` con el mensaje "Bridge no disponible".
