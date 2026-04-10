@@ -200,6 +200,18 @@ async def _describe_image_with_vision(image_url: str, instructions: str | None =
                         logger.warning("Vision rate limited (429), retry %d/%d in %.1fs", attempt, VISION_MAX_RETRIES, retry_after)
                         await asyncio.sleep(retry_after)
                         continue
+                    if 400 <= resp.status_code < 500 and resp.status_code != 429:
+                        # Client errors are not retryable — log body and bail immediately
+                        logger.error(
+                            "Vision non-retryable error %d: %s | model=%s url=%.120s",
+                            resp.status_code, resp.text[:400], VISION_MODEL, image_url,
+                        )
+                        last_exc = httpx.HTTPStatusError(
+                            f"Vision {resp.status_code}: {resp.text[:200]}",
+                            request=resp.request,
+                            response=resp,
+                        )
+                        break
                     resp.raise_for_status()
                     data = resp.json()
                     description = data["choices"][0]["message"]["content"]
@@ -214,13 +226,13 @@ async def _describe_image_with_vision(image_url: str, instructions: str | None =
                 else:
                     logger.error("Vision description failed after %d attempts: %s", VISION_MAX_RETRIES, exc, exc_info=True)
 
-    # All retries exhausted — notify webhook and return fallback
+    # All retries exhausted (or non-retryable error) — notify webhook and return fallback
     if last_exc:
         await send_error_to_webhook(
             last_exc,
-            context="vision_rate_limit",
+            context="vision_error",
             severity="warning",
-            fallback=f"La descripción de imagen falló tras {VISION_MAX_RETRIES} reintentos (probablemente rate limit de OpenRouter/Gemini). Se usó fallback: el agente recibe 'El contacto envió una imagen' en lugar de la descripción. El mensaje se procesó normalmente.",
+            fallback="La descripción de imagen falló. Se usó fallback: el agente recibe 'El contacto envió una imagen'. El mensaje se procesó normalmente.",
         )
     return None
 
