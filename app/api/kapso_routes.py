@@ -441,9 +441,22 @@ async def _process_image_message(
     vision_prompt = instrucciones_multimedia or "Describe la imagen de forma detallada y útil."
     # Use the public storage URL if available, otherwise the original Kapso URL
     image_for_vision = storage_url or media_url
-    description = await _describe_image_with_vision(image_for_vision, vision_prompt)
 
-    # Fallback: if vision failed (rate limit, timeout), give the agent something useful
+    # Guard: only call vision if the URL actually points to an image file.
+    # Audio/video files (ogg, mpeg, mp4, etc.) end up here when the message_type
+    # is "image" but the media is actually audio — Gemini rejects them with 400.
+    url_path = image_for_vision.split("?")[0].lower()
+    _AUDIO_VIDEO_EXTENSIONS = {".ogg", ".mp3", ".wav", ".mpeg", ".mp4", ".avi", ".mov", ".m4a", ".aac", ".opus", ".flac"}
+    url_ext = os.path.splitext(url_path)[1]
+    is_image_url = url_ext in _IMAGE_EXTENSIONS or (url_ext not in _AUDIO_VIDEO_EXTENSIONS and not url_ext)
+
+    if is_image_url:
+        description = await _describe_image_with_vision(image_for_vision, vision_prompt)
+    else:
+        logger.info("Skipping vision for non-image URL (ext=%s): %s", url_ext, image_for_vision[:100])
+        description = None
+
+    # Fallback: if vision failed (rate limit, timeout, wrong format), give the agent something useful
     if description is None:
         fallback_desc = "El contacto envió una imagen."
         if storage_url:
