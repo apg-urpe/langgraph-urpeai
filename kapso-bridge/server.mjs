@@ -7617,6 +7617,16 @@ function renderCanalesHtml(debugToken = '') {
   let autoRefreshTimer = null;
   let allInteractionsMap = new Map(); // message_id → item (cache client-side)
   let lastIncrementalTs = null;       // timestamp del último incremental
+  let empresasMap = {};               // id → nombre de empresa
+
+  function loadEmpresasMap(){
+    fetch(debugPath('/debug/kapso/empresas'))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        (data.empresas || []).forEach(function(e){ empresasMap[e.id] = e.nombre; });
+      })
+      .catch(function(){});
+  }
 
   function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
@@ -7645,7 +7655,7 @@ function renderCanalesHtml(debugToken = '') {
       +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +msgCell
-      +'<td>'+esc(item.agent_name||'—')+'</td>'
+      +'<td>'+(item.agent_name ? esc(item.agent_name)+(item.empresa_id && empresasMap[item.empresa_id] ? '<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(empresasMap[item.empresa_id])+'</div>' : '') : '—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
       +'<td>'+esc(item.status||'processing')+'</td>'
@@ -7839,6 +7849,7 @@ function renderCanalesHtml(debugToken = '') {
     else { el.textContent='🟡 Auto (30s)'; el.style.color='#fbbf24'; }
   }, 1000);
 
+  loadEmpresasMap();
   loadData(true);
   connectSSE();
   startAutoRefresh();
