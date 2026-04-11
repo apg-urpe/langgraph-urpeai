@@ -576,7 +576,15 @@ async def debug_interactions(
         )
     except Exception as exc:
         logger.error("debug_interactions: error querying Supabase: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Error consultando debug_events: {exc}")
+        return {
+            "interactions": [],
+            "page": page,
+            "limit": limit,
+            "total": 0,
+            "pages": 1,
+            "stats": {"total": 0, "ok": 0, "errors": 0, "avg_ms": None, "by_channel": {}},
+            "error": str(exc),
+        }
 
     rows = rows or []
 

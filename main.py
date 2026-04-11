@@ -109,7 +109,11 @@ async def error_webhook_middleware(request: Request, call_next):
         )
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
-    if response.status_code >= 500:
+    # Skip webhook noise for internal debug/monitoring endpoints
+    _DEBUG_PATH_PREFIXES = ("/api/v1/debug/", "/debug/", "/api/v1/kapso/debug/", "/api/v1/manychat/debug/", "/api/v1/ghl/debug/")
+    _is_debug_endpoint = request.url.path.startswith(_DEBUG_PATH_PREFIXES)
+
+    if response.status_code >= 500 and not _is_debug_endpoint:
         # The route handler already returned a 500 (e.g. via HTTPException)
         await send_error_to_webhook(
             RuntimeError(f"HTTP {response.status_code} on {request.method} {request.url.path}"),
