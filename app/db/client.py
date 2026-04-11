@@ -11,9 +11,10 @@ logger = logging.getLogger(__name__)
 
 _client: "SupabaseClient | None" = None
 
-# Reintentos automáticos cuando Supabase devuelve HTML (error transitorio de CDN)
+# Reintentos automáticos cuando Supabase devuelve HTML o error transitorio de servidor
 _RETRY_ATTEMPTS = 3
 _RETRY_DELAY_S = 0.8   # espera entre intentos
+_RETRY_STATUS_CODES = {502, 503, 504}  # errores transitorios de Supabase/CDN
 
 
 class SupabaseClient:
@@ -67,6 +68,12 @@ class SupabaseClient:
                     raise ValueError(
                         f"Supabase devolvió HTML en intento {attempt}/{_RETRY_ATTEMPTS} "
                         f"(status={r.status_code}): {r.text[:200]!r}"
+                    )
+                # Reintentar en errores transitorios de servidor (503, 502, 504)
+                if r.status_code in _RETRY_STATUS_CODES:
+                    raise ValueError(
+                        f"Supabase devolvió status transitorio {r.status_code} "
+                        f"en intento {attempt}/{_RETRY_ATTEMPTS}"
                     )
                 return r
             except (httpx.TimeoutException, httpx.NetworkError) as exc:
