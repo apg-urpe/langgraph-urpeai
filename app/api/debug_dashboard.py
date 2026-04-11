@@ -595,11 +595,23 @@ async def debug_interactions(
         if not msg_id:
             continue
 
+        # Infer channel: explicit _channel > legacy source-based inference
+        def _infer_channel(p: dict, r: dict) -> str | None:
+            ch = p.get("_channel") or r.get("channel")
+            if ch:
+                return ch
+            src = r.get("source") or ""
+            if src in ("fastapi", "kapso"):
+                return "whatsapp"
+            if src.startswith("ghl"):
+                return src  # ghl_instagram / ghl_facebook
+            return None
+
         if msg_id not in interactions_map:
             interactions_map[msg_id] = {
                 "message_id": msg_id,
                 "started_at": row.get("created_at"),
-                "channel": payload.get("_channel"),
+                "channel": _infer_channel(payload, row),
                 "empresa_id": row.get("empresa_id"),
                 "contacto_id": row.get("contacto_id"),
                 "contact_name": None,
@@ -625,8 +637,12 @@ async def debug_interactions(
         if row_ts and (not interaction["started_at"] or row_ts < interaction["started_at"]):
             interaction["started_at"] = row_ts
 
+        # Always try to fill channel if still missing
+        if not interaction["channel"]:
+            interaction["channel"] = _infer_channel(payload, row)
+
         if stage == "inbound_received":
-            interaction["channel"] = interaction["channel"] or payload.get("_channel")
+            interaction["channel"] = interaction["channel"] or _infer_channel(payload, row)
             interaction["contact_name"] = interaction["contact_name"] or payload.get("contact_name")
             interaction["from_phone"] = interaction["from_phone"] or payload.get("from_phone") or payload.get("from")
             interaction["message_type"] = interaction["message_type"] or payload.get("message_type")
@@ -642,7 +658,7 @@ async def debug_interactions(
             interaction["duration_ms"] = payload.get("total_ms") or timing.get("total_ms") or interaction["duration_ms"]
             preview = payload.get("response_preview") or payload.get("reply_text") or ""
             interaction["response_preview"] = preview[:200] if preview else interaction["response_preview"]
-            interaction["channel"] = interaction["channel"] or payload.get("_channel")
+            interaction["channel"] = interaction["channel"] or _infer_channel(payload, row)
 
         if stage in ("inbound_error", "error", "exception", "http_error"):
             if interaction["status"] != "ok":
@@ -664,7 +680,7 @@ async def debug_interactions(
 
     by_channel: dict[str, int] = {}
     for i in all_interactions:
-        ch = i["channel"] or "unknown"
+        ch = i["channel"] or "whatsapp"  # legacy events without _channel default to whatsapp
         by_channel[ch] = by_channel.get(ch, 0) + 1
 
     stats = {
