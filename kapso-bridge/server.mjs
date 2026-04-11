@@ -6251,6 +6251,60 @@ app.get('/api/v1/ghl/debug/config', async (req, res) => {
   }
 });
 
+app.get('/api/v1/kapso/debug/events', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const targetUrl = new URL(`/api/v1/kapso/debug/events${qs}`, `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'kapso_debug_events_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/kapso/debug/config', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/kapso/debug/config', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'kapso_debug_config_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/manychat/debug/events', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  const targetUrl = new URL(`/api/v1/manychat/debug/events${qs}`, `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'manychat_debug_events_proxy_error', message: err.message });
+  }
+});
+
+app.get('/api/v1/manychat/debug/config', async (req, res) => {
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/manychat/debug/config', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl);
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'manychat_debug_config_proxy_error', message: err.message });
+  }
+});
+
 app.post('/api/v1/ghl/send', async (req, res) => {
   if (!requireSendAccess(req, res)) return;
   const baseUrl = getFastApiBaseUrl();
@@ -6312,6 +6366,26 @@ app.post('/api/v1/manychat/inbound', async (req, res) => {
     res.status(502).json({ error: 'manychat_proxy_error', message: err.message });
   }
 
+});
+
+app.post('/api/v1/kapso/send', async (req, res) => {
+  if (!requireSendAccess(req, res)) return;
+  const baseUrl = getFastApiBaseUrl();
+  const targetUrl = new URL('/api/v1/kapso/send', `${baseUrl}/`).toString();
+  try {
+    const upstream = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-send-key': req.headers['x-send-key'] || '',
+      },
+      body: JSON.stringify(req.body ?? {}),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'kapso_send_proxy_error', message: err.message });
+  }
 });
 
 app.post('/api/v1/manychat/send', async (req, res) => {
