@@ -9,10 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.kapso_routes import router as kapso_router, retry_stuck_messages
+from app.api.kapso_routes import router as kapso_router
 from app.core.kapso_debug import hydrate_from_supabase as hydrate_kapso_debug
+from app.core.debug_retry import run_debug_retry_cycle
 from app.api.ghl_routes import router as ghl_router
-from app.api.manychat_routes import router as manychat_router, retry_stuck_manychat_messages
+from app.api.manychat_routes import router as manychat_router
 from app.api.routes import router
 from app.api.db_routes import router as db_router
 from app.api.debug_dashboard import router as debug_dashboard_router
@@ -36,16 +37,17 @@ RETRY_STUCK_ENABLED = os.getenv("RETRY_STUCK_ENABLED", "true").lower() != "false
 
 
 async def _retry_stuck_loop():
-    """Background loop that checks for stuck messages every 5 minutes (WhatsApp + ManyChat)."""
+    """Background loop: retries funnel errors + stuck inbound every 5 min (debug_events based)."""
     await asyncio.sleep(60)  # Initial delay: wait 1 min after startup
     while True:
         try:
-            result_wa = await retry_stuck_messages()
-            result_mc = await retry_stuck_manychat_messages()
-            if result_wa.get("stuck_found", 0) > 0:
-                logger.info("retry_stuck_loop WA: %s", result_wa)
-            if result_mc.get("stuck_found", 0) > 0:
-                logger.info("retry_stuck_loop MC: %s", result_mc)
+            result = await run_debug_retry_cycle()
+            funnel = result.get("funnel", {})
+            inbound = result.get("inbound", {})
+            if funnel.get("found", 0) > 0:
+                logger.info("retry_loop funnel: %s", funnel)
+            if inbound.get("found", 0) > 0:
+                logger.info("retry_loop inbound: %s", inbound)
         except Exception as exc:
             logger.error("retry_stuck_loop error: %s", exc, exc_info=True)
         await asyncio.sleep(RETRY_STUCK_INTERVAL_SECONDS)
