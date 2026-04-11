@@ -7622,11 +7622,37 @@ function renderCanalesHtml(data, debugToken = '') {
     </div>
   </div>
 
-  <div class="stats">
-    <div class="card"><div class="label">Total</div><div class="value">${interactions.length}</div></div>
-    <div class="card"><div class="label">OK</div><div class="value">${okCount}</div></div>
-    <div class="card"><div class="label">Errores</div><div class="value">${errorCount}</div></div>
-    <div class="card"><div class="label">Tiempo AVG</div><div class="value">${avgDuration != null ? (avgDuration/1000).toFixed(1)+' s' : '—'}</div></div>
+  <div class="filters">
+    <label style="color:#94a3b8;font-size:12px">Canal:
+      <select id="filterChannel" onchange="resetAndLoad()">
+        <option value="">Todos</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="ghl_instagram">Instagram</option>
+        <option value="ghl_facebook">Facebook</option>
+      </select>
+    </label>
+    <label style="color:#94a3b8;font-size:12px">Días:
+      <select id="filterDays" onchange="resetAndLoad()">
+        <option value="7">7 días</option>
+        <option value="30" selected>30 días</option>
+        <option value="90">90 días</option>
+      </select>
+    </label>
+    <label style="color:#94a3b8;font-size:12px">Por página:
+      <select id="filterLimit" onchange="resetAndLoad()">
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="stats" id="statsGrid">
+    <div class="card"><div class="label">Total</div><div class="value" id="statTotal">—</div></div>
+    <div class="card"><div class="label">OK</div><div class="value" style="color:#4ade80" id="statOk">—</div></div>
+    <div class="card"><div class="label">Errores</div><div class="value" style="color:#f87171" id="statErrors">—</div></div>
+    <div class="card"><div class="label">Tiempo AVG</div><div class="value" id="statAvg">—</div></div>
+    <div class="card"><div class="label">Por canal</div><div id="statByChannel" class="by-channel" style="margin-top:8px"></div></div>
   </div>
 
   <div class="section">
@@ -7671,6 +7697,13 @@ function canalToggleMore(a){
   function tcls(ms){ if(ms==null)return ''; if(ms<20000)return 'color:#34d399'; if(ms<30000)return 'color:#f97316'; return 'color:#f87171'; }
   function _toggleMore(el){ var s=el.previousElementSibling; s.style.display=s.style.display?'':' inline'; el.textContent=s.style.display?'ver menos':'ver más...'; return false; }
   function _openDetail(el){ var id=el.getAttribute('href').slice(1); var d=document.getElementById(id); if(d) d.setAttribute('open',''); return false; }
+
+  function canalBadge(canal){
+    if(canal==='whatsapp') return '<span class="ch-badge ch-wa">WA</span>';
+    if(canal==='ghl_instagram'||canal==='instagram') return '<span class="ch-badge ch-ghl_ig">IG</span>';
+    if(canal==='ghl_facebook'||canal==='facebook') return '<span class="ch-badge ch-ghl_fb">FB</span>';
+    return '<span class="ch-badge ch-other">'+esc(canal||'?')+'</span>';
+  }
 
   function renderRow(item, idx){
     var canal = item.channel || '?';
