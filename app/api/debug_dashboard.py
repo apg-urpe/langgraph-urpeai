@@ -14,7 +14,9 @@ en tiempo real, con polling de 5s como fallback si SSE se desconecta.
 import asyncio
 import json
 import logging
+import math
 import os
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Query
