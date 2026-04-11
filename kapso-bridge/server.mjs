@@ -7489,26 +7489,113 @@ app.get('/debug/ghl/data', async (req, res) => {
 
 // ── Unified all-channels debug panel ─────────────────────────────────────────
 
-async function collectCanalesDebugPayload(page = 1, limit = 20, channel = '', empresa_id = 0, days = 30) {
-  const params = new URLSearchParams({ page, limit, days });
-  if (channel) params.set('channel', channel);
-  if (empresa_id) params.set('empresa_id', empresa_id);
-  const data = await fetchFastApiDebugJson(`/api/v1/debug/interactions?${params.toString()}`);
-  return data;
+async function fetchEmpresasMap() {
+  try {
+    const data = await fetchFastApiDebugJson('/api/v1/kapso/debug/empresas');
+    const map = {};
+    for (const e of (data.empresas || [])) map[String(e.id)] = e.nombre || `Empresa ${e.id}`;
+    return map;
+  } catch { return {}; }
 }
 
-function renderCanalesHtml(debugToken = '') {
+async function collectCanalesDebugPayload() {
+  const [waResult, mcResult, ghlResult, empresasMap] = await Promise.all([
+    collectKapsoDebugPayload().catch(() => ({ interactions: [] })),
+    collectManyChatDebugPayload().catch(() => ({ interactions: [] })),
+    collectGHLDebugPayload().catch(() => ({ interactions: [] })),
+    fetchEmpresasMap(),
+  ]);
+  const waInteractions = (waResult.interactions || []).map(i => ({ ...i, _canal: 'whatsapp' }));
+  const mcInteractions = (mcResult.interactions || []).map(i => ({ ...i, _canal: i.canal || 'instagram' }));
+  const ghlInteractions = (ghlResult.interactions || []).map(i => ({ ...i, _canal: `ghl_${i.canal || 'instagram'}` }));
+  const all = [...waInteractions, ...mcInteractions, ...ghlInteractions]
+    .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
+  return {
+    interactions: all,
+    empresasMap,
+    wa_count: waInteractions.length,
+    mc_count: mcInteractions.length,
+    ghl_count: ghlInteractions.length,
+  };
+}
+
+function renderCanalesHtml(data, debugToken = '') {
+  const interactions = Array.isArray(data.interactions) ? data.interactions : [];
+  const empresasMap = data.empresasMap || {};
+  const okCount = interactions.filter(i => i.status === 'ok').length;
+  const errorCount = interactions.filter(i => i.status === 'error').length;
+  const withTiming = interactions.filter(i => i.duration_ms != null || i.timing?.total_ms != null);
+  const avgDuration = withTiming.length
+    ? Math.round(withTiming.reduce((acc, i) => acc + (i.duration_ms || i.timing?.total_ms || 0), 0) / withTiming.length)
+    : null;
+
+  const interactionRows = interactions.length
+    ? interactions.map((item, idx) => {
+        const canal = item._canal || 'whatsapp';
+        const canalBadge = canal === 'whatsapp'
+          ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+          : canal === 'facebook'
+          ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
+          : canal === 'ghl_instagram'
+          ? '<span style="background:#f97316;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·IG</span>'
+          : canal === 'ghl_facebook'
+          ? '<span style="background:#ea580c;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">GHL·FB</span>'
+          : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
+        const totalMs = item.duration_ms != null ? item.duration_ms : (item.timing?.total_ms != null ? Math.round(item.timing.total_ms) : null);
+        const tcls = totalMs == null ? '' : totalMs < 20000 ? 'color:#34d399' : totalMs < 30000 ? 'color:#f97316' : 'color:#f87171';
+        const fms = ms => ms != null ? (ms/1000).toFixed(1)+' s' : '—';
+        const txt = item.message_text || '—';
+        const msgCell = txt.length <= 200
+          ? escapeHtml(txt)
+          : `${escapeHtml(txt.slice(0,200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px">ver más...</a>`;
+        return `<tr>
+          <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
+          <td>${canalBadge}</td>
+          <td>${escapeHtml(item.contact_name || item.from_phone || '—')}</td>
+          <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
+          <td>${escapeHtml(item.message_type || 'text')}</td>
+          <td style="max-width:280px;word-break:break-word">${msgCell}</td>
+          <td>${(() => {
+            const agente = escapeHtml(item.agent_name || '—');
+            const empresa = empresasMap[String(item.empresa_id)] ? `<div style="font-size:10px;color:#94a3b8;margin-top:2px">${escapeHtml(empresasMap[String(item.empresa_id)])}</div>` : '';
+            return agente + empresa;
+          })()}</td>
+          <td>${escapeHtml(item.model_used || '—')}</td>
+          <td style="${tcls}"><b>${fms(totalMs)}</b></td>
+          <td>${item.dropped ? '<span style="color:#f87171">⛔ rechazado</span>' : escapeHtml(item.status || 'processing')}</td>
+          <td><a href="#canal-interaction-${idx}" style="color:#93c5fd">Ver detalle</a></td>
+        </tr>`;
+      }).join('')
+    : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
+
+  const interactionDetails = interactions.map((item, idx) => {
+    const canal = item._canal || 'whatsapp';
+    return `<details class="section" id="canal-interaction-${idx}">
+      <summary>${escapeHtml(item.contact_name || item.from_phone || 'Interacción '+(idx+1))} · ${canal} · ${escapeHtml(item.status || 'processing')} · ${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</summary>
+      <div style="margin-top:12px">
+        ${item.dropped ? `<div style="background:#7f1d1d;border:1px solid #ef4444;border-radius:6px;padding:10px 14px;margin-bottom:12px;font-size:13px">⛔ <strong>Rechazado antes de procesar</strong> — No se guardó en Supabase ni se envió al agente. El número <code>${escapeHtml(item.phone_number_id || '—')}</code> no existe en <code>wp_numeros</code>.</div>` : ''}
+        <div style="margin-bottom:8px"><strong>Canal:</strong> ${escapeHtml(canal)}</div>
+        <div style="margin-bottom:8px"><strong>Identificador:</strong> ${escapeHtml(item.from_phone || '—')}</div>
+        <div style="margin-bottom:8px"><strong>Empresa ID:</strong> ${escapeHtml(String(item.empresa_id || '—'))}</div>
+        <div style="margin:12px 0 6px"><strong>Error</strong></div>
+        <pre>${escapeHtml(item.error || '—')}</pre>
+        <div style="margin-bottom:8px"><strong>Mensaje:</strong></div>
+        <pre>${escapeHtml(item.message_text || '—')}</pre>
+        <div style="margin:12px 0 6px"><strong>Respuesta</strong></div>
+        <pre>${escapeHtml(item.response_preview || '—')}</pre>
+      </div>
+    </details>`;
+  }).join('');
+
   return `<!doctype html><html lang="es"><head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Debug — Todos los canales</title>
   <style>
     body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
-    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     .title{font-size:20px;font-weight:700}
-    .actions a,.actions button{color:#93c5fd;text-decoration:none;margin-left:12px;background:none;border:none;cursor:pointer;font-size:14px}
-    .filters{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
-    .filters select,.filters input{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:5px 10px;font-size:13px}
-    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
+    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
     .value{font-size:22px;font-weight:700;margin-top:6px}
@@ -7519,21 +7606,6 @@ function renderCanalesHtml(debugToken = '') {
     details{margin-top:12px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px}
     summary{cursor:pointer;font-weight:700}
     pre{white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font-size:12px}
-    .pagination{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
-    .pagination button{background:#1e293b;color:#93c5fd;border:1px solid #334155;border-radius:6px;padding:5px 14px;cursor:pointer;font-size:13px}
-    .pagination button:disabled{opacity:.4;cursor:not-allowed}
-    .pagination .page-info{color:#94a3b8;font-size:12px}
-    .by-channel{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
-    .ch-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
-    .ch-wa{background:#16a34a;color:#fff}
-    .ch-ig{background:#7c3aed;color:#fff}
-    .ch-fb{background:#1d4ed8;color:#fff}
-    .ch-ghl_ig{background:#f97316;color:#fff}
-    .ch-ghl_fb{background:#ea580c;color:#fff}
-    .ch-other{background:#475569;color:#fff}
-    .loading{text-align:center;padding:32px;color:#94a3b8}
-    .pulse{animation:pulse 1.5s ease-in-out infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
   </style>
 </head><body>
   <div class="top">
@@ -7541,7 +7613,8 @@ function renderCanalesHtml(debugToken = '') {
     <div class="actions">
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
       <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
-      <button onclick="loadData(true)">⟳ Refrescar</button>
+      <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
@@ -7549,39 +7622,11 @@ function renderCanalesHtml(debugToken = '') {
     </div>
   </div>
 
-  <div class="filters">
-    <label style="color:#94a3b8;font-size:12px">Canal:
-      <select id="filterChannel" onchange="resetAndLoad()">
-        <option value="">Todos</option>
-        <option value="whatsapp">WhatsApp</option>
-        <option value="instagram">Instagram</option>
-        <option value="facebook">Facebook</option>
-        <option value="ghl_instagram">GHL-IG</option>
-        <option value="ghl_facebook">GHL-FB</option>
-      </select>
-    </label>
-    <label style="color:#94a3b8;font-size:12px">Días:
-      <select id="filterDays" onchange="resetAndLoad()">
-        <option value="7">7 días</option>
-        <option value="30" selected>30 días</option>
-        <option value="90">90 días</option>
-      </select>
-    </label>
-    <label style="color:#94a3b8;font-size:12px">Por página:
-      <select id="filterLimit" onchange="resetAndLoad()">
-        <option value="20" selected>20</option>
-        <option value="50">50</option>
-        <option value="100">100</option>
-      </select>
-    </label>
-  </div>
-
-  <div class="stats" id="statsGrid">
-    <div class="card"><div class="label">Total</div><div class="value" id="statTotal">—</div></div>
-    <div class="card"><div class="label">OK</div><div class="value" style="color:#4ade80" id="statOk">—</div></div>
-    <div class="card"><div class="label">Errores</div><div class="value" style="color:#f87171" id="statErrors">—</div></div>
-    <div class="card"><div class="label">Tiempo AVG</div><div class="value" id="statAvg">—</div></div>
-    <div class="card"><div class="label">Por canal</div><div id="statByChannel" class="by-channel" style="margin-top:8px"></div></div>
+  <div class="stats">
+    <div class="card"><div class="label">Total</div><div class="value">${interactions.length}</div></div>
+    <div class="card"><div class="label">OK</div><div class="value">${okCount}</div></div>
+    <div class="card"><div class="label">Errores</div><div class="value">${errorCount}</div></div>
+    <div class="card"><div class="label">Tiempo AVG</div><div class="value">${avgDuration != null ? (avgDuration/1000).toFixed(1)+' s' : '—'}</div></div>
   </div>
 
   <div class="section">
@@ -7590,202 +7635,179 @@ function renderCanalesHtml(debugToken = '') {
         <th>Hora</th><th>Canal</th><th>Contacto</th><th>ID</th><th>Tipo</th><th>Mensaje</th>
         <th>Agente</th><th>Modelo</th><th style="min-width:60px">Total</th><th>Status</th><th>Detalle</th>
       </tr></thead>
-      <tbody id="canal-tbody"><tr><td colspan="11" class="loading pulse">Cargando desde Supabase...</td></tr></tbody>
+      <tbody id="canal-tbody">${interactionRows}</tbody>
     </table>
   </div>
 
-  <div class="pagination">
-    <button id="btnPrev" onclick="changePage(-1)" disabled>← Anterior</button>
-    <span class="page-info" id="pageInfo">Página — / —</span>
-    <button id="btnNext" onclick="changePage(1)" disabled>Siguiente →</button>
-  </div>
+  <div id="canal-interaction-details">${interactionDetails}</div>
 
-  <div id="canal-interaction-details"></div>
 
 <script>
+function canalToggleMore(a){
+  var s=a.previousElementSibling;
+  if(!s) return false;
+  s.style.display=s.style.display?'':'inline';
+  a.textContent=s.style.display?'ver menos':'ver más...';
+  return false;
+}
 (function(){
   const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
   function debugPath(path){
-    if(!DEBUG_TOKEN) return path;
-    var u = new URL(path, window.location.origin);
-    u.searchParams.set('token', DEBUG_TOKEN);
-    return u.pathname + u.search;
+    if(!DEBUG_TOKEN)return path;
+    var u=new URL(path,window.location.origin);
+    u.searchParams.set('token',DEBUG_TOKEN);
+    return u.pathname+u.search;
   }
+  function fetchDebug(path){ return fetch(debugPath(path)); }
 
-  let currentPage = 1;
-  let totalPages = 1;
+  const FALLBACK_POLL_MS = 30000;
+  let autoRefresh = true;
+  let timer = null;
   let sseSource = null;
   let debounceTimer = null;
-  let autoRefreshTimer = null;
 
   function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
   function tcls(ms){ if(ms==null)return ''; if(ms<20000)return 'color:#34d399'; if(ms<30000)return 'color:#f97316'; return 'color:#f87171'; }
 
-  function canalBadge(canal){
-    if(canal==='whatsapp') return '<span class="ch-badge ch-wa">WA</span>';
-    if(canal==='instagram') return '<span class="ch-badge ch-ig">IG</span>';
-    if(canal==='facebook') return '<span class="ch-badge ch-fb">FB</span>';
-    if(canal==='ghl_instagram') return '<span class="ch-badge ch-ghl_ig">GHL·IG</span>';
-    if(canal==='ghl_facebook') return '<span class="ch-badge ch-ghl_fb">GHL·FB</span>';
-    return '<span class="ch-badge ch-other">'+esc(canal||'?')+'</span>';
-  }
-
   function renderRow(item, idx){
-    var canal = item.channel || '?';
-    var totalMs = item.duration_ms != null ? item.duration_ms : null;
-    var txt = item.message_text || '—';
-    var msgCell = txt.length <= 200
-      ? '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'
-      : '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display?\'\':\' inline\';this.textContent=s.style.display?\'ver menos\':\'ver más...\';return false;" style="color:#93c5fd;font-size:11px">ver más...</a></td>';
+    var canal = item._canal||'whatsapp';
+    var badge = canal==='whatsapp'
+      ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
+      : canal==='facebook'
+      ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
+      : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
+    var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
     return '<tr>'
-      +'<td>'+esc(item.started_at ? new Date(item.started_at).toLocaleString() : '—')+'</td>'
-      +'<td>'+canalBadge(canal)+'</td>'
+      +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
+      +'<td>'+badge+'</td>'
       +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
       +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-      +msgCell
-      +'<td>'+esc(item.agent_name||'—')+'</td>'
+      +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
+      +(function(){
+          var a=esc(item.agent_name||'—');
+          var en=empresasMap[String(item.empresa_id)];
+          return '<td>'+a+(en?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(en)+'</div>':'')+'</td>';
+        })()
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
       +'<td>'+esc(item.status||'processing')+'</td>'
-      +'<td><a href="#canal-interaction-'+idx+'" style="color:#93c5fd" onclick="document.getElementById(\'canal-interaction-'+idx+'\').open=true">Ver</a></td>'
+      +'<td><a href="#canal-interaction-'+idx+'" style="color:#93c5fd">Ver detalle</a></td>'
       +'</tr>';
   }
 
   function renderDetail(item, idx){
-    var canal = item.channel || '?';
+    var canal = item._canal||'whatsapp';
     return '<details class="section" id="canal-interaction-'+idx+'">'
       +'<summary>'+esc(item.contact_name||item.from_phone||'Interacción '+(idx+1))+' · '+esc(canal)+' · '+esc(item.status||'processing')+' · '+fms(item.duration_ms)+'</summary>'
       +'<div style="margin-top:12px">'
-      +'<div style="margin-bottom:8px"><strong>Message ID:</strong> '+esc(item.message_id||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Canal:</strong> '+esc(canal)+'</div>'
-      +'<div style="margin-bottom:8px"><strong>Teléfono:</strong> '+esc(item.from_phone||'—')+'</div>'
+      +'<div style="margin-bottom:8px"><strong>Identificador:</strong> '+esc(item.from_phone||'—')+'</div>'
       +'<div style="margin-bottom:8px"><strong>Empresa ID:</strong> '+esc(String(item.empresa_id||'—'))+'</div>'
-      +'<div style="margin-bottom:8px"><strong>Contacto ID:</strong> '+esc(String(item.contacto_id||'—'))+'</div>'
-      +'<div style="margin-bottom:8px"><strong>Agente:</strong> '+esc(item.agent_name||'—')+'</div>'
-      +'<div style="margin-bottom:8px"><strong>Modelo:</strong> '+esc(item.model_used||'—')+'</div>'
-      +'<div style="margin-bottom:8px"><strong>Stages:</strong> '+esc((item.stages||[]).join(' → '))+'</div>'
-      +'<div style="margin:12px 0 6px"><strong>Error</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error agente</strong></div><pre>'+esc(item.error||'—')+'</pre>'
+      +'<div style="margin:12px 0 6px"><strong>Error envío ManyChat</strong></div><pre style="'+(item.send_error?'color:#f87171':'')+'">'+esc(item.send_error||'—')+'</pre>'
       +'<div style="margin-bottom:8px"><strong>Mensaje:</strong></div><pre>'+esc(item.message_text||'—')+'</pre>'
       +'<div style="margin:12px 0 6px"><strong>Respuesta</strong></div><pre>'+esc(item.response_preview||'—')+'</pre>'
       +'</div></details>';
   }
 
-  function buildDataUrl(page){
-    var channel = document.getElementById('filterChannel').value;
-    var days = document.getElementById('filterDays').value;
-    var limit = document.getElementById('filterLimit').value;
-    var params = new URLSearchParams({ page, limit, days });
-    if(channel) params.set('channel', channel);
-    var path = '/debug/canales/data?' + params.toString();
-    return debugPath(path);
-  }
+  function update(data){
+    if(data.empresasMap) empresasMap = data.empresasMap;
+    var items = Array.isArray(data.interactions) ? data.interactions : [];
+    var ok = items.filter(function(i){ return i.status==='ok'; }).length;
+    var err = items.filter(function(i){ return i.status==='error'; }).length;
+    var wt = items.filter(function(i){ return i.duration_ms!=null||(i.timing&&i.timing.total_ms!=null); });
+    var avg = wt.length ? Math.round(wt.reduce(function(a,i){ return a+(i.duration_ms||i.timing&&i.timing.total_ms||0); },0)/wt.length) : null;
 
-  window.loadData = function(resetPage){
-    if(resetPage) currentPage = 1;
-    var scrollY = window.scrollY;
+    var cards = document.querySelectorAll('.card .value');
+    if(cards[0]) cards[0].textContent = items.length;
+    if(cards[1]) cards[1].textContent = ok;
+    if(cards[2]) cards[2].textContent = err;
+    if(cards[3]) cards[3].textContent = avg!=null?(avg/1000).toFixed(1)+' s':'—';
+
     var tbody = document.getElementById('canal-tbody');
-    tbody.innerHTML = '<tr><td colspan="11" class="loading pulse">Cargando...</td></tr>';
+    if(tbody) tbody.innerHTML = items.length ? items.map(renderRow).join('') : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
 
-    fetch(buildDataUrl(currentPage))
-      .then(function(r){ return r.json(); })
-      .then(function(data){
-        var items = Array.isArray(data.interactions) ? data.interactions : [];
-        var stats = data.stats || {};
+    var detailsContainer = document.getElementById('canal-interaction-details');
+    if(detailsContainer){
+      var openSet = new Set();
+      detailsContainer.querySelectorAll('details[open][id]').forEach(function(d){ openSet.add(d.id); });
+      detailsContainer.innerHTML = items.map(renderDetail).join('');
+      openSet.forEach(function(id){ var el=document.getElementById(id); if(el) el.setAttribute('open',''); });
+    }
 
-        // Stats
-        document.getElementById('statTotal').textContent = stats.total ?? items.length;
-        document.getElementById('statOk').textContent = stats.ok ?? '—';
-        document.getElementById('statErrors').textContent = stats.errors ?? '—';
-        document.getElementById('statAvg').textContent = stats.avg_ms != null ? fms(stats.avg_ms) : '—';
-
-        var byChannel = stats.by_channel || {};
-        var byCh = document.getElementById('statByChannel');
-        byCh.innerHTML = Object.entries(byChannel).map(function(kv){
-          return canalBadge(kv[0]) + '<span style="margin-left:3px;font-size:12px">'+esc(kv[1])+'</span>';
-        }).join(' ');
-
-        // Pagination state
-        totalPages = data.pages || 1;
-        currentPage = data.page || currentPage;
-        document.getElementById('pageInfo').textContent = 'Página '+currentPage+' / '+totalPages+' ('+( stats.total||0 )+' total)';
-        document.getElementById('btnPrev').disabled = currentPage <= 1;
-        document.getElementById('btnNext').disabled = currentPage >= totalPages;
-
-        // Table
-        tbody.innerHTML = items.length
-          ? items.map(renderRow).join('')
-          : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones para este filtro.</td></tr>';
-
-        // Details
-        var detailsContainer = document.getElementById('canal-interaction-details');
-        var openSet = new Set();
-        detailsContainer.querySelectorAll('details[open][id]').forEach(function(d){ openSet.add(d.id); });
-        detailsContainer.innerHTML = items.map(renderDetail).join('');
-        openSet.forEach(function(id){ var el=document.getElementById(id); if(el) el.setAttribute('open',''); });
-
-        var ts = document.getElementById('last-update');
-        if(ts) ts.textContent = 'Actualizado: '+new Date().toLocaleTimeString();
-
-        requestAnimationFrame(function(){ window.scrollTo(0, scrollY); });
-      })
-      .catch(function(e){
-        console.warn('canales load error', e);
-        tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;color:#fca5a5">Error cargando datos: '+esc(e.message)+'</td></tr>';
-      });
-  };
-
-  window.resetAndLoad = function(){ loadData(true); };
-
-  window.changePage = function(delta){
-    var next = currentPage + delta;
-    if(next < 1 || next > totalPages) return;
-    currentPage = next;
-    loadData(false);
-  };
-
-  // Auto-refresh every 30s
-  function startAutoRefresh(){
-    if(autoRefreshTimer) clearInterval(autoRefreshTimer);
-    autoRefreshTimer = setInterval(function(){ loadData(false); }, 30000);
+    var ts = document.getElementById('last-update');
+    if(ts) ts.textContent = 'Última actualización: '+new Date().toLocaleTimeString();
   }
 
-  // SSE live updates
+  function poll(){
+    var scrollY = window.scrollY;
+    fetchDebug('/debug/canales/data').then(function(r){ return r.json(); }).then(function(data){
+      update(data);
+      requestAnimationFrame(function(){ window.scrollTo(0,scrollY); });
+    }).catch(function(e){ console.warn('canales poll error',e); });
+  }
+
   function setLiveStatus(live){
-    var el = document.getElementById('sse-status');
+    var el=document.getElementById('sse-status');
     if(!el) return;
     if(live){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
-    else { el.textContent='🟡 Auto (30s)'; el.style.color='#fbbf24'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
   }
-
+  function startFallbackPolling(){
+    if(!timer && autoRefresh) timer=setInterval(poll, FALLBACK_POLL_MS);
+  }
+  function stopFallbackPolling(){
+    if(timer){ clearInterval(timer); timer=null; }
+  }
   function connectSSE(){
     if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
     sseSource = new EventSource(debugPath('/debug/kapso/stream'));
-    sseSource.onopen = function(){ setLiveStatus(true); };
-    sseSource.onmessage = function(){
+    sseSource.onopen = function(){
+      setLiveStatus(true);
+      stopFallbackPolling();
+    };
+    sseSource.onmessage = function(e){
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function(){ loadData(false); }, 400);
+      debounceTimer = setTimeout(poll, 300);
     };
     sseSource.onerror = function(){
       setLiveStatus(false);
       if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
-      setTimeout(connectSSE, 8000);
+      startFallbackPolling();
+      if(autoRefresh) setTimeout(connectSSE, 5000);
     };
   }
 
+  function toggleAuto(){
+    autoRefresh = !autoRefresh;
+    var btn = document.getElementById('toggle-auto');
+    if(autoRefresh){
+      btn.textContent='⏸ Pausar'; btn.style.background='#16a34a';
+      connectSSE();
+    } else {
+      btn.textContent='▶ Reanudar'; btn.style.background='#dc2626';
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource=null; }
+      stopFallbackPolling();
+      setLiveStatus(false);
+    }
+  }
+
+  document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
+  poll();
+  connectSSE();
+
+  // Poll readyState every second — reliable regardless of onopen/onerror firing
   setInterval(function(){
+    if(!autoRefresh) return;
     var rs = sseSource ? sseSource.readyState : -1;
     var el = document.getElementById('sse-status');
     if(!el) return;
-    if(rs===1){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
-    else if(rs===0){ el.textContent='🟡 Conectando...'; el.style.color='#fbbf24'; }
-    else { el.textContent='🟡 Auto (30s)'; el.style.color='#fbbf24'; }
+    if(rs === 1){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else if(rs === 0){ el.textContent='🟡 Conectando...'; el.style.color='#fbbf24'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
   }, 1000);
-
-  loadData(true);
-  connectSSE();
-  startAutoRefresh();
 })();
 </script>
 </body></html>`;
@@ -7793,27 +7815,19 @@ function renderCanalesHtml(debugToken = '') {
 
 app.get('/debug/canales', async (req, res) => {
   if (!requireDebugAccess(req, res)) return;
-  res.set('Cache-Control', 'no-store, max-age=0');
-  res.status(200).type('html').send(renderCanalesHtml(extractAccessToken(req)));
+  try {
+    const data = await collectCanalesDebugPayload();
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).type('html').send(renderCanalesHtml(data, extractAccessToken(req)));
+  } catch (err) {
+    res.status(500).type('html').send(`<pre>${escapeHtml(String(err))}</pre>`);
+  }
 });
 
 app.get('/debug/canales/data', async (req, res) => {
   if (!requireDebugAccess(req, res)) return;
   try {
-    const { page = 1, limit = 20, channel = '', empresa_id = 0, days = 30 } = req.query;
-    const data = await collectCanalesDebugPayload(+page, +limit, channel, +empresa_id, +days);
-    res.set('Cache-Control', 'no-store, max-age=0');
-    res.status(200).json(data);
-  } catch (err) {
-    res.status(500).json({ error: String(err) });
-  }
-});
-
-app.get('/api/v1/debug/interactions', async (req, res) => {
-  if (!requireDebugAccess(req, res)) return;
-  try {
-    const { page = 1, limit = 20, channel = '', empresa_id = 0, days = 30 } = req.query;
-    const data = await collectCanalesDebugPayload(+page, +limit, channel, +empresa_id, +days);
+    const data = await collectCanalesDebugPayload();
     res.set('Cache-Control', 'no-store, max-age=0');
     res.status(200).json(data);
   } catch (err) {
