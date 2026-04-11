@@ -95,6 +95,7 @@ async def hydrate_from_supabase() -> None:
             order="created_at",
             order_desc=True,
             limit=_MAX_KAPSO_DEBUG_EVENTS,
+            raw_filters={"source": "neq.funnel"},
         ) or []
         if not rows:
             logger.info("kapso_debug hydrate: tabla debug_events vacía o sin datos")
@@ -124,6 +125,7 @@ async def load_channel_events_from_supabase(channel: str, limit: int = 100) -> l
             order="created_at",
             order_desc=True,
             limit=limit * 3,  # fetch extra to filter by channel
+            raw_filters={"source": "neq.funnel"},
         ) or []
         result = []
         for row in rows:
