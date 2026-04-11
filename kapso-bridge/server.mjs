@@ -1805,7 +1805,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
     .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
 
-    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
 
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
 
@@ -1848,6 +1848,12 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
       <a href="${appendDebugToken('/debug/kapso/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
 
       <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
+
+      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
+
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">ManyChat</a>
+
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
 
     </div>
 
@@ -1982,6 +1988,15 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   let sseConnected = false;
 
+  let empresasMap = {};
+
+  function loadEmpresasMap(){
+    fetch(debugPath('/debug/kapso/empresas'))
+      .then(function(r){ return r.json(); })
+      .then(function(data){ (data.empresas||[]).forEach(function(e){ empresasMap[e.id]=e.nombre; }); })
+      .catch(function(){});
+  }
+
   function startFallbackPolling(){
     if(!autoRefresh) return;
     clearInterval(timer);
@@ -2091,7 +2106,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';this.textContent=s.style.display===\'\'?\'ver menos\':\'ver más...\';return false;" style="color:#93c5fd;font-size:11px;white-space:nowrap">ver más...</a></td>'; })()
 
-      +'<td>'+esc(item.agent_name||'—')+'</td>'
+      +'<td>'+(item.agent_name?esc(item.agent_name)+(item.empresa_id&&empresasMap[item.empresa_id]?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(empresasMap[item.empresa_id])+'</div>':''):'—')+'</td>'
 
       +'<td>'+esc(item.model_used||'—')+'</td>'
 
@@ -2423,6 +2438,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   document.getElementById('toggle-auto').addEventListener('click',toggleAuto);
 
+  loadEmpresasMap();
   // Initial poll to populate the table immediately on load
   poll();
 
@@ -7124,7 +7140,7 @@ function renderManyChatHtml(data, debugToken = '') {
     .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     .title{font-size:20px;font-weight:700}
     .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
-    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
     .value{font-size:22px;font-weight:700;margin-top:6px}
@@ -7145,7 +7161,8 @@ function renderManyChatHtml(data, debugToken = '') {
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
       <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
     </div>
@@ -7198,6 +7215,14 @@ function canalToggleMore(a){
   let timer = null;
   let sseSource = null;
   let debounceTimer = null;
+  let empresasMap = {};
+
+  function loadEmpresasMap(){
+    fetch(debugPath('/debug/kapso/empresas'))
+      .then(function(r){ return r.json(); })
+      .then(function(data){ (data.empresas||[]).forEach(function(e){ empresasMap[e.id]=e.nombre; }); })
+      .catch(function(){});
+  }
 
   function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
@@ -7211,7 +7236,7 @@ function canalToggleMore(a){
       +'<td>'+esc(item.canal||'instagram')+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return canalToggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>'; })()
-      +'<td>'+esc(item.agent_name||'—')+'</td>'
+      +'<td>'+(item.agent_name?esc(item.agent_name)+(item.empresa_id&&empresasMap[item.empresa_id]?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(empresasMap[item.empresa_id])+'</div>':''):'—')+'</td>'
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
       +'<td>'+esc(item.status||'processing')+'</td>'
@@ -7316,6 +7341,7 @@ function canalToggleMore(a){
   }
 
   document.getElementById('toggle-auto').addEventListener('click', toggleAuto);
+  loadEmpresasMap();
   poll();
   connectSSE();
   // Fallback: if onopen never fires (buffering proxy), check readyState after 3s
@@ -7379,7 +7405,7 @@ function renderGHLHtml(data, debugToken = '') {
           <td>${escapeHtml(item.contact_name || '—')}</td>
           <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
           <td style="max-width:280px;word-break:break-word">${msgCell}</td>
-          <td>${escapeHtml(item.agent_name || '—')}</td>
+          <td data-empresa-id="${item.empresa_id || ''}">${escapeHtml(item.agent_name || '—')}</td>
           <td>${escapeHtml(item.model_used || '—')}</td>
           <td style="${tcls}"><b>${item.duration_ms != null ? (item.duration_ms/1000).toFixed(1)+' s' : '—'}</b></td>
           <td>${escapeHtml(item.status || 'processing')}${droppedBadge}</td>
@@ -7413,7 +7439,7 @@ function renderGHLHtml(data, debugToken = '') {
     .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     .title{font-size:20px;font-weight:700}
     .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
-    .stats{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:12px;margin-bottom:16px}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
     .value{font-size:22px;font-weight:700;margin-top:6px}
@@ -7429,9 +7455,13 @@ function renderGHLHtml(data, debugToken = '') {
   <div class="top">
     <div class="title">GHL — Instagram / Facebook Debug</div>
     <div class="actions">
+      <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
+      <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
+      <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
       <a href="${appendDebugToken('/debug/ghl', debugToken)}">Refrescar</a>
       <a href="${appendDebugToken('/debug/ghl/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
       <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
       <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
     </div>
@@ -7461,6 +7491,102 @@ function renderGHLHtml(data, debugToken = '') {
     <pre>${escapeHtml(JSON.stringify(config, null, 2))}</pre>
   </details>
 
+<script>
+(function(){
+  const DEBUG_TOKEN = new URLSearchParams(window.location.search).get('token') || ${JSON.stringify(debugToken || '')};
+  function debugPath(path){
+    if(!DEBUG_TOKEN) return path;
+    var u = new URL(path, window.location.origin);
+    u.searchParams.set('token', DEBUG_TOKEN);
+    return u.pathname + u.search;
+  }
+
+  let autoRefresh = true;
+  let timer = null;
+  let sseSource = null;
+  let debounceTimer = null;
+
+  function setLiveStatus(live){
+    var el = document.getElementById('sse-status');
+    if(!el) return;
+    if(live){ el.textContent='🟢 En vivo'; el.style.color='#4ade80'; }
+    else { el.textContent='🟡 Polling'; el.style.color='#fbbf24'; }
+  }
+
+  function updateLastTs(){
+    var el = document.getElementById('last-update');
+    if(el) el.textContent = 'Última actualización: ' + new Date().toLocaleTimeString();
+  }
+
+  function poll(){
+    window.location.reload();
+  }
+
+  function startFallbackPolling(){
+    if(!timer && autoRefresh) timer = setInterval(poll, 30000);
+  }
+  function stopFallbackPolling(){
+    if(timer){ clearInterval(timer); timer = null; }
+  }
+
+  function connectSSE(){
+    if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource = null; }
+    sseSource = new EventSource(debugPath('/debug/kapso/stream'));
+    sseSource.onopen = function(){ setLiveStatus(true); stopFallbackPolling(); };
+    sseSource.onmessage = function(){
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function(){ if(autoRefresh) window.location.reload(); }, 2000);
+    };
+    sseSource.onerror = function(){
+      setLiveStatus(false);
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource = null; }
+      startFallbackPolling();
+      if(autoRefresh) setTimeout(connectSSE, 5000);
+    };
+  }
+
+  function toggleAuto(){
+    autoRefresh = !autoRefresh;
+    var btn = document.getElementById('toggle-auto');
+    if(autoRefresh){
+      btn.textContent = '⏸ Pausar'; btn.style.background = '#16a34a';
+      connectSSE();
+    } else {
+      btn.textContent = '▶ Reanudar'; btn.style.background = '#dc2626';
+      if(sseSource){ try{ sseSource.close(); }catch(e){} sseSource = null; }
+      stopFallbackPolling();
+      setLiveStatus(false);
+    }
+  }
+
+  var toggleBtn = document.getElementById('toggle-auto');
+  if(toggleBtn) toggleBtn.addEventListener('click', toggleAuto);
+
+  // Load empresa names and apply sub-labels to agent cells
+  fetch(debugPath('/debug/kapso/empresas'))
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      var map = {};
+      (data.empresas||[]).forEach(function(e){ map[e.id] = e.nombre; });
+      document.querySelectorAll('[data-empresa-id]').forEach(function(td){
+        var eid = td.getAttribute('data-empresa-id');
+        if(eid && map[eid]){
+          var div = document.createElement('div');
+          div.style.cssText = 'font-size:10px;color:#94a3b8;margin-top:2px';
+          div.textContent = map[eid];
+          td.appendChild(div);
+        }
+      });
+    })
+    .catch(function(){});
+
+  updateLastTs();
+  connectSSE();
+  setTimeout(function(){
+    if(sseSource && sseSource.readyState === 1) setLiveStatus(true);
+  }, 3000);
+})();
+</script>
 </body></html>`;
 }
 
