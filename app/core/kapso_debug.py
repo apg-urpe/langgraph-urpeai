@@ -52,6 +52,37 @@ async def _persist_debug_event(entry: dict[str, Any]) -> None:
         logger.debug("debug_events persist failed (kapso): %s", exc)
 
 
+async def hydrate_from_supabase() -> None:
+    """Carga los últimos eventos desde Supabase al arrancar el servidor.
+
+    Evita que el panel de debug aparezca vacío tras un reinicio.
+    """
+    try:
+        from app.db.client import get_supabase
+
+        db = await get_supabase()
+        rows = await db.query(
+            "debug_events",
+            select="source,stage,payload,channel,created_at",
+            order="created_at",
+            order_desc=True,
+            limit=_MAX_KAPSO_DEBUG_EVENTS,
+        ) or []
+        rows.reverse()  # cronológico: más antiguo primero
+        with _lock:
+            for row in rows:
+                _events.appendleft({
+                    "timestamp": row.get("created_at", ""),
+                    "source": row.get("source", "kapso"),
+                    "stage": row.get("stage", ""),
+                    "channel": row.get("channel", "whatsapp"),
+                    "payload": row.get("payload") or {},
+                })
+        logger.info("kapso_debug hydrated: %d eventos cargados desde Supabase", len(rows))
+    except Exception as exc:
+        logger.warning("kapso_debug hydrate failed (non-fatal): %s", exc)
+
+
 def add_kapso_debug_event(
     source: str,
     stage: str,

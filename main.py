@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.kapso_routes import router as kapso_router, retry_stuck_messages
+from app.core.kapso_debug import hydrate_from_supabase as hydrate_kapso_debug
 from app.api.ghl_routes import router as ghl_router
 from app.api.manychat_routes import router as manychat_router, retry_stuck_manychat_messages
 from app.api.routes import router
@@ -54,6 +55,7 @@ async def _retry_stuck_loop():
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Iniciando %s", settings.APP_NAME)
+    await hydrate_kapso_debug()
     if RETRY_STUCK_ENABLED:
         task = asyncio.create_task(_retry_stuck_loop())
         logger.info("Background task: retry_stuck_loop iniciado (cada %ds) — WhatsApp + ManyChat", RETRY_STUCK_INTERVAL_SECONDS)
