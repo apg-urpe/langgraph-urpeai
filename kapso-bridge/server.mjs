@@ -1806,23 +1806,12 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
     <div class="title">Kapso Debug Básico</div>
 
     <div class="actions">
-
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
-
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
-
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}">Refrescar</a>
-
-      <a href="${appendDebugToken('/debug/kapso/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-
-      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
-
-      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
-
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">ManyChat</a>
-
-      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
-
+      <a href="${appendDebugToken('/debug/canales', debugToken)}">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}">ManyChat</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}">GHL</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}">Ver visual</a>
     </div>
 
   </div>
@@ -7038,7 +7027,7 @@ function renderManyChatHtml(data, debugToken = '') {
     body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
     .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     .title{font-size:20px;font-weight:700}
-    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
+    .actions a,.actions button{color:#93c5fd;text-decoration:none;margin-left:12px;background:none;border:none;cursor:pointer;font-size:14px}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
@@ -7058,12 +7047,10 @@ function renderManyChatHtml(data, debugToken = '') {
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
       <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}">Refrescar</a>
-      <a href="${appendDebugToken('/debug/manychat/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
-      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
-      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}">Kapso</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}">GHL</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}">Ver visual</a>
     </div>
   </div>
 
@@ -7337,7 +7324,7 @@ function renderGHLHtml(data, debugToken = '') {
     body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
     .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
     .title{font-size:20px;font-weight:700}
-    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
+    .actions a,.actions button{color:#93c5fd;text-decoration:none;margin-left:12px;background:none;border:none;cursor:pointer;font-size:14px}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
@@ -7357,12 +7344,10 @@ function renderGHLHtml(data, debugToken = '') {
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
       <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
       <button id="toggle-auto" style="background:#16a34a;color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px">⏸ Pausar</button>
-      <a href="${appendDebugToken('/debug/ghl', debugToken)}">Refrescar</a>
-      <a href="${appendDebugToken('/debug/ghl/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}" style="background:#6366f1;color:#fff;padding:4px 10px;border-radius:6px;text-decoration:none;font-size:12px">Ver visual</a>
-      <a href="${appendDebugToken('/debug/canales', debugToken)}" style="color:#93c5fd;margin-left:12px">Todos los canales</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}">ManyChat</a>
+      <a href="${appendDebugToken('/debug/canales', debugToken)}">Todos los canales</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}">Ver visual</a>
     </div>
   </div>
 
@@ -7567,10 +7552,10 @@ function renderCanalesHtml(debugToken = '') {
       <span id="last-update" style="color:#94a3b8;font-size:11px"></span>
       <span id="sse-status" style="color:#fbbf24;font-size:11px;margin-left:8px">🟡 Conectando...</span>
       <button onclick="loadData(true)">⟳ Refrescar</button>
-      <a href="${appendDebugToken('/debug/canales/data', debugToken)}" target="_blank" rel="noreferrer">Ver JSON</a>
-      <a href="${appendDebugToken('/debug/kapso', debugToken)}" style="color:#93c5fd;margin-left:12px">Kapso</a>
-      <a href="${appendDebugToken('/debug/manychat', debugToken)}" style="color:#93c5fd;margin-left:12px">Manychat</a>
-      <a href="${appendDebugToken('/debug/ghl', debugToken)}" style="color:#f97316;margin-left:12px">GHL</a>
+      <a href="${appendDebugToken('/debug/kapso', debugToken)}">Kapso</a>
+      <a href="${appendDebugToken('/debug/manychat', debugToken)}">ManyChat</a>
+      <a href="${appendDebugToken('/debug/ghl', debugToken)}">GHL</a>
+      <a href="${appendDebugToken('/debug/kapso/visual', debugToken)}">Ver visual</a>
     </div>
   </div>
 
