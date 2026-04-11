@@ -86,10 +86,20 @@ async def _record_retry_event(
 # ── FUNNEL RETRY ─────────────────────────────────────────────────────────────
 
 def _funnel_conv_key(event: dict) -> tuple[int | None, str | None]:
-    """(contacto_id, conversation_id) as a deduplification key."""
+    """(contacto_id, conversation_id) as a deduplication key.
+
+    Handles two payload shapes:
+    - funnel_error events: conversation_id inside agent_runs[0]
+    - retry tracking events: conversacion_id at payload root
+    """
     cid = event.get("contacto_id")
-    runs = (event.get("payload") or {}).get("agent_runs") or []
-    conv = runs[0].get("conversation_id") if runs else None
+    payload = event.get("payload") or {}
+    # Tracking events store it at root
+    conv = payload.get("conversacion_id")
+    if not conv:
+        # funnel_error events store it inside agent_runs[0]
+        runs = payload.get("agent_runs") or []
+        conv = runs[0].get("conversation_id") if runs else None
     return (cid, str(conv) if conv else None)
 
 
