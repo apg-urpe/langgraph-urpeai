@@ -14,7 +14,9 @@ en tiempo real, con polling de 5s como fallback si SSE se desconecta.
 import asyncio
 import json
 import logging
+import math
 import os
+from datetime import datetime, timedelta, timezone
 from html import escape
 
 from fastapi import APIRouter, HTTPException, Query
@@ -539,6 +541,153 @@ def _render_dashboard_html(config: dict) -> str:
   </script>
 </body>
 </html>"""
+
+
+@router.get("/api/v1/debug/interactions")
+async def debug_interactions(
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    channel: str = Query(default=""),
+    empresa_id: int = Query(default=0),
+    days: int = Query(default=30, ge=1, le=365),
+):
+    """Paginated interactions from Supabase debug_events, grouped by message_id."""
+    try:
+        db = await get_supabase()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+        raw_filters: dict = {
+            "created_at": f"gte.{cutoff}",
+            "source": "neq.funnel",
+        }
+        filters: dict = {}
+
+        if channel:
+            raw_filters["payload->>'_channel'"] = f"eq.{channel}"
+        if empresa_id:
+            filters["empresa_id"] = empresa_id
+
+        rows = await db.query(
+            "debug_events",
+            select="*",
+            filters=filters if filters else None,
+            raw_filters=raw_filters,
+            order="created_at",
+            order_desc=True,
+            limit=2000,
+        )
+    except Exception as exc:
+        logger.error("debug_interactions: error querying Supabase: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Error consultando debug_events: {exc}")
+
+    rows = rows or []
+
+    # ── Group by message_id ────────────────────────────────────────────────────
+    interactions_map: dict[str, dict] = {}
+    for row in rows:
+        payload = row.get("payload") or {}
+        stage = row.get("stage", "")
+        msg_id = (
+            payload.get("message_id")
+            or payload.get("interaction_id")
+            or row.get("message_id")
+        )
+        if not msg_id:
+            continue
+
+        if msg_id not in interactions_map:
+            interactions_map[msg_id] = {
+                "message_id": msg_id,
+                "started_at": row.get("created_at"),
+                "channel": payload.get("_channel"),
+                "empresa_id": row.get("empresa_id"),
+                "contacto_id": row.get("contacto_id"),
+                "contact_name": None,
+                "from_phone": None,
+                "message_type": None,
+                "message_text": None,
+                "agent_name": None,
+                "model_used": None,
+                "duration_ms": None,
+                "status": "processing",
+                "response_preview": None,
+                "error": None,
+                "stages": [],
+            }
+
+        interaction = interactions_map[msg_id]
+
+        if stage not in interaction["stages"]:
+            interaction["stages"].append(stage)
+
+        # Always prefer earliest timestamp as started_at
+        row_ts = row.get("created_at") or ""
+        if row_ts and (not interaction["started_at"] or row_ts < interaction["started_at"]):
+            interaction["started_at"] = row_ts
+
+        if stage == "inbound_received":
+            interaction["channel"] = interaction["channel"] or payload.get("_channel")
+            interaction["contact_name"] = interaction["contact_name"] or payload.get("contact_name")
+            interaction["from_phone"] = interaction["from_phone"] or payload.get("from_phone") or payload.get("from")
+            interaction["message_type"] = interaction["message_type"] or payload.get("message_type")
+            interaction["message_text"] = interaction["message_text"] or payload.get("message_text") or payload.get("text")
+            interaction["empresa_id"] = interaction["empresa_id"] or row.get("empresa_id")
+            interaction["contacto_id"] = interaction["contacto_id"] or row.get("contacto_id")
+
+        if stage == "run_agent_done":
+            interaction["status"] = "ok"
+            interaction["agent_name"] = payload.get("agent_name") or interaction["agent_name"]
+            interaction["model_used"] = payload.get("model_used") or interaction["model_used"]
+            timing = payload.get("timing") or {}
+            interaction["duration_ms"] = payload.get("total_ms") or timing.get("total_ms") or interaction["duration_ms"]
+            preview = payload.get("response_preview") or payload.get("reply_text") or ""
+            interaction["response_preview"] = preview[:200] if preview else interaction["response_preview"]
+            interaction["channel"] = interaction["channel"] or payload.get("_channel")
+
+        if stage in ("inbound_error", "error", "exception", "http_error"):
+            if interaction["status"] != "ok":
+                interaction["status"] = "error"
+            interaction["error"] = payload.get("error") or payload.get("detail") or interaction["error"]
+
+    all_interactions = sorted(
+        interactions_map.values(),
+        key=lambda x: x.get("started_at") or "",
+        reverse=True,
+    )
+
+    # ── Stats from all interactions ────────────────────────────────────────────
+    total = len(all_interactions)
+    ok_count = sum(1 for i in all_interactions if i["status"] == "ok")
+    error_count = sum(1 for i in all_interactions if i["status"] == "error")
+    durations = [i["duration_ms"] for i in all_interactions if i["duration_ms"] is not None]
+    avg_ms = round(sum(durations) / len(durations)) if durations else None
+
+    by_channel: dict[str, int] = {}
+    for i in all_interactions:
+        ch = i["channel"] or "unknown"
+        by_channel[ch] = by_channel.get(ch, 0) + 1
+
+    stats = {
+        "total": total,
+        "ok": ok_count,
+        "errors": error_count,
+        "avg_ms": avg_ms,
+        "by_channel": by_channel,
+    }
+
+    # ── Paginate ───────────────────────────────────────────────────────────────
+    offset = (page - 1) * limit
+    page_interactions = all_interactions[offset: offset + limit]
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+
+    return {
+        "interactions": page_interactions,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": total_pages,
+        "stats": stats,
+    }
 
 
 @router.get("/debug/kapso/", response_class=HTMLResponse)
