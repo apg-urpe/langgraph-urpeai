@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 RETRY_STUCK_INTERVAL_SECONDS = 5 * 60  # 5 minutes
+RETRY_STUCK_ENABLED = os.getenv("RETRY_STUCK_ENABLED", "true").lower() != "false"
 
 
 async def _retry_stuck_loop():
@@ -53,15 +54,20 @@ async def _retry_stuck_loop():
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Iniciando %s", settings.APP_NAME)
-    task = asyncio.create_task(_retry_stuck_loop())
-    logger.info("Background task: retry_stuck_loop iniciado (cada %ds) — WhatsApp + ManyChat", RETRY_STUCK_INTERVAL_SECONDS)
+    if RETRY_STUCK_ENABLED:
+        task = asyncio.create_task(_retry_stuck_loop())
+        logger.info("Background task: retry_stuck_loop iniciado (cada %ds) — WhatsApp + ManyChat", RETRY_STUCK_INTERVAL_SECONDS)
+    else:
+        task = None
+        logger.warning("Background task: retry_stuck_loop DESACTIVADO (RETRY_STUCK_ENABLED=false)")
     yield
     # Shutdown
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    if task is not None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
     logger.info("Servidor apagado limpiamente")
 
 
