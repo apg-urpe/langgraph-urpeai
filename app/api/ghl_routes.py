@@ -38,7 +38,7 @@ from app.agents.conversational import CLOSING_FOLLOWUP_MARKER, run_agent
 from app.agents.funnel import run_funnel_agent
 from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
-from app.core.kapso_debug import add_kapso_debug_event, get_channel_debug_events
+from app.core.kapso_debug import add_kapso_debug_event, get_channel_debug_events, load_channel_events_from_supabase
 from app.core.kapso_prompt import build_kapso_context_payload, build_kapso_system_prompt
 from app.db import queries as db
 from app.schemas.chat import ChatRequest
@@ -706,6 +706,10 @@ async def ghl_debug_events(limit: int = 50):
     ig = get_channel_debug_events("ghl_instagram", limit=limit)
     fb = get_channel_debug_events("ghl_facebook", limit=limit)
     combined = sorted(ig + fb, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
+    if not combined:
+        ig_db = await load_channel_events_from_supabase("ghl_instagram", limit=limit)
+        fb_db = await load_channel_events_from_supabase("ghl_facebook", limit=limit)
+        combined = sorted(ig_db + fb_db, key=lambda e: e.get("timestamp", ""), reverse=True)[:limit]
     return {"events": combined}
 
 

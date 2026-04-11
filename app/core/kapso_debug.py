@@ -9,7 +9,6 @@ También mantiene un mecanismo de SSE (Server-Sent Events) para streaming
 en tiempo real hacia dashboards conectados.
 """
 import asyncio
-import json
 import logging
 from collections import deque
 from datetime import datetime, timezone
@@ -30,26 +29,46 @@ _sse_lock = Lock()
 
 
 async def _persist_debug_event(entry: dict[str, Any]) -> None:
-    """Inserta el evento en Supabase de forma silenciosa (fire-and-forget)."""
+    """Inserta el evento en Supabase de forma silenciosa (fire-and-forget).
+
+    El canal se guarda dentro de payload['_channel'] para no depender de
+    que exista la columna 'channel' en debug_events (evita inserts silenciosos
+    que fallaban si la columna no existe en el schema).
+    """
     try:
         from app.db.client import get_supabase
 
         db = await get_supabase()
-        payload = entry.get("payload") or {}
+        channel = entry.get("channel") or "whatsapp"
+        payload = dict(entry.get("payload") or {})
+        payload["_channel"] = channel  # schema-safe: always inside payload
         await db.insert(
             "debug_events",
             {
-                "source": entry.get("source", "kapso"),
+                "source": entry.get("source", "fastapi"),
                 "stage": entry["stage"],
                 "payload": payload,
-                "channel": entry.get("channel", "whatsapp"),
                 "empresa_id": payload.get("empresa_id"),
                 "contacto_id": payload.get("contacto_id"),
                 "message_id": payload.get("message_id"),
             },
         )
     except Exception as exc:
-        logger.debug("debug_events persist failed (kapso): %s", exc)
+        logger.warning("debug_events persist failed: %s", exc)
+
+
+def _row_to_event(row: dict[str, Any]) -> dict[str, Any]:
+    """Normaliza una fila de debug_events de Supabase al formato in-memory."""
+    payload = row.get("payload") or {}
+    # Channel stored in payload._channel (new) or legacy column 'channel'
+    channel = payload.get("_channel") or row.get("channel") or "whatsapp"
+    return {
+        "timestamp": row.get("created_at") or "",
+        "source": row.get("source") or "fastapi",
+        "stage": row.get("stage") or "",
+        "channel": channel,
+        "payload": payload,
+    }
 
 
 async def hydrate_from_supabase() -> None:
@@ -63,24 +82,51 @@ async def hydrate_from_supabase() -> None:
         db = await get_supabase()
         rows = await db.query(
             "debug_events",
-            select="source,stage,payload,channel,created_at",
+            select="source,stage,payload,created_at",
             order="created_at",
             order_desc=True,
             limit=_MAX_KAPSO_DEBUG_EVENTS,
         ) or []
-        rows.reverse()  # cronológico: más antiguo primero
+        if not rows:
+            logger.info("kapso_debug hydrate: tabla debug_events vacía o sin datos")
+            return
+        rows.reverse()  # cronológico: más antiguo primero → appendleft deja newest al frente
         with _lock:
             for row in rows:
-                _events.appendleft({
-                    "timestamp": row.get("created_at", ""),
-                    "source": row.get("source", "kapso"),
-                    "stage": row.get("stage", ""),
-                    "channel": row.get("channel", "whatsapp"),
-                    "payload": row.get("payload") or {},
-                })
+                _events.appendleft(_row_to_event(row))
         logger.info("kapso_debug hydrated: %d eventos cargados desde Supabase", len(rows))
     except Exception as exc:
         logger.warning("kapso_debug hydrate failed (non-fatal): %s", exc)
+
+
+async def load_channel_events_from_supabase(channel: str, limit: int = 100) -> list[dict[str, Any]]:
+    """Consulta Supabase directamente para obtener eventos de un canal.
+
+    Usado como fallback en los endpoints de debug cuando la memoria está vacía.
+    Filtra por payload->>'_channel' para compatibilidad con ambos schemas.
+    """
+    try:
+        from app.db.client import get_supabase
+
+        db = await get_supabase()
+        rows = await db.query(
+            "debug_events",
+            select="source,stage,payload,created_at",
+            order="created_at",
+            order_desc=True,
+            limit=limit * 3,  # fetch extra to filter by channel
+        ) or []
+        result = []
+        for row in rows:
+            ev = _row_to_event(row)
+            if ev["channel"] == channel:
+                result.append(ev)
+                if len(result) >= limit:
+                    break
+        return result
+    except Exception as exc:
+        logger.warning("load_channel_events_from_supabase(%s) failed: %s", channel, exc)
+        return []
 
 
 def add_kapso_debug_event(
