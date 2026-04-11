@@ -1686,38 +1686,21 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
 
   const interactionRows = interactions.length
-
     ? interactions.map((item, index) => `
-
         <tr>
-
           <td>${escapeHtml(item.started_at ? new Date(item.started_at).toLocaleString() : '—')}</td>
-
-          <td>${escapeHtml(item.contact_name || '—')}</td>
-
+          <td>${escapeHtml(item.contact_name || item.from_phone || '—')}</td>
           <td>${item.contacto_id != null ? String(item.contacto_id) : escapeHtml(item.from_phone || '—')}</td>
-
           <td>${escapeHtml(item.message_type || 'text')}</td>
-
           <td style="max-width:280px;word-break:break-word">${(function(){ const txt = item.message_text || '—'; if (txt.length <= 200) return escapeHtml(txt); return `${escapeHtml(txt.slice(0, 200))}<span class="msg-more" style="display:none">${escapeHtml(txt.slice(200))}</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display==='none'?'':'none';this.textContent=s.style.display===''?'ver menos':'ver más...';return false;" style="color:#93c5fd;font-size:11px;white-space:nowrap">ver más...</a>`; })()}</td>
-
           <td>${escapeHtml(item.agent_name || '—')}</td>
-
           <td>${escapeHtml(item.model_used || '—')}</td>
-
-          <td>${escapeHtml(item.reply_type || 'text')}</td>
-
           <td>${escapeHtml(item.reaction_emoji || '—')}</td>
-
-          ${renderTimingCells(item)}
-
+          <td>${item.duration_ms != null ? `${(item.duration_ms / 1000).toFixed(1)} s` : '—'}</td>
           <td>${item.dropped ? '<span style="color:#f87171">⛔ rechazado</span>' : escapeHtml(item.status || 'processing')}</td>
-
-           <td><a href="#interaction-${index}" style="color:#93c5fd">Ver detalle</a></td>
-
+          <td><a href="#interaction-${index}" style="color:#93c5fd">Ver</a></td>
         </tr>`).join('')
-
-    : '<tr><td colspan="16" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
+    : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
 
 
 
@@ -1798,35 +1781,20 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
   <style>
 
     body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}
-
-    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
-
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
     .title{font-size:20px;font-weight:700}
-
-    .actions a{color:#93c5fd;text-decoration:none;margin-left:12px}
-
+    .actions a,.actions button{color:#93c5fd;text-decoration:none;margin-left:12px;background:none;border:none;cursor:pointer;font-size:14px}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:16px}
-
     .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px}
-
     .label{font-size:11px;color:#94a3b8;text-transform:uppercase}
-
     .value{font-size:22px;font-weight:700;margin-top:6px}
-
     table{width:100%;border-collapse:collapse;background:#111827;border:1px solid #334155}
-
     th,td{padding:10px;border-bottom:1px solid #334155;text-align:left;vertical-align:top;font-size:12px}
-
     th{background:#1e293b;color:#93c5fd}
-
     .section{margin-top:18px}
-
     details{margin-top:12px;background:#111827;border:1px solid #334155;border-radius:8px;padding:12px}
-
     summary{cursor:pointer;font-weight:700}
-
     pre{white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font-size:12px}
-
   </style>
 
 </head>
@@ -1863,17 +1831,12 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
   <div class="stats">
 
-    <div class="card"><div class="label">Total</div><div class="value">${interactions.length}</div></div>
-
-    <div class="card"><div class="label">OK</div><div class="value">${okCount}</div></div>
-
-    <div class="card"><div class="label">Errores</div><div class="value">${errorCount}</div></div>
-
-    <div class="card"><div class="label">Tiempo AVG</div><div class="value">${avgDuration != null ? `${(avgDuration / 1000).toFixed(1)} s` : '—'}</div></div>
-
-    <div class="card"><div class="label">LLM AVG</div><div class="value">${avgLlm != null ? `${(avgLlm / 1000).toFixed(1)} s` : '—'}</div></div>
-
-    <div class="card"><div class="label">Infra AVG</div><div class="value">${avgInfra != null ? `${(avgInfra / 1000).toFixed(1)} s` : '—'}</div></div>
+    <div class="card"><div class="label">Total</div><div class="value" id="statTotal">${interactions.length}</div></div>
+    <div class="card"><div class="label">OK</div><div class="value" id="statOk" style="color:#4ade80">${okCount}</div></div>
+    <div class="card"><div class="label">Errores</div><div class="value" id="statErrors" style="color:#f87171">${errorCount}</div></div>
+    <div class="card"><div class="label">Tiempo AVG</div><div class="value" id="statAvg">${avgDuration != null ? `${(avgDuration / 1000).toFixed(1)} s` : '—'}</div></div>
+    <div class="card"><div class="label">LLM AVG</div><div class="value" id="statLlm">${avgLlm != null ? `${(avgLlm / 1000).toFixed(1)} s` : '—'}</div></div>
+    <div class="card"><div class="label">Infra AVG</div><div class="value" id="statInfra">${avgInfra != null ? `${(avgInfra / 1000).toFixed(1)} s` : '—'}</div></div>
 
   </div>
 
@@ -1884,43 +1847,10 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
     <table>
 
       <thead>
-
         <tr>
-
-          <th>Hora</th>
-
-          <th>Contacto</th>
-
-          <th>Teléfono</th>
-
-          <th>Tipo</th>
-
-          <th>Mensaje</th>
-
-          <th>Agente</th>
-
-          <th>Modelo</th>
-
-          <th>Reply</th>
-
-          <th>Rx</th>
-
-          <th style="min-width:60px">Total</th>
-
-          <th style="min-width:50px">Infra</th>
-
-          <th style="min-width:50px">LLM</th>
-
-          <th style="min-width:50px">Tools</th>
-
-          <th>Agentes</th>
-
-          <th>Status</th>
-
-          <th>Detalle</th>
-
+          <th>Hora</th><th>Contacto</th><th>ID</th><th>Tipo</th><th>Mensaje</th>
+          <th>Agente</th><th>Modelo</th><th>Rx</th><th style="min-width:60px">Total</th><th>Status</th><th>Detalle</th>
         </tr>
-
       </thead>
 
       <tbody>${interactionRows}</tbody>
@@ -2095,39 +2025,17 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
     var tools=t.tool_execution_ms!=null?Math.round(t.tool_execution_ms):null;
 
     return '<tr>'
-
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
-
-      +'<td>'+esc(item.contact_name||'—')+'</td>'
-
-      +'<td>'+esc(item.from_phone||'—')+'</td>'
-
+      +'<td>'+esc(item.contact_name||item.from_phone||'—')+'</td>'
+      +'<td>'+(item.contacto_id!=null?String(item.contacto_id):esc(item.from_phone||'—'))+'</td>'
       +'<td>'+esc(item.message_type||'text')+'</td>'
-
       +(function(){ var txt=item.message_text||'—'; if(txt.length<=200) return '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'; return '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span class="msg-more" style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="var s=this.previousElementSibling;s.style.display=s.style.display===\'none\'?\'\':\'none\';this.textContent=s.style.display===\'\'?\'ver menos\':\'ver más...\';return false;" style="color:#93c5fd;font-size:11px;white-space:nowrap">ver más...</a></td>'; })()
-
       +'<td>'+(item.agent_name?esc(item.agent_name)+(item.empresa_id&&empresasMap[item.empresa_id]?'<div style="font-size:10px;color:#94a3b8;margin-top:2px">'+esc(empresasMap[item.empresa_id])+'</div>':''):'—')+'</td>'
-
       +'<td>'+esc(item.model_used||'—')+'</td>'
-
-      +'<td>'+esc(item.reply_type||'text')+'</td>'
-
       +'<td>'+esc(item.reaction_emoji||'—')+'</td>'
-
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
-
-      +'<td>'+fms(inf)+'</td>'
-
-      +'<td>'+fms(llm)+'</td>'
-
-      +'<td>'+fms(tools)+'</td>'
-
-      +'<td style="font-size:11px">'+agentBreakdown(item)+'</td>'
-
       +'<td>'+esc(item.status||'processing')+'</td>'
-
-      +'<td><a href="#interaction-'+idx+'" style="color:#93c5fd">Ver detalle</a></td>'
-
+      +'<td><a href="#interaction-'+idx+'" style="color:#93c5fd" onclick="var d=document.getElementById(\'interaction-\'+'+idx+');if(d)d.setAttribute(\'open\',\'\');return true;">Ver</a></td>'
       +'</tr>';
 
   }
@@ -2312,21 +2220,12 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
 
 
-    var cards=document.querySelectorAll('.card .value');
-
-    if(cards[0])cards[0].textContent=items.length;
-
-    if(cards[1])cards[1].textContent=ok;
-
-    if(cards[2])cards[2].textContent=err;
-
-    if(cards[3])cards[3].textContent=avg!=null?(avg/1000).toFixed(1)+' s':'—';
-
-    if(cards[4])cards[4].textContent=avgLlm!=null?(avgLlm/1000).toFixed(1)+' s':'—';
-
-    if(cards[5])cards[5].textContent=avgInf!=null?(avgInf/1000).toFixed(1)+' s':'—';
-
-
+    var eTotal=document.getElementById('statTotal'); if(eTotal) eTotal.textContent=items.length;
+    var eOk=document.getElementById('statOk'); if(eOk) eOk.textContent=ok;
+    var eErr=document.getElementById('statErrors'); if(eErr) eErr.textContent=err;
+    var eAvg=document.getElementById('statAvg'); if(eAvg) eAvg.textContent=avg!=null?(avg/1000).toFixed(1)+' s':'—';
+    var eLlm=document.getElementById('statLlm'); if(eLlm) eLlm.textContent=avgLlm!=null?(avgLlm/1000).toFixed(1)+' s':'—';
+    var eInf=document.getElementById('statInfra'); if(eInf) eInf.textContent=avgInf!=null?(avgInf/1000).toFixed(1)+' s':'—';
 
     var tbody=document.querySelector('table tbody');
 
@@ -2336,7 +2235,7 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
 
         ?items.map(renderRow).join('')
 
-        :'<tr><td colspan="16" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
+        :'<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones todavía.</td></tr>';
 
     }
 
