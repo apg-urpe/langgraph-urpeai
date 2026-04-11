@@ -50,7 +50,7 @@ async def _persist_debug_event(entry: dict[str, Any]) -> None:
                 "payload": payload,
                 "empresa_id": payload.get("empresa_id"),
                 "contacto_id": payload.get("contacto_id"),
-                "message_id": payload.get("message_id"),
+                "message_id": payload.get("message_id") or payload.get("interaction_id"),
             },
         )
     except Exception as exc:

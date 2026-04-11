@@ -197,6 +197,8 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
         _channel = f"ghl_{canal}"     # "ghl_instagram" | "ghl_facebook"
         multimedia = request.customData.multimedia if request.customData else None
         location_id = (request.location.id if request.location else None) or None
+        # Unique ID para esta interacción — agrupa todos los eventos debug de la misma llamada
+        _interaction_id = f"ghl_{contact_id}_{uuid.uuid4().hex[:8]}"
 
         # Ignorar si está vacío y sin media
         if not mensaje and not multimedia:
@@ -338,14 +340,19 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 
         # 4. Debug — mensaje recibido
         add_kapso_debug_event(
-            "fastapi", "ghl_message_received",
+            "fastapi", "inbound_received",
             {
+                "message_id": _interaction_id,
                 "contact_id": contact_id,
                 "contacto_id": contacto_id,
                 "empresa_id": empresa_id,
-                "message": mensaje[:200],
+                "contact_name": nombre_usuario or (contacto.get("nombre") if contacto else None),
+                "from_phone": contact_id,
+                "message_type": "image" if multimedia else "text",
+                "message_text": mensaje[:500] if mensaje else f"[{canal} media]",
                 "canal": canal,
                 "nuevo_contacto": contacto_creado,
+                "_raw_request": None,  # GHL no necesita replay automático
             },
             channel=_channel,
         )
@@ -500,16 +507,19 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
 
         # 11. Debug — respuesta enviada
         add_kapso_debug_event(
-            "fastapi", "ghl_message_sent",
+            "fastapi", "run_agent_done",
             {
+                "message_id": _interaction_id,
                 "contact_id": contact_id,
                 "contacto_id": contacto_id,
                 "empresa_id": empresa_id,
                 "agent_name": agent.get("nombre_agente") if agent else None,
                 "model_used": result.model_used,
-                "reply_preview": reply_text[:200] if reply_text else "",
+                "response_preview": reply_text[:200] if reply_text else "",
+                "reply_text": reply_text[:200] if reply_text else "",
                 "bubbles_sent": len(bubbles) if reply_text else 0,
-                "elapsed_s": round(elapsed, 2),
+                "total_ms": round(elapsed * 1000),
+                "timing": {"total_ms": round(elapsed * 1000)},
                 "canal": canal,
                 "ghl_send_ok": send_ok,
                 "ghl_send_error": send_error,

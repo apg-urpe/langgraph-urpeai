@@ -7554,10 +7554,8 @@ function renderCanalesHtml(debugToken = '') {
       <select id="filterChannel" onchange="resetAndLoad()">
         <option value="">Todos</option>
         <option value="whatsapp">WhatsApp</option>
-        <option value="instagram">Instagram</option>
-        <option value="facebook">Facebook</option>
-        <option value="ghl_instagram">GHL-IG</option>
-        <option value="ghl_facebook">GHL-FB</option>
+        <option value="ghl_instagram">Instagram</option>
+        <option value="ghl_facebook">Facebook</option>
       </select>
     </label>
     <label style="color:#94a3b8;font-size:12px">Días:
@@ -7626,10 +7624,8 @@ function renderCanalesHtml(debugToken = '') {
 
   function canalBadge(canal){
     if(canal==='whatsapp') return '<span class="ch-badge ch-wa">WA</span>';
-    if(canal==='instagram') return '<span class="ch-badge ch-ig">IG</span>';
-    if(canal==='facebook') return '<span class="ch-badge ch-fb">FB</span>';
-    if(canal==='ghl_instagram') return '<span class="ch-badge ch-ghl_ig">GHL·IG</span>';
-    if(canal==='ghl_facebook') return '<span class="ch-badge ch-ghl_fb">GHL·FB</span>';
+    if(canal==='ghl_instagram'||canal==='instagram') return '<span class="ch-badge ch-ghl_ig">IG</span>';
+    if(canal==='ghl_facebook'||canal==='facebook') return '<span class="ch-badge ch-ghl_fb">FB</span>';
     return '<span class="ch-badge ch-other">'+esc(canal||'?')+'</span>';
   }
 
