@@ -60,11 +60,20 @@ async def _persist_debug_event(entry: dict[str, Any]) -> None:
 def _row_to_event(row: dict[str, Any]) -> dict[str, Any]:
     """Normaliza una fila de debug_events de Supabase al formato in-memory."""
     payload = row.get("payload") or {}
-    # Channel stored in payload._channel (new) or legacy column 'channel'
-    channel = payload.get("_channel") or row.get("channel") or "whatsapp"
+    source = row.get("source") or "fastapi"
+    # Channel stored in payload._channel (new) or legacy column 'channel'.
+    # For rows without explicit channel, infer from source so that funnel/internal
+    # events don't pollute the whatsapp channel filter.
+    explicit = payload.get("_channel") or row.get("channel")
+    if explicit:
+        channel = explicit
+    elif source in ("fastapi", "kapso"):
+        channel = "whatsapp"  # legacy kapso events before _channel was introduced
+    else:
+        channel = source  # e.g. "funnel" stays as "funnel"
     return {
         "timestamp": row.get("created_at") or "",
-        "source": row.get("source") or "fastapi",
+        "source": source,
         "stage": row.get("stage") or "",
         "channel": channel,
         "payload": payload,
