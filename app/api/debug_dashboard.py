@@ -550,11 +550,12 @@ async def debug_interactions(
     channel: str = Query(default=""),
     empresa_id: int = Query(default=0),
     days: int = Query(default=30, ge=1, le=365),
+    since: str = Query(default=""),  # ISO timestamp — incremental load from SSE
 ):
     """Paginated interactions from Supabase debug_events, grouped by message_id."""
     try:
         db = await get_supabase()
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        cutoff = since if since else (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         raw_filters: dict = {
             "created_at": f"gte.{cutoff}",
@@ -698,6 +699,14 @@ async def debug_interactions(
         "avg_ms": avg_ms,
         "by_channel": by_channel,
     }
+
+    # ── Incremental: devolver todos sin paginar para merge client-side ────────
+    if since:
+        return {
+            "interactions": all_interactions,
+            "incremental": True,
+            "stats": stats,
+        }
 
     # ── Paginate ───────────────────────────────────────────────────────────────
     offset = (page - 1) * limit

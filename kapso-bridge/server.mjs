@@ -7615,6 +7615,8 @@ function renderCanalesHtml(debugToken = '') {
   let sseSource = null;
   let debounceTimer = null;
   let autoRefreshTimer = null;
+  let allInteractionsMap = new Map(); // message_id → item (cache client-side)
+  let lastIncrementalTs = null;       // timestamp del último incremental
 
   function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
@@ -7680,8 +7682,34 @@ function renderCanalesHtml(debugToken = '') {
     return debugPath(path);
   }
 
+  function renderStats(stats, totalOverride){
+    var t = totalOverride != null ? totalOverride : (stats.total ?? 0);
+    document.getElementById('statTotal').textContent = t;
+    document.getElementById('statOk').textContent = stats.ok ?? '—';
+    document.getElementById('statErrors').textContent = stats.errors ?? '—';
+    document.getElementById('statAvg').textContent = stats.avg_ms != null ? fms(stats.avg_ms) : '—';
+    var byChannel = stats.by_channel || {};
+    var byCh = document.getElementById('statByChannel');
+    byCh.innerHTML = Object.entries(byChannel).map(function(kv){
+      return canalBadge(kv[0])+'<span style="margin-left:3px;font-size:12px">'+esc(kv[1])+'</span>';
+    }).join(' ');
+  }
+
+  function renderTable(items){
+    var tbody = document.getElementById('canal-tbody');
+    tbody.innerHTML = items.length
+      ? items.map(renderRow).join('')
+      : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones para este filtro.</td></tr>';
+    var detailsContainer = document.getElementById('canal-interaction-details');
+    var openSet = new Set();
+    detailsContainer.querySelectorAll('details[open][id]').forEach(function(d){ openSet.add(d.id); });
+    detailsContainer.innerHTML = items.map(renderDetail).join('');
+    openSet.forEach(function(id){ var el=document.getElementById(id); if(el) el.setAttribute('open',''); });
+  }
+
+  // ── Carga completa (manual refresh / cambio de filtros / paginación) ────────
   window.loadData = function(resetPage){
-    if(resetPage) currentPage = 1;
+    if(resetPage){ currentPage = 1; allInteractionsMap.clear(); lastIncrementalTs = null; }
     var scrollY = window.scrollY;
     var tbody = document.getElementById('canal-tbody');
     tbody.innerHTML = '<tr><td colspan="11" class="loading pulse">Cargando...</td></tr>';
@@ -7690,49 +7718,79 @@ function renderCanalesHtml(debugToken = '') {
       .then(function(r){ return r.json(); })
       .then(function(data){
         var items = Array.isArray(data.interactions) ? data.interactions : [];
+        // Poblar cache con la página actual
+        items.forEach(function(i){ if(i.message_id) allInteractionsMap.set(i.message_id, i); });
+        // Guardar timestamp del más reciente para futuros incrementales
+        if(items.length) lastIncrementalTs = items[0].started_at || null;
+
         var stats = data.stats || {};
-
-        // Stats
-        document.getElementById('statTotal').textContent = stats.total ?? items.length;
-        document.getElementById('statOk').textContent = stats.ok ?? '—';
-        document.getElementById('statErrors').textContent = stats.errors ?? '—';
-        document.getElementById('statAvg').textContent = stats.avg_ms != null ? fms(stats.avg_ms) : '—';
-
-        var byChannel = stats.by_channel || {};
-        var byCh = document.getElementById('statByChannel');
-        byCh.innerHTML = Object.entries(byChannel).map(function(kv){
-          return canalBadge(kv[0]) + '<span style="margin-left:3px;font-size:12px">'+esc(kv[1])+'</span>';
-        }).join(' ');
-
-        // Pagination state
+        renderStats(stats);
         totalPages = data.pages || 1;
         currentPage = data.page || currentPage;
-        document.getElementById('pageInfo').textContent = 'Página '+currentPage+' / '+totalPages+' ('+( stats.total||0 )+' total)';
+        document.getElementById('pageInfo').textContent = 'Página '+currentPage+' / '+totalPages+' ('+(stats.total||0)+' total)';
         document.getElementById('btnPrev').disabled = currentPage <= 1;
         document.getElementById('btnNext').disabled = currentPage >= totalPages;
-
-        // Table
-        tbody.innerHTML = items.length
-          ? items.map(renderRow).join('')
-          : '<tr><td colspan="11" style="padding:20px;color:#94a3b8">Sin interacciones para este filtro.</td></tr>';
-
-        // Details
-        var detailsContainer = document.getElementById('canal-interaction-details');
-        var openSet = new Set();
-        detailsContainer.querySelectorAll('details[open][id]').forEach(function(d){ openSet.add(d.id); });
-        detailsContainer.innerHTML = items.map(renderDetail).join('');
-        openSet.forEach(function(id){ var el=document.getElementById(id); if(el) el.setAttribute('open',''); });
-
-        var ts = document.getElementById('last-update');
-        if(ts) ts.textContent = 'Actualizado: '+new Date().toLocaleTimeString();
-
+        renderTable(items);
+        document.getElementById('last-update').textContent = 'Actualizado: '+new Date().toLocaleTimeString();
         requestAnimationFrame(function(){ window.scrollTo(0, scrollY); });
       })
       .catch(function(e){
         console.warn('canales load error', e);
-        tbody.innerHTML = '<tr><td colspan="11" style="padding:20px;color:#fca5a5">Error cargando datos: '+esc(e.message)+'</td></tr>';
+        document.getElementById('canal-tbody').innerHTML = '<tr><td colspan="11" style="padding:20px;color:#fca5a5">Error cargando datos: '+esc(e.message)+'</td></tr>';
       });
   };
+
+  // ── Carga incremental — solo eventos desde lastIncrementalTs (SSE trigger) ──
+  function loadIncremental(){
+    // Usar ventana de 3 min atrás para capturar stages tardíos del mismo mensaje
+    var since = new Date(Date.now() - 180000).toISOString();
+    var params = new URLSearchParams({ since: since });
+    var channel = document.getElementById('filterChannel').value;
+    if(channel) params.set('channel', channel);
+    fetch(debugPath('/debug/canales/data?' + params.toString()))
+      .then(function(r){ return r.json(); })
+      .then(function(data){
+        var items = Array.isArray(data.interactions) ? data.interactions : [];
+        if(!items.length) return;
+
+        var changed = false;
+        items.forEach(function(item){
+          if(!item.message_id) return;
+          var existing = allInteractionsMap.get(item.message_id);
+          // Actualizar si es nuevo o si cambió el status
+          if(!existing || existing.status !== item.status || existing.agent_name !== item.agent_name){
+            allInteractionsMap.set(item.message_id, item);
+            changed = true;
+          }
+        });
+
+        if(!changed) return;
+
+        // Re-renderizar solo si estamos en página 1
+        if(currentPage !== 1) return;
+        var sorted = Array.from(allInteractionsMap.values())
+          .sort(function(a,b){ return (b.started_at||'').localeCompare(a.started_at||''); });
+
+        // Recalcular stats desde el mapa completo
+        var ok = 0, err = 0, durs = [];
+        var byCh = {};
+        sorted.forEach(function(i){
+          if(i.status==='ok') ok++;
+          else if(i.status==='error') err++;
+          if(i.duration_ms!=null) durs.push(i.duration_ms);
+          var ch = i.channel||'whatsapp';
+          byCh[ch] = (byCh[ch]||0)+1;
+        });
+        var avg = durs.length ? Math.round(durs.reduce(function(a,b){return a+b;},0)/durs.length) : null;
+        renderStats({ ok: ok, errors: err, avg_ms: avg, by_channel: byCh }, sorted.length);
+
+        var pageItems = sorted.slice(0, +document.getElementById('filterLimit').value || 20);
+        renderTable(pageItems);
+        document.getElementById('last-update').textContent = 'Actualizado: '+new Date().toLocaleTimeString();
+        lastIncrementalTs = items[0].started_at || lastIncrementalTs;
+      })
+      .catch(function(e){ console.warn('incremental load error', e); });
+  }
 
   window.resetAndLoad = function(){ loadData(true); };
 
@@ -7763,7 +7821,7 @@ function renderCanalesHtml(debugToken = '') {
     sseSource.onopen = function(){ setLiveStatus(true); };
     sseSource.onmessage = function(){
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(function(){ loadData(false); }, 400);
+      debounceTimer = setTimeout(loadIncremental, 2000); // debounce 2s, merge incremental
     };
     sseSource.onerror = function(){
       setLiveStatus(false);
