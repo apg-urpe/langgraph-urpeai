@@ -7666,18 +7666,19 @@ function canalToggleMore(a){
   let sseSource = null;
   let debounceTimer = null;
 
-  function esc(v){ return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function fms(v){ return v!=null?(v/1000).toFixed(1)+' s':'—'; }
   function tcls(ms){ if(ms==null)return ''; if(ms<20000)return 'color:#34d399'; if(ms<30000)return 'color:#f97316'; return 'color:#f87171'; }
+  function _toggleMore(el){ var s=el.previousElementSibling; s.style.display=s.style.display?'':' inline'; el.textContent=s.style.display?'ver menos':'ver más...'; return false; }
+  function _openDetail(el){ var id=el.getAttribute('href').slice(1); var d=document.getElementById(id); if(d) d.setAttribute('open',''); return false; }
 
   function renderRow(item, idx){
-    var canal = item._canal||'whatsapp';
-    var badge = canal==='whatsapp'
-      ? '<span style="background:#16a34a;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">WA</span>'
-      : canal==='facebook'
-      ? '<span style="background:#1d4ed8;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">FB</span>'
-      : '<span style="background:#7c3aed;color:#fff;border-radius:4px;padding:1px 6px;font-size:10px">IG</span>';
-    var totalMs = item.duration_ms!=null ? item.duration_ms : (item.timing&&item.timing.total_ms!=null?Math.round(item.timing.total_ms):null);
+    var canal = item.channel || '?';
+    var totalMs = item.duration_ms != null ? item.duration_ms : null;
+    var txt = item.message_text || '—';
+    var msgCell = txt.length <= 200
+      ? '<td style="max-width:280px;word-break:break-word">'+esc(txt)+'</td>'
+      : '<td style="max-width:280px;word-break:break-word">'+esc(txt.slice(0,200))+'<span style="display:none">'+esc(txt.slice(200))+'</span> <a href="#" onclick="return _toggleMore(this)" style="color:#93c5fd;font-size:11px">ver más...</a></td>';
     return '<tr>'
       +'<td>'+esc(item.started_at?new Date(item.started_at).toLocaleString():'—')+'</td>'
       +'<td>'+badge+'</td>'
@@ -7693,7 +7694,7 @@ function canalToggleMore(a){
       +'<td>'+esc(item.model_used||'—')+'</td>'
       +'<td style="'+tcls(totalMs)+'"><b>'+fms(totalMs)+'</b></td>'
       +'<td>'+esc(item.status||'processing')+'</td>'
-      +'<td><a href="#canal-interaction-'+idx+'" style="color:#93c5fd">Ver detalle</a></td>'
+      +'<td><a href="#canal-interaction-'+idx+'" style="color:#93c5fd" onclick="return _openDetail(this)">Ver</a></td>'
       +'</tr>';
   }
 
