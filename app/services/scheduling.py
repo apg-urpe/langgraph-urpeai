@@ -162,16 +162,26 @@ def calcular_slots(
     busy_periods: list[dict[str, int]],
     duracion_min: int,
     tz_name: str,
+    ventanas: list[dict[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Calcula slots disponibles para un día filtrando por eventos de Nylas."""
-    slots: list[dict[str, Any]] = []
+    """Calcula slots disponibles para un día filtrando por eventos de Nylas.
 
+    Args:
+        ventanas: Lista de franjas horarias [{inicio: "HH:MM", fin: "HH:MM"}].
+                  Si es None, usa _SLOT_WINDOW_DEFAULT (7am-8pm).
+    """
+    slots: list[dict[str, Any]] = []
     tz = ZoneInfo(tz_name)
     ahora_unix = int(time.time())
 
-    for horario in _SLOT_WINDOW_DEFAULT:
-        inicio_h, inicio_m = map(int, horario["inicio"].split(":"))
-        fin_h, fin_m = map(int, horario["fin"].split(":"))
+    franjas = ventanas if ventanas else _SLOT_WINDOW_DEFAULT
+
+    for horario in franjas:
+        try:
+            inicio_h, inicio_m = map(int, horario["inicio"].split(":"))
+            fin_h, fin_m = map(int, horario["fin"].split(":"))
+        except Exception:
+            continue
 
         current_h, current_m = inicio_h, inicio_m
 
@@ -582,6 +592,13 @@ async def seleccionar_mejor_asesor(
             dur = duracion_min or asesor_fijo.get("duracion_cita_minutos") or 30
             end_unix = start_unix + (dur * 60)
 
+            # Verificar horario laboral
+            dt_utc = datetime.fromtimestamp(start_unix, tz=timezone.utc)
+            if not hora_dentro_de_horarios_normales(dt_utc, asesor_fijo.get("disponibilidad"), tz_name, dur):
+                return {
+                    "error": f"El horario solicitado está fuera del horario de atención del asesor ({asesor_fijo['nombre']})."
+                }
+
             ocupado = await asesor_ocupado(nylas, asesor_fijo, start_unix, end_unix, exclude_event_id)
             if ocupado:
                 return {
@@ -597,6 +614,11 @@ async def seleccionar_mejor_asesor(
     async def _check(asesor: dict) -> dict:
         dur = duracion_min or asesor.get("duracion_cita_minutos") or 30
         end_unix = start_unix + (dur * 60)
+
+        # Verificar que el slot esté dentro del horario laboral del asesor
+        dt_utc = datetime.fromtimestamp(start_unix, tz=timezone.utc)
+        if not hora_dentro_de_horarios_normales(dt_utc, asesor.get("disponibilidad"), tz_name, dur):
+            return {"asesor": asesor, "ok": True, "ocupado": True}
 
         try:
             ocupado = await asesor_ocupado(nylas, asesor, start_unix, end_unix, exclude_event_id)
@@ -794,10 +816,27 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             )
 
         duracion = asesor.get("duracion_cita_minutos") or 30
+        disponibilidad_asesor = asesor.get("disponibilidad") or {}
+        horarios_normales = disponibilidad_asesor.get("horarios_normales") or {}
+        permite_fines_semana = disponibilidad_asesor.get("permite_fines_semana", True)
 
         for i in range(7):
             fecha = ahora + timedelta(days=i)
             fecha_key = fecha.strftime("%Y-%m-%d")
+
+            # Respetar permite_fines_semana
+            es_fin_semana = fecha.weekday() >= 5  # 5=sábado, 6=domingo
+            if es_fin_semana and not permite_fines_semana:
+                continue
+
+            # Obtener ventanas horarias del día según configuración del asesor
+            dia_nombre = DIAS_SEMANA[fecha.weekday()]
+            ventanas_dia = horarios_normales.get(dia_nombre)
+            if ventanas_dia is not None and len(ventanas_dia) == 0:
+                # El asesor no trabaja este día
+                continue
+            # Si no hay config para este día, usar horario por defecto
+            ventanas_usar = ventanas_dia if ventanas_dia else None
 
             if fecha_key not in disponibilidad_por_dia:
                 disponibilidad_por_dia[fecha_key] = {
@@ -806,7 +845,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                     "horarios_unicos": {},
                 }
 
-            slots = calcular_slots(fecha, busy_periods, duracion, tz_name)
+            slots = calcular_slots(fecha, busy_periods, duracion, tz_name, ventanas=ventanas_usar)
 
             dia_data = disponibilidad_por_dia[fecha_key]
             for slot in slots:
