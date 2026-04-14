@@ -231,6 +231,39 @@ async def _build_graph_schema(empresa_id: int | None = None) -> dict:
     edges.append({"from": "conv", "to": "t_spam", "label": ""})
     edges.append({"from": "t_spam", "to": "supabase", "label": "desactivar spam"})
 
+    # Built-in: scheduling tools (Nylas calendar)
+    nodes.append({
+        "id": "t_disponibilidad", "label": "consultar_disp", "kind": "tool",
+        "desc": "Herramienta: consultar_disponibilidad",
+        "detail": "Consulta horarios disponibles (7 días)\nVía Nylas Calendar API (free/busy)\nAgrupa por día y período\nSelecciona asesores activos con grant",
+    })
+    edges.append({"from": "conv", "to": "t_disponibilidad", "label": ""})
+    edges.append({"from": "t_disponibilidad", "to": "supabase", "label": "wp_team_humano"})
+
+    nodes.append({
+        "id": "t_agendar", "label": "agendar_cita", "kind": "tool",
+        "desc": "Herramienta: agendar_cita",
+        "detail": "Crea cita en calendario del asesor\nVía Nylas create_event\nAuto-selección de mejor asesor\nGenera Google Meet si es virtual\nPersiste en wp_citas",
+    })
+    edges.append({"from": "conv", "to": "t_agendar", "label": ""})
+    edges.append({"from": "t_agendar", "to": "supabase", "label": "INSERT wp_citas"})
+
+    nodes.append({
+        "id": "t_reagendar", "label": "reagendar_cita", "kind": "tool",
+        "desc": "Herramienta: reagendar_cita",
+        "detail": "Reagenda cita existente\nVía Nylas update/create_event\nCambia asesor si es necesario\nMarca cita anterior como reagendada",
+    })
+    edges.append({"from": "conv", "to": "t_reagendar", "label": ""})
+    edges.append({"from": "t_reagendar", "to": "supabase", "label": "UPDATE wp_citas"})
+
+    nodes.append({
+        "id": "t_cancelar", "label": "cancelar_cita", "kind": "tool",
+        "desc": "Herramienta: cancelar_cita",
+        "detail": "Cancela cita del calendario\nVía Nylas delete_event\nMarca como cancelada en wp_citas\nGraceful si ya no existe en Nylas",
+    })
+    edges.append({"from": "conv", "to": "t_cancelar", "label": ""})
+    edges.append({"from": "t_cancelar", "to": "supabase", "label": "UPDATE estado"})
+
     # ── Funnel Agent ──
     nodes.append({
         "id": "funnel", "label": "Embudo", "kind": "agent",
@@ -301,6 +334,10 @@ _DEFAULT_POSITIONS: dict[str, tuple[float, float]] = {
     "t_calificado":(0.78, 0.60),
     "t_comandos":  (0.42, 0.82),
     "t_spam":      (0.58, 0.82),
+    "t_disponibilidad": (0.30, 0.90),
+    "t_agendar":   (0.42, 0.95),
+    "t_reagendar": (0.54, 0.95),
+    "t_cancelar":  (0.66, 0.90),
     "t_metadata": (0.12, 0.60),
     "t_update":   (0.88, 0.40),
     "mcp_srv":    (0.22, 0.80),

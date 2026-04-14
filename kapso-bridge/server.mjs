@@ -790,6 +790,14 @@ const PUBLIC_VISUAL_NODE_IDS = {
 
   instagram: 'n20',
 
+  t_disponibilidad: 'n21',
+
+  t_agendar: 'n22',
+
+  t_reagendar: 'n23',
+
+  t_cancelar: 'n24',
+
   facebook: 'n30',
 
 };
@@ -891,6 +899,14 @@ const PUBLIC_VISUAL_NODE_META = {
   t_update: { label: 'Actualización', desc: 'Datos de contacto', detail: 'Refresca información del contacto sin exponer campos internos.', kind: 'tool' },
 
   t_spam: { label: 'Control spam', desc: 'Protección de canal', detail: 'Aplica controles de seguridad y supresión del canal.', kind: 'tool' },
+
+  t_disponibilidad: { label: 'Disponibilidad', desc: 'Consulta agenda', detail: 'Consulta horarios disponibles vía Nylas Calendar API.', kind: 'tool' },
+
+  t_agendar: { label: 'Agendar', desc: 'Crear cita', detail: 'Crea cita con asesor disponible y genera Google Meet.', kind: 'tool' },
+
+  t_reagendar: { label: 'Reagendar', desc: 'Mover cita', detail: 'Reagenda cita existente, cambia asesor si es necesario.', kind: 'tool' },
+
+  t_cancelar: { label: 'Cancelar', desc: 'Cancelar cita', detail: 'Cancela cita del calendario y marca como cancelada.', kind: 'tool' },
 
   instagram: { label: 'Instagram', desc: 'Canal de mensajería', detail: 'Canal de entrada y salida de la conversación.', kind: 'external' },
 
@@ -2595,6 +2611,14 @@ const TOOL_NODE_MAP={
   'update_contact_info':        't_update',
 
   'desactivar_contacto_spam':   't_spam',
+
+  'consultar_disponibilidad':   't_disponibilidad',
+
+  'agendar_cita':               't_agendar',
+
+  'reagendar_cita':             't_reagendar',
+
+  'cancelar_cita':              't_cancelar',
 
 };
 
