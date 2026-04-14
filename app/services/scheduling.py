@@ -487,6 +487,13 @@ async def asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
             fb_data = await nylas.get_free_busy(grant_id, email, start_unix, end_unix)
             if isinstance(fb_data, list):
                 for fb in fb_data:
+                    # Nylas puede devolver objeto de error en lugar de time_slots
+                    if fb.get("error") or fb.get("object") == "error":
+                        logger.warning(
+                            "Free/busy Nylas error para asesor %s (grant=%s): %s — fallback a list_events",
+                            asesor["id"], grant_id, fb.get("error", "unknown"),
+                        )
+                        break  # salir del loop de fb, caer en list_events
                     for slot in fb.get("time_slots") or []:
                         if slot.get("status") == "busy":
                             bp_start = slot.get("start_time", 0)
@@ -501,6 +508,7 @@ async def asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
                 return True
             logger.warning("Error free/busy asesor %s: %s — fallback a list_events", asesor["id"], e)
 
+    nylas_list_failed = False
     try:
         events = await nylas.list_events(grant_id, email, start_unix, end_unix)
         for ev in events:
@@ -520,7 +528,35 @@ async def asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
         if should_disable_nylas_grant(e):
             disable_nylas_grant(asesor, e)
         logger.warning("Error list_events asesor %s: %s", asesor["id"], e)
-        return True
+        nylas_list_failed = True
+
+    # Verificación suplementaria contra wp_citas (DB propia)
+    # Cubre casos donde Nylas no refleja correctamente los eventos
+    try:
+        _db = await get_supabase()
+        citas_asesor = await _db.query(
+            "wp_citas",
+            select="fecha_hora,duracion,event_id",
+            filters={"team_humano_id": asesor["id"], "estado": "confirmada"},
+        )
+        if isinstance(citas_asesor, list):
+            for c in citas_asesor:
+                if exclude_event_id and c.get("event_id") == exclude_event_id:
+                    continue
+                fh = c.get("fecha_hora")
+                dur = c.get("duracion") or 30
+                if not fh:
+                    continue
+                c_start, _ = parse_iso_to_unix(fh)
+                c_end = c_start + (dur * 60)
+                if rangos_solapan(start_unix, end_unix, c_start, c_end):
+                    logger.info("🚫 Asesor %s ocupado (wp_citas DB): %s-%s", asesor["id"], c_start, c_end)
+                    return True
+    except Exception as exc:
+        logger.warning("asesor_ocupado: error al consultar wp_citas para asesor %s: %s", asesor["id"], exc)
+        # Si Nylas también falló, no tenemos forma de saber → asumir ocupado por seguridad
+        if nylas_list_failed:
+            return True
 
     return False
 
@@ -651,6 +687,26 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                 nylas.get_free_busy(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix),
                 timeout=10.0,
             )
+            # Nylas puede devolver objetos de error dentro de data:
+            # {"email": "...", "error": "...", "object": "error"}
+            # En ese caso, no tenemos info confiable de busy → tratar como sin disponibilidad
+            if isinstance(data, list):
+                for item in data:
+                    if item.get("error") or item.get("object") == "error":
+                        logger.warning(
+                            "Free/busy Nylas retornó error para asesor %s (grant=%s): %s",
+                            asesor["id"], asesor.get("grant_id"), item.get("error", "unknown"),
+                        )
+                        return {"asesor": asesor, "freeBusy": None, "ok": False}
+                # Log de diagnóstico: cuántos busy slots hay
+                total_busy = sum(
+                    sum(1 for s in (item.get("time_slots") or []) if s.get("status") == "busy")
+                    for item in data
+                )
+                logger.info(
+                    "Free/busy asesor %s (%s): %d slots ocupados en próximos 7d",
+                    asesor["id"], asesor.get("email", "?"), total_busy,
+                )
             return {"asesor": asesor, "freeBusy": data, "ok": True}
         except asyncio.TimeoutError:
             logger.warning("Timeout free/busy asesor %s (>10s)", asesor["id"])
@@ -678,6 +734,39 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             error="No se pudo obtener disponibilidad de ningún asesor",
         )
 
+    # Cargar citas confirmadas desde wp_citas como fuente suplementaria de busy periods
+    # (cubre casos donde Nylas free/busy no refleja correctamente los eventos)
+    _db = await get_supabase()
+    asesor_ids = [r["asesor"]["id"] for r in asesores_ok]
+    db_busy_por_asesor: dict[int, list[dict[str, int]]] = {aid: [] for aid in asesor_ids}
+    try:
+        citas_db = await _db.query(
+            "wp_citas",
+            select="team_humano_id,fecha_hora,duracion",
+            filters={"estado": "confirmada"},
+        )
+        if isinstance(citas_db, list):
+            for c in citas_db:
+                aid = c.get("team_humano_id")
+                if aid not in db_busy_por_asesor:
+                    continue
+                fh = c.get("fecha_hora")
+                dur = c.get("duracion") or 30
+                if not fh:
+                    continue
+                try:
+                    c_start_unix, _ = parse_iso_to_unix(fh)
+                    c_end_unix = c_start_unix + (dur * 60)
+                    # Solo agregar si está dentro del rango consultado
+                    if c_end_unix > ahora_unix and c_start_unix < fin_unix:
+                        db_busy_por_asesor[aid].append({"start": c_start_unix, "end": c_end_unix})
+                except Exception:
+                    pass
+        total_db_busy = sum(len(v) for v in db_busy_por_asesor.values())
+        logger.info("wp_citas busy periods cargados: %d citas para %d asesores", total_db_busy, len(asesor_ids))
+    except Exception as exc:
+        logger.warning("No se pudo cargar wp_citas para busy periods suplementarios: %s", exc)
+
     disponibilidad_por_dia: dict[str, dict] = {}
 
     for item in asesores_ok:
@@ -690,6 +779,19 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                 for slot in fb.get("time_slots") or []:
                     if slot.get("status") == "busy":
                         busy_periods.append({"start": slot["start_time"], "end": slot["end_time"]})
+
+        # Agregar busy periods desde wp_citas (suplementario a Nylas)
+        db_periods = db_busy_por_asesor.get(asesor["id"], [])
+        if db_periods:
+            # Fusionar, evitando duplicados exactos
+            existing = {(p["start"], p["end"]) for p in busy_periods}
+            for p in db_periods:
+                if (p["start"], p["end"]) not in existing:
+                    busy_periods.append(p)
+            logger.debug(
+                "Asesor %s: %d busy de Nylas + %d de wp_citas = %d total",
+                asesor["id"], len(busy_periods) - len(db_periods), len(db_periods), len(busy_periods),
+            )
 
         duracion = asesor.get("duracion_cita_minutos") or 30
 
