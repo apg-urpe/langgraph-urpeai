@@ -19,6 +19,14 @@ from dataclasses import dataclass
 import httpx
 from fastapi import APIRouter, Header, HTTPException
 
+# Bloques <comandos> son exclusivos de WhatsApp — removerlos en ManyChat/Instagram
+_COMANDOS_BLOCK = re.compile(r"<comandos>.*?</comandos>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_comandos(text: str) -> str:
+    """Elimina bloques <comandos>...</comandos> que solo aplican a WhatsApp."""
+    return re.sub(_COMANDOS_BLOCK, "", text).strip()
+
 from app.agents.contact_update import run_contact_update_agent
 from app.agents.conversational import CLOSING_FOLLOWUP_MARKER, run_agent
 from app.agents.funnel import run_funnel_agent
@@ -580,7 +588,7 @@ async def _procesar_manychat_core(
             )
         )
 
-        reply_text = (result.response or "").strip()
+        reply_text = _strip_comandos((result.response or "").strip())
         if reply_text == CLOSING_FOLLOWUP_MARKER:
             reply_text = ""
 
@@ -758,7 +766,7 @@ async def _retry_single_stuck_manychat_message(msg: dict) -> bool:
             )
         )
 
-        reply_text = (result.response or "").strip()
+        reply_text = _strip_comandos((result.response or "").strip())
         if reply_text == CLOSING_FOLLOWUP_MARKER:
             reply_text = ""
 

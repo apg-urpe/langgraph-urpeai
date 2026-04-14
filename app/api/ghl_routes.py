@@ -18,6 +18,14 @@ from dataclasses import dataclass
 # Separador de burbujas: igual que el bridge de WhatsApp
 _MSG_SEPARATOR = re.compile(r"\n*---\n*")
 
+# Bloques <comandos> son exclusivos de WhatsApp — removerlos en GHL/Instagram
+_COMANDOS_BLOCK = re.compile(r"<comandos>.*?</comandos>", re.DOTALL | re.IGNORECASE)
+
+
+def _strip_comandos(text: str) -> str:
+    """Elimina bloques <comandos>...</comandos> que solo aplican a WhatsApp."""
+    return re.sub(_COMANDOS_BLOCK, "", text).strip()
+
 
 def _extract_slash_command(message: str | None) -> str | None:
     """Detecta comandos /borrar y /borrar2 al inicio del mensaje."""
@@ -463,7 +471,7 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
             )
         )
 
-        reply_text = (result.response or "").strip()
+        reply_text = _strip_comandos((result.response or "").strip())
         if reply_text == CLOSING_FOLLOWUP_MARKER:
             reply_text = ""
 
