@@ -9,7 +9,7 @@ from typing import Any, Optional
 class DisponibilidadRequest(BaseModel):
     contacto_id: int = Field(..., description="ID del contacto")
     empresa_id: int = Field(..., description="ID de la empresa")
-    time_zone_contacto: str = Field(default="America/Bogota", description="Timezone del contacto")
+    time_zone_contacto: Optional[str] = Field(default=None, description="Timezone del contacto (ej: America/New_York)")
 
 
 class CrearEventoRequest(BaseModel):
@@ -20,7 +20,7 @@ class CrearEventoRequest(BaseModel):
     contacto_id: int = Field(..., description="ID del contacto")
     empresa_id: Optional[int] = Field(default=None, description="ID de la empresa")
     Virtual_presencial: str = Field(default="Virtual", alias="Virtual-presencial", description="Modalidad: Virtual o Presencial")
-    time_zone_contacto: str = Field(default="America/Bogota")
+    time_zone_contacto: Optional[str] = Field(default=None)
 
     model_config = {"populate_by_name": True}
 
@@ -34,7 +34,7 @@ class ReagendarEventoRequest(BaseModel):
     contacto_id: Optional[int] = Field(default=None, description="ID del contacto")
     empresa_id: Optional[int] = Field(default=None)
     Virtual_presencial: str = Field(default="Virtual", alias="Virtual-presencial")
-    time_zone_contacto: str = Field(default="America/Bogota")
+    time_zone_contacto: Optional[str] = Field(default=None)
     Duracion_minutos: Optional[int] = Field(default=None, description="Duración personalizada en minutos")
 
     model_config = {"populate_by_name": True}

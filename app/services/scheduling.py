@@ -114,12 +114,13 @@ def nylas_grant_disabled_message() -> str:
 # Normalización de timezones
 # ════════════════════════════════════════════════════════════
 
-def normalizar_tz(tz_name: str | None, fallback: str = "America/Bogota") -> str:
-    if not tz_name:
-        return fallback
+def normalizar_tz(tz_name: str | None) -> str | None:
+    """Normaliza el nombre de timezone. Retorna None si no está definido."""
+    if not tz_name or tz_name.strip().lower() in ("por definir", "none", "null", ""):
+        return None
     if tz_name == "America/Argentina":
         return "America/Argentina/Buenos_Aires"
-    return tz_name
+    return tz_name.strip()
 
 
 # ════════════════════════════════════════════════════════════
@@ -592,6 +593,19 @@ async def seleccionar_mejor_asesor(
 async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> DisponibilidadResponse:
     start_time = time.time()
     tz_name = normalizar_tz(req.time_zone_contacto)
+    if not tz_name:
+        return DisponibilidadResponse(
+            contacto_id=req.contacto_id,
+            empresa_id=req.empresa_id,
+            time_zone="",
+            hora_actual="",
+            total_asesores=0,
+            asesores_consultados=0,
+            tiempo_consulta_ms=0,
+            disponibilidad=[],
+            hay_disponibilidad=False,
+            error="ZONA_HORARIA_NO_DEFINIDA: El contacto no tiene zona horaria configurada. Pregúntale en qué ciudad o país se encuentra.",
+        )
 
     from fastapi import HTTPException
     try:
@@ -764,6 +778,8 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
 
 async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
     tz_name = normalizar_tz(req.time_zone_contacto)
+    if not tz_name:
+        return CrearEventoResponse(error="ZONA_HORARIA_NO_DEFINIDA: El contacto no tiene zona horaria configurada. Pregúntale en qué ciudad o país se encuentra.")
     nylas = await get_nylas()
     db = await get_supabase()
 
@@ -881,6 +897,8 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
 
 async def reagendar_evento_core(req: ReagendarEventoRequest) -> ReagendarEventoResponse:
     tz_name = normalizar_tz(req.time_zone_contacto)
+    if not tz_name:
+        return ReagendarEventoResponse(error="ZONA_HORARIA_NO_DEFINIDA: El contacto no tiene zona horaria configurada. Pregúntale en qué ciudad o país se encuentra.")
     nylas = await get_nylas()
     db = await get_supabase()
 

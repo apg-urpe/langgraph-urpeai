@@ -178,6 +178,7 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
                 contacto_id=contacto_id,
                 empresa_id=empresa_id,
                 Virtual_presencial=modalidad,
+                time_zone_contacto=tz,
             )
             resp = await crear_evento_core(req)
 
@@ -244,6 +245,7 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
                 empresa_id=empresa_id,
                 Virtual_presencial=modalidad,
                 Duracion_minutos=duracion_minutos if duracion_minutos > 0 else None,
+                time_zone_contacto=tz,
             )
             resp = await reagendar_evento_core(req)
 
