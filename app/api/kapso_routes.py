@@ -28,7 +28,7 @@ from app.core.kapso_debug import (
 from app.core.kapso_prompt import build_kapso_context_payload, build_kapso_system_prompt
 from app.db import queries as db
 from app.db.client import get_supabase
-from app.schemas.chat import AgentRunTrace, ChatRequest, MCPServerConfig, TimingInfo, ToolCall
+from app.schemas.chat import AgentRunTrace, ChatRequest, TimingInfo, ToolCall
 from app.schemas.channel import ChannelInboundMessage
 from app.schemas.contact_update import ContactUpdateAgentRequest, ContactUpdateAgentResponse
 from app.schemas.funnel import FunnelAgentRequest, FunnelAgentResponse
@@ -770,7 +770,6 @@ async def _run_both_agents(
     user_message: str,
     raw_user_text: str | None,
     model: str | None,
-    mcp_servers: list[MCPServerConfig],
     conversation_id: str,
     memory_session_id: str,
     contacto_id: int | None,
@@ -903,7 +902,6 @@ async def _run_both_agents(
             system_prompt=enriched_prompt,
             message=user_message,
             model=model,
-            mcp_servers=mcp_servers,
             conversation_id=conversation_id,
             memory_session_id=memory_session_id,
             memory_window=8,
@@ -952,34 +950,6 @@ async def _run_both_agents(
         ],
     )
     return conversational_result, funnel_result, contact_update_result, merged_timing, merged_tools, merged_agent_runs
-
-
-def _build_mcp_servers(agent: dict) -> list[MCPServerConfig]:
-    raw = agent.get("mcp_url")
-    if not raw:
-        return []
-
-    if isinstance(raw, str):
-        value = raw.strip()
-        if not value:
-            return []
-        if value.startswith("["):
-            try:
-                parsed = json.loads(value)
-                servers: list[MCPServerConfig] = []
-                for item in parsed:
-                    if isinstance(item, dict) and item.get("url"):
-                        servers.append(MCPServerConfig(url=item["url"], name=item.get("name", "")))
-                    elif isinstance(item, str) and item.strip():
-                        servers.append(MCPServerConfig(url=item.strip(), name=""))
-                return servers
-            except json.JSONDecodeError:
-                pass
-        if "," in value:
-            return [MCPServerConfig(url=item.strip(), name="") for item in value.split(",") if item.strip()]
-        return [MCPServerConfig(url=value, name="")]
-
-    return []
 
 
 def _get_debug_config() -> dict:
@@ -1439,7 +1409,6 @@ async def kapso_inbound(
                     raise
 
         model = agent.get("llm") or None
-        mcp_servers_list = _build_mcp_servers(agent)
         message_parts = _separate_message_parts(request)
         conversation_id = f"{channel_message.provider or 'kapso'}:{channel_message.external_conversation_id}"
         memory_session_id = normalized_from_phone
@@ -1722,7 +1691,6 @@ async def kapso_inbound(
             rol_agente=prompt_context_data.get("rol_agente"),
         )
         user_message = _build_user_message(request, message_parts)
-        mcp_servers = mcp_servers_list
 
         add_kapso_debug_event(
             "fastapi",
@@ -1826,7 +1794,6 @@ async def kapso_inbound(
                 "conversation_id": conversation_id,
                 "memory_session_id": memory_session_id,
                 "model": model,
-                "mcp_servers": len(mcp_servers),
             },
         )
         logger.info(
@@ -1846,7 +1813,6 @@ async def kapso_inbound(
             user_message=user_message,
             raw_user_text=request.text,
             model=model,
-            mcp_servers=mcp_servers,
             conversation_id=conversation_id,
             memory_session_id=memory_session_id,
             contacto_id=contacto_id,
@@ -2241,7 +2207,6 @@ async def _retry_single_stuck_message(msg: dict) -> bool:
 
     # Build system prompt
     model = agent.get("llm") or None
-    mcp_servers = _build_mcp_servers(agent)
 
     try:
         prompt_context_data = await db.load_kapso_prompt_context(
@@ -2305,7 +2270,6 @@ async def _retry_single_stuck_message(msg: dict) -> bool:
             user_message=user_message,
             raw_user_text=contenido,
             model=model,
-            mcp_servers=mcp_servers,
             conversation_id=conversation_id_str,
             memory_session_id=memory_session_id,
             contacto_id=int(contacto_id) if contacto_id else None,

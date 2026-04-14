@@ -454,7 +454,6 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 system_prompt=system_prompt,
                 message=mensaje or f"[{canal} media]",
                 model=model,
-                mcp_servers=[],
                 conversation_id=str(conversacion_db_id) if conversacion_db_id else str(uuid.uuid4()),
                 memory_session_id=memory_session_id,
                 memory_window=8,

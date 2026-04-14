@@ -623,7 +623,6 @@ def build_kapso_context_payload(
         "prompt_personalizado": agent.get("prompt_personalizado"),
         "manejo_herramientas": agent.get("manejo_herramientas"),
         "llm": agent.get("llm"),
-        "mcp_url": _safe_json(agent.get("mcp_url")),
         "instrucciones_mensajes": agent.get("instrucciones_mensajes"),
         "instrucciones_multimedia": agent.get("instrucciones_multimedia"),
     }

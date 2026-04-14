@@ -382,8 +382,6 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
         agent_runs: [],
 
-        mcp_servers: [],
-
       });
 
     }
@@ -428,7 +426,6 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
         if (payload.model) interaction.model_used = payload.model;
 
-        if (payload.mcp_servers) interaction.mcp_servers = [`${payload.mcp_servers} servers`];
 
       }
 
@@ -770,10 +767,6 @@ const PUBLIC_VISUAL_NODE_IDS = {
 
   vision: 'n10',
 
-  t_mcp: 'n11',
-
-  mcp_srv: 'n12',
-
   t_reaction: 'n13',
 
   t_nota: 'n14',
@@ -881,10 +874,6 @@ const PUBLIC_VISUAL_NODE_META = {
   edge_fn: { label: 'Edge Functions', desc: 'Procesamiento auxiliar', detail: 'Ejecuta lógica desacoplada del flujo principal.', kind: 'external' },
 
   vision: { label: 'Visión', desc: 'Análisis multimodal', detail: 'Procesa imágenes y contenido visual.', kind: 'external' },
-
-  t_mcp: { label: 'MCP Tools', desc: 'Herramientas dinámicas', detail: 'Activa capacidades externas por protocolo de herramientas.', kind: 'tool' },
-
-  mcp_srv: { label: 'MCP Servers', desc: 'Servidores de herramientas', detail: 'Proveen herramientas integradas al flujo.', kind: 'external' },
 
   t_reaction: { label: 'Reacciones', desc: 'Acción de canal', detail: 'Envía señales rápidas de interacción al canal.', kind: 'tool' },
 
@@ -2622,9 +2611,7 @@ const TOOL_NODE_MAP={
 
 };
 
-/* Tools that come from MCP (not in TOOL_NODE_MAP) route to t_mcp */
-
-function toolToNodeId(toolName){ return TOOL_NODE_MAP[toolName] || 't_mcp'; }
+function toolToNodeId(toolName){ return TOOL_NODE_MAP[toolName] || null; }
 
 
 
@@ -2650,15 +2637,11 @@ function buildDynamicFlows(stage, payload){
 
       const nodeId = toolToNodeId(name);
 
-      if(seen.has(nodeId)) return;
+      if(!nodeId || seen.has(nodeId)) return;
 
       seen.add(nodeId);
 
       flows.push(['conv', nodeId, '#34d399']);
-
-      // If MCP tool, also animate mcp_srv
-
-      if(nodeId === 't_mcp') flows.push(['t_mcp','mcp_srv','#60a5fa']);
 
       // If ejecutar_comando, also animate to whatsapp
 
@@ -4863,7 +4846,6 @@ function openM(idx){
 
         '<div class="dr"><span class="dk">Modelo</span><span class="dv">'+esc(it.model_used||'—')+'</span></div>'+
 
-        '<div class="dr"><span class="dk">MCP servers</span><span class="dv">'+((it.mcp_servers||[]).length?it.mcp_servers.map(u=>u.split('/').pop()).join(', '):'—')+'</span></div>'+
 
         '<div class="dr"><span class="dk">Memory session</span><span class="dv" style="font-size:9px">'+esc(it.memory_session_id||'—')+'</span></div>'+
 

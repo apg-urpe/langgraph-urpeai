@@ -40,7 +40,6 @@ from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
 from app.core.http_client import get_shared_http_client
 from app.db import queries as db
-from app.mcp_client.client import MCPClient, mcp_tools_to_langchain
 from app.schemas.chat import (
     AgentRunTrace,
     ChatRequest,
@@ -86,7 +85,6 @@ _llm_cache: dict[str, ChatOpenAI] = {}
 
 MAX_CONVERSATIONAL_LLM_ITERATIONS = 4
 AGENT_GRAPH_TIMEOUT_SECONDS = 90
-MCP_DISCOVERY_TIMEOUT_SECONDS = 15
 
 
 # ── LLM factory ───────────────────────────────────────────────────────────────
@@ -107,37 +105,6 @@ def _create_llm(model: str, max_tokens: int = 1024, temperature: float = 0.7) ->
         )
         logger.info("LLM creado: model=%s, max_tokens=%s", model, max_tokens)
     return _llm_cache[cache_key]
-
-
-# ── MCP tool loader ───────────────────────────────────────────────────────────
-
-async def _load_single_mcp(server_config: dict) -> list:
-    """Carga herramientas de un solo MCP server."""
-    try:
-        client = MCPClient(
-            server_url=server_config["url"],
-            server_name=server_config.get("name", ""),
-        )
-        tools = await asyncio.wait_for(
-            mcp_tools_to_langchain(client),
-            timeout=MCP_DISCOVERY_TIMEOUT_SECONDS,
-        )
-        logger.info("Cargadas %d herramientas desde MCP: %s", len(tools), server_config["url"])
-        return tools
-    except Exception as e:
-        logger.error("Error cargando herramientas MCP desde %s: %s", server_config["url"], e)
-        return []
-
-
-async def _load_mcp_tools(mcp_servers: list[dict]) -> list:
-    """Carga herramientas de todos los MCP servers EN PARALELO."""
-    if not mcp_servers:
-        return []
-    results = await asyncio.gather(*[_load_single_mcp(cfg) for cfg in mcp_servers])
-    all_tools: list = []
-    for tool_list in results:
-        all_tools.extend(tool_list)
-    return all_tools
 
 
 # ── Graph helpers ─────────────────────────────────────────────────────────────
@@ -163,7 +130,7 @@ def _tool_source(tool_obj) -> str:
     name = getattr(tool_obj, "name", "") or ""
     if name == SEND_REACTION_TOOL_NAME:
         return "kapso"
-    return "mcp"
+    return "native"
 
 
 def _tool_description(tool_obj) -> str | None:
@@ -501,27 +468,21 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
     t_mcp = time.perf_counter()
     tools: list = []
 
-    # 1. MCP tools — external, per-agent configuration
-    if request.mcp_servers:
-        mcp_configs = [{"url": s.url, "name": s.name} for s in request.mcp_servers]
-        tools.extend(await _load_mcp_tools(mcp_configs))
-        logger.info("Total herramientas MCP cargadas: %d", len(tools))
-
-    # 2. CRM tools — channel-agnostic, write to Supabase
+    # 1. CRM tools — channel-agnostic, write to Supabase
     if request.contacto_id:
         tools.append(_create_guardar_nota_tool(request.contacto_id))
         tools.append(_create_marcar_calificado_tool(request.contacto_id))
         if request.empresa_id:
             tools.append(_create_desactivar_contacto_spam_tool(request.contacto_id, request.empresa_id))
 
-    # 3. Scheduling tools — Nylas calendar operations
+    # 2. Scheduling tools — Nylas calendar operations
     if request.contacto_id and request.empresa_id:
         tools.append(_create_consultar_disponibilidad_tool(request.contacto_id, request.empresa_id))
         tools.append(_create_agendar_cita_tool(request.contacto_id, request.empresa_id))
         tools.append(_create_reagendar_cita_tool(request.contacto_id, request.empresa_id))
         tools.append(_create_cancelar_cita_tool(request.contacto_id))
 
-    # 4. Channel-specific tools (e.g. send_reaction + ejecutar_comando for WhatsApp)
+    # 3. Channel-specific tools (e.g. send_reaction + ejecutar_comando for WhatsApp)
     if request.contacto_id:
         channel_tools = channel.get_tools(ctx)
         tools.extend(channel_tools)
@@ -554,7 +515,7 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
             tool_lines.append(f"- **{name}**({params}): {desc}")
         tool_section = (
             "\n\n---\n\n"
-            "## 🔧 HERRAMIENTAS DISPONIBLES (MCP)\n"
+            "## 🔧 HERRAMIENTAS DISPONIBLES\n"
             "Tienes acceso a las siguientes herramientas. DEBES usarlas cuando la situación lo requiera. "
             "No describas la herramienta al usuario ni menciones que la vas a usar; simplemente ejecútala internamente.\n\n"
             + "\n".join(tool_lines)
@@ -620,7 +581,7 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
 
     if memory_session_id:
         await _persist_memory_turn(memory_session_id, request.message, response_text, conversation_id, model)
-    if not request.mcp_servers and not memory_session_id:
+    if not memory_session_id:
         response_cache.set(request.system_prompt, request.message, model, response_text)
 
     total_ms = (time.perf_counter() - t_start) * 1000

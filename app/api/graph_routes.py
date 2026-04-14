@@ -1,7 +1,6 @@
 """Dynamic graph schema endpoint — introspects agents, tools, and orchestration at runtime."""
 from __future__ import annotations
 
-import json
 import logging
 from typing import Optional
 
@@ -21,36 +20,6 @@ router = APIRouter(prefix="/api/v1/graph", tags=["graph"])
 
 
 # ---------------------------------------------------------------------------
-# Parse mcp_url into list of URLs (same logic as kapso_routes._build_mcp_servers)
-# ---------------------------------------------------------------------------
-
-def _parse_mcp_urls(raw) -> list[dict]:
-    """Parse mcp_url field into list of {url, name} dicts."""
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        value = raw.strip()
-        if not value:
-            return []
-        if value.startswith("["):
-            try:
-                parsed = json.loads(value)
-                results = []
-                for item in parsed:
-                    if isinstance(item, dict) and item.get("url"):
-                        results.append({"url": item["url"], "name": item.get("name", "")})
-                    elif isinstance(item, str) and item.strip():
-                        results.append({"url": item.strip(), "name": ""})
-                return results
-            except json.JSONDecodeError:
-                pass
-        if "," in value:
-            return [{"url": u.strip(), "name": ""} for u in value.split(",") if u.strip()]
-        return [{"url": value, "name": ""}]
-    return []
-
-
-# ---------------------------------------------------------------------------
 # Graph introspection helpers
 # ---------------------------------------------------------------------------
 
@@ -66,7 +35,6 @@ async def _build_graph_schema(empresa_id: int | None = None) -> dict:
 
     # ── Fetch live agent data from Supabase if possible ──
     agent_data: dict | None = None
-    mcp_urls: list[dict] = []
     llm_model = "grok-4.1-fast"
     manejo_herramientas = ""
 
@@ -78,7 +46,6 @@ async def _build_graph_schema(empresa_id: int | None = None) -> dict:
                 agent_data = await db.get_agente(agentes[0]["id"])
                 if agent_data:
                     llm_model = agent_data.get("llm") or "grok-4.1-fast"
-                    mcp_urls = _parse_mcp_urls(agent_data.get("mcp_url"))
                     manejo_herramientas = (agent_data.get("manejo_herramientas") or "").strip()
         except Exception as e:
             logger.warning("Could not fetch agent data for graph: %s", e)
@@ -95,17 +62,6 @@ async def _build_graph_schema(empresa_id: int | None = None) -> dict:
         "id": "openrouter", "label": "OpenRouter", "kind": "external",
         "desc": "OpenRouter LLM API",
         "detail": openrouter_detail,
-    })
-
-    # MCP Servers — show actual URLs if available
-    mcp_srv_detail = "Configurados por agente en BD\nDescubrimiento dinámico de herramientas\nConexión vía StreamableHTTPTransport"
-    if mcp_urls:
-        url_lines = "\n".join(f"· {m['url']}" for m in mcp_urls)
-        mcp_srv_detail = f"URLs activas:\n{url_lines}\n\nConexión vía StreamableHTTPTransport"
-    nodes.append({
-        "id": "mcp_srv", "label": "MCP Servers", "kind": "external",
-        "desc": "Servidores MCP externos",
-        "detail": mcp_srv_detail,
     })
 
     # ── Database ──
@@ -174,27 +130,6 @@ async def _build_graph_schema(empresa_id: int | None = None) -> dict:
         "detail": "Envía emoji de reacción al mensaje\nParámetro: emoji (❤️ 🙏 😂 🎉 👍 🔥)\nActiva en mensajes emotivos",
     })
     edges.append({"from": "conv", "to": "t_reaction", "label": ""})
-
-    # MCP Tools — with live instructions
-    mcp_detail = "Descubrimiento vía JSON-RPC\nProtocolo: initialize → tools/list → tools/call\nTimeout discovery: 15s\nCache por servidor"
-    if mcp_urls:
-        mcp_detail += f"\n\nServidores: {len(mcp_urls)}"
-        for m in mcp_urls:
-            name_part = f" ({m['name']})" if m.get("name") else ""
-            mcp_detail += f"\n· {m['url']}{name_part}"
-    if manejo_herramientas:
-        # Truncate to keep tooltip readable
-        instrucciones_preview = manejo_herramientas[:500]
-        if len(manejo_herramientas) > 500:
-            instrucciones_preview += "…"
-        mcp_detail += f"\n\n📋 Instrucciones:\n{instrucciones_preview}"
-    nodes.append({
-        "id": "t_mcp", "label": "MCP Tools", "kind": "tool",
-        "desc": "Herramientas MCP (dinámicas)",
-        "detail": mcp_detail,
-    })
-    edges.append({"from": "conv", "to": "t_mcp", "label": ""})
-    edges.append({"from": "t_mcp", "to": "mcp_srv", "label": "JSON-RPC"})
 
     # Built-in conversational tools: guardar_nota + marcar_prospecto_calificado
     nodes.append({

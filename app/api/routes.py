@@ -19,7 +19,6 @@ async def chat(request: ChatRequest):
     - system_prompt: Define el comportamiento del agente para la empresa
     - message: Mensaje del usuario
     - model: (opcional) Modelo LLM a usar via OpenRouter
-    - mcp_servers: (opcional) Lista de MCP servers para herramientas dinámicas
     - conversation_id: (opcional) ID para mantener contexto
     - max_tokens: (opcional) Máximo de tokens en respuesta. Menor = más rápido
     - temperature: (opcional) Temperatura del modelo (0-2)
@@ -43,7 +42,7 @@ async def chat(request: ChatRequest):
                     request.contacto_id, exc,
                 )
 
-        logger.info(f"Chat request - model: {request.model}, mcp_servers: {len(request.mcp_servers)}, max_tokens: {request.max_tokens}")
+        logger.info(f"Chat request - model: {request.model}, max_tokens: {request.max_tokens}")
         response = await run_agent(request)
         logger.info(f"Chat response - tools_used: {len(response.tools_used)}, total_ms: {response.timing.total_ms}")
         return response
