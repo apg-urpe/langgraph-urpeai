@@ -447,8 +447,8 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
         )
         return _make_fast_path_response(fast_path, conversation_id, model, memory_session_id, t_start, request)
 
-    # ── Cache check (only when there are no MCP tools and no memory session) ──
-    if not request.mcp_servers and not memory_session_id:
+    # ── Cache check (only when there is no memory session) ──
+    if not memory_session_id:
         cached = response_cache.get(request.system_prompt, request.message, model)
         if cached is not None:
             total_ms = (time.perf_counter() - t_start) * 1000
