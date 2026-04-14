@@ -579,8 +579,11 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    asesor_fijo = await get_asesor_fijo_de_contacto(req.contacto_id)
-    cita_info = await get_cita_contacto(req.contacto_id)
+    # Paralelizar queries iniciales de DB
+    asesor_fijo, cita_info = await asyncio.gather(
+        get_asesor_fijo_de_contacto(req.contacto_id),
+        get_cita_contacto(req.contacto_id),
+    )
 
     if asesor_fijo:
         asesores = [asesor_fijo]
@@ -610,8 +613,14 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         if not asesor_grant_habilitado(asesor):
             return {"asesor": asesor, "freeBusy": None, "ok": False}
         try:
-            data = await nylas.get_free_busy(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix)
+            data = await asyncio.wait_for(
+                nylas.get_free_busy(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix),
+                timeout=10.0,
+            )
             return {"asesor": asesor, "freeBusy": data, "ok": True}
+        except asyncio.TimeoutError:
+            logger.warning("Timeout free/busy asesor %s (>10s)", asesor["id"])
+            return {"asesor": asesor, "freeBusy": None, "ok": False}
         except Exception as e:
             if should_disable_nylas_grant(e):
                 disable_nylas_grant(asesor, e)

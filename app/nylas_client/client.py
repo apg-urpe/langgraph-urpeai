@@ -14,7 +14,7 @@ _client: "NylasClient | None" = None
 _client2: "NylasClient | None" = None
 
 _RETRY_ATTEMPTS = 2
-_RETRY_DELAY_S = 1.0
+_RETRY_DELAY_S = 0.3
 
 
 class NylasClient:
@@ -29,7 +29,7 @@ class NylasClient:
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },
-            timeout=30,
+            timeout=httpx.Timeout(connect=5.0, read=12.0, write=5.0, pool=5.0),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
         )
         logger.info("NylasClient inicializado (%s)", self.api_url)
