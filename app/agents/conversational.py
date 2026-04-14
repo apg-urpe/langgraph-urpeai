@@ -54,6 +54,12 @@ from app.tools.crm import (
     _create_guardar_nota_tool,
     _create_marcar_calificado_tool,
 )
+from app.tools.scheduling import (
+    _create_agendar_cita_tool,
+    _create_cancelar_cita_tool,
+    _create_consultar_disponibilidad_tool,
+    _create_reagendar_cita_tool,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -508,7 +514,14 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
         if request.empresa_id:
             tools.append(_create_desactivar_contacto_spam_tool(request.contacto_id, request.empresa_id))
 
-    # 3. Channel-specific tools (e.g. send_reaction + ejecutar_comando for WhatsApp)
+    # 3. Scheduling tools — Nylas calendar operations
+    if request.contacto_id and request.empresa_id:
+        tools.append(_create_consultar_disponibilidad_tool(request.contacto_id, request.empresa_id))
+        tools.append(_create_agendar_cita_tool(request.contacto_id, request.empresa_id))
+        tools.append(_create_reagendar_cita_tool(request.contacto_id, request.empresa_id))
+        tools.append(_create_cancelar_cita_tool(request.contacto_id))
+
+    # 4. Channel-specific tools (e.g. send_reaction + ejecutar_comando for WhatsApp)
     if request.contacto_id:
         channel_tools = channel.get_tools(ctx)
         tools.extend(channel_tools)

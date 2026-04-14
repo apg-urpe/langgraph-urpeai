@@ -1,0 +1,268 @@
+"""LangGraph tools de agendamiento — wrappers sobre app.services.scheduling.
+
+Expone 4 herramientas al agente conversacional:
+  - consultar_disponibilidad
+  - agendar_cita
+  - reagendar_cita
+  - cancelar_cita
+"""
+
+import logging
+
+from langchain_core.tools import tool
+
+from app.schemas.scheduling import (
+    CrearEventoRequest,
+    DisponibilidadRequest,
+    EliminarEventoRequest,
+    ReagendarEventoRequest,
+)
+from app.services.scheduling import (
+    crear_evento_core,
+    disponibilidad_agenda_core,
+    eliminar_evento_core,
+    reagendar_evento_core,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ════════════════════════════════════════════════════════════
+# Tool 1: Consultar disponibilidad
+# ════════════════════════════════════════════════════════════
+
+
+def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
+
+    @tool
+    async def consultar_disponibilidad(time_zone: str = "America/Bogota") -> str:
+        """📅 Consultar disponibilidad de agenda — Muestra los horarios disponibles para agendar una cita en los próximos 7 días.
+
+        CUÁNDO USARLA:
+        - El contacto pregunta por horarios disponibles
+        - Antes de agendar una cita, para ofrecer opciones
+        - Cuando quiere saber si hay disponibilidad en una fecha
+
+        Args:
+            time_zone: Zona horaria del contacto (default: America/Bogota). Ejemplos: America/Mexico_City, America/Argentina/Buenos_Aires
+        """
+        try:
+            req = DisponibilidadRequest(
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                time_zone_contacto=time_zone,
+            )
+            resp = await disponibilidad_agenda_core(req)
+
+            if resp.error:
+                return f"Error al consultar disponibilidad: {resp.error}"
+
+            lines = []
+
+            if resp.cita_actual and resp.cita_actual.get("tiene_cita"):
+                cita = resp.cita_actual
+                lines.append(f"CITA EXISTENTE: {cita.get('texto', '')}")
+                lines.append(f"  Estado: {cita.get('estado', '')}")
+                if cita.get("fecha"):
+                    lines.append(f"  Fecha: {cita['fecha']}")
+                if cita.get("link"):
+                    lines.append(f"  Link: {cita['link']}")
+                lines.append("")
+
+            if resp.asesor_fijo:
+                af = resp.asesor_fijo
+                nombre = af.get("nombre", "") if isinstance(af, dict) else getattr(af, "nombre", "")
+                if nombre:
+                    lines.append(f"Asesor asignado: {nombre}")
+                    lines.append("")
+
+            if not resp.hay_disponibilidad:
+                lines.append("No hay disponibilidad en los próximos 7 días.")
+                return "\n".join(lines)
+
+            lines.append(f"DISPONIBILIDAD (próximos 7 días, zona {resp.time_zone}):")
+
+            for dia in resp.disponibilidad:
+                dia_d = dia if isinstance(dia, dict) else dia.model_dump()
+                lines.append(f"\n{dia_d['fechaTexto'].upper()} ({dia_d['fecha']}):")
+                por_periodo = dia_d.get("porPeriodo", {})
+                for periodo, slots in por_periodo.items():
+                    horas = ", ".join(
+                        (s.get("hora") if isinstance(s, dict) else s.hora)
+                        for s in slots
+                    )
+                    lines.append(f"  {periodo}: {horas}")
+
+            return "\n".join(lines)
+        except Exception as exc:
+            logger.error("consultar_disponibilidad tool error: %s", exc, exc_info=True)
+            return f"Error al consultar disponibilidad: {exc}"
+
+    return consultar_disponibilidad
+
+
+# ════════════════════════════════════════════════════════════
+# Tool 2: Agendar cita
+# ════════════════════════════════════════════════════════════
+
+
+def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
+
+    @tool
+    async def agendar_cita(
+        start: str,
+        email_contacto: str,
+        titulo: str,
+        modalidad: str = "Virtual",
+        descripcion: str = "",
+    ) -> str:
+        """📅 Agendar cita — Crea una cita con un asesor disponible en el horario indicado.
+
+        CUÁNDO USARLA:
+        - El contacto confirma que quiere agendar en un horario específico
+        - Ya se consultó disponibilidad y el contacto eligió un horario
+
+        IMPORTANTE: Primero usa consultar_disponibilidad para verificar horarios libres.
+
+        Args:
+            start: Fecha y hora en formato ISO (ej: 2026-04-15T14:00:00)
+            email_contacto: Email del contacto para la invitación al calendario
+            titulo: Título del evento (ej: "Consulta | Juan Pérez")
+            modalidad: "Virtual" (genera link de Google Meet) o "Presencial"
+            descripcion: Descripción opcional del evento
+        """
+        try:
+            req = CrearEventoRequest(
+                start=start,
+                attendeeEmail=email_contacto,
+                summary=titulo,
+                description=descripcion or None,
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                Virtual_presencial=modalidad,
+            )
+            resp = await crear_evento_core(req)
+
+            if resp.error:
+                return f"Error al agendar cita: {resp.error}"
+
+            msg = (
+                f"Cita agendada exitosamente.\n"
+                f"  Asesor: {resp.asesor}\n"
+                f"  Fecha/hora: {resp.inicio}\n"
+                f"  Duración: {resp.duracion_minutos} minutos\n"
+                f"  Modalidad: {resp.modalidad}\n"
+                f"  Event ID: {resp.event_id}"
+            )
+            if resp.meet_link:
+                msg += f"\n  Link de reunión: {resp.meet_link}"
+            return msg
+        except Exception as exc:
+            logger.error("agendar_cita tool error: %s", exc, exc_info=True)
+            return f"Error al agendar cita: {exc}"
+
+    return agendar_cita
+
+
+# ════════════════════════════════════════════════════════════
+# Tool 3: Reagendar cita
+# ════════════════════════════════════════════════════════════
+
+
+def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
+
+    @tool
+    async def reagendar_cita(
+        event_id: str,
+        nuevo_inicio: str,
+        duracion_minutos: int = 0,
+        modalidad: str = "Virtual",
+    ) -> str:
+        """📅 Reagendar cita — Cambia la fecha/hora de una cita existente.
+
+        CUÁNDO USARLA:
+        - El contacto quiere cambiar la fecha u hora de su cita
+        - Se necesita mover la cita a otro horario
+
+        El sistema selecciona automáticamente al mejor asesor disponible.
+        Si el asesor original no está disponible, asigna uno nuevo.
+
+        Args:
+            event_id: ID del evento a reagendar (obtenido de consultar_disponibilidad o agendar_cita)
+            nuevo_inicio: Nueva fecha/hora en formato ISO (ej: 2026-04-16T10:00:00)
+            duracion_minutos: Duración en minutos (0 = mantener duración original)
+            modalidad: "Virtual" o "Presencial"
+        """
+        try:
+            req = ReagendarEventoRequest(
+                event_id=event_id,
+                start=nuevo_inicio,
+                contacto_id=contacto_id,
+                empresa_id=empresa_id,
+                Virtual_presencial=modalidad,
+                Duracion_minutos=duracion_minutos if duracion_minutos > 0 else None,
+            )
+            resp = await reagendar_evento_core(req)
+
+            if resp.error:
+                return f"Error al reagendar: {resp.error}"
+
+            msg = (
+                f"Cita reagendada exitosamente.\n"
+                f"  Asesor: {resp.asesor}\n"
+                f"  Nuevo horario: {resp.nuevo_inicio}\n"
+                f"  Duración: {resp.duracion_minutos} minutos\n"
+                f"  Modalidad: {resp.modalidad}\n"
+                f"  Event ID: {resp.event_id}"
+            )
+            if resp.cambio_asesor:
+                msg += f"\n  NOTA: El asesor cambió de {resp.asesor_anterior} a {resp.asesor}"
+            if resp.meet_link:
+                msg += f"\n  Link de reunión: {resp.meet_link}"
+            return msg
+        except Exception as exc:
+            logger.error("reagendar_cita tool error: %s", exc, exc_info=True)
+            return f"Error al reagendar cita: {exc}"
+
+    return reagendar_cita
+
+
+# ════════════════════════════════════════════════════════════
+# Tool 4: Cancelar cita
+# ════════════════════════════════════════════════════════════
+
+
+def _create_cancelar_cita_tool(contacto_id: int):
+
+    @tool
+    async def cancelar_cita(event_id: str) -> str:
+        """🗑️ Cancelar cita — Elimina una cita del calendario y la marca como cancelada.
+
+        CUÁNDO USARLA:
+        - El contacto quiere cancelar su cita
+        - Se necesita eliminar una cita existente
+
+        Args:
+            event_id: ID del evento a cancelar (obtenido de consultar_disponibilidad o agendar_cita)
+        """
+        try:
+            req = EliminarEventoRequest(
+                event_id=event_id,
+                contacto_id=contacto_id,
+            )
+            resp = await eliminar_evento_core(req)
+
+            if resp.error:
+                return f"Error al cancelar cita: {resp.error}"
+
+            return (
+                f"Cita cancelada exitosamente.\n"
+                f"  Asesor: {resp.asesor}\n"
+                f"  Event ID: {resp.event_id}\n"
+                f"  {resp.mensaje}"
+            )
+        except Exception as exc:
+            logger.error("cancelar_cita tool error: %s", exc, exc_info=True)
+            return f"Error al cancelar cita: {exc}"
+
+    return cancelar_cita

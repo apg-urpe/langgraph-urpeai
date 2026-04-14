@@ -11,11 +11,11 @@ import pytest
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from app.api.scheduling_routes import (
-    _calcular_slots,
-    _parse_iso_to_unix,
-    _periodo_dia,
-    _rangos_solapan,
+from app.services.scheduling import (
+    calcular_slots as _calcular_slots,
+    parse_iso_to_unix as _parse_iso_to_unix,
+    periodo_dia as _periodo_dia,
+    rangos_solapan as _rangos_solapan,
 )
 
 

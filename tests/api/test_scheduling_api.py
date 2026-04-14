@@ -85,8 +85,8 @@ def _mock_db_crash():
 class TestDisponibilidadEndpoint:
     def test_sin_asesores_retorna_error_de_negocio(self):
         """Sin asesores configurados → respuesta válida con hay_disponibilidad=False."""
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
-             patch("app.api.scheduling_routes.get_nylas", new_callable=AsyncMock):
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
+             patch("app.services.scheduling.get_nylas", new_callable=AsyncMock):
             mock_db.return_value = _mock_db_empty()
             resp = client.post("/api/v1/scheduling/disponibilidad", json=DISPONIBILIDAD_PAYLOAD)
 
@@ -97,7 +97,7 @@ class TestDisponibilidadEndpoint:
 
     def test_error_db_retorna_campo_error_y_notifica_webhook(self):
         """Cuando Supabase falla inesperadamente → error en respuesta + webhook llamado."""
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             mock_db.return_value = _mock_db_crash()
             resp = client.post("/api/v1/scheduling/disponibilidad", json=DISPONIBILIDAD_PAYLOAD)
@@ -126,8 +126,8 @@ class TestDisponibilidadEndpoint:
 class TestCrearEventoEndpoint:
     def test_sin_asesores_retorna_error_de_negocio(self):
         """Sin asesores disponibles → respuesta con error, sin webhook."""
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
-             patch("app.api.scheduling_routes.get_nylas", new_callable=AsyncMock), \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
+             patch("app.services.scheduling.get_nylas", new_callable=AsyncMock), \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             mock_db.return_value = _mock_db_empty()
             resp = client.post("/api/v1/scheduling/crear-evento", json=CREAR_EVENTO_PAYLOAD)
@@ -141,7 +141,7 @@ class TestCrearEventoEndpoint:
 
     def test_error_inesperado_retorna_campo_error_y_notifica_webhook(self):
         """Excepción no prevista → campo error en respuesta + webhook llamado."""
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             mock_db.return_value = _mock_db_crash()
             resp = client.post("/api/v1/scheduling/crear-evento", json=CREAR_EVENTO_PAYLOAD)
@@ -165,8 +165,8 @@ class TestCrearEventoEndpoint:
 class TestReagendarEventoEndpoint:
     def test_event_id_no_encontrado_retorna_error_de_negocio(self):
         """Cita no existe en BD → error de negocio sin webhook."""
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
-             patch("app.api.scheduling_routes.get_nylas", new_callable=AsyncMock), \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
+             patch("app.services.scheduling.get_nylas", new_callable=AsyncMock), \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             db = AsyncMock()
             db.query = AsyncMock(return_value=None)  # cita no encontrada
@@ -179,7 +179,7 @@ class TestReagendarEventoEndpoint:
         mock_wh.assert_not_called()
 
     def test_error_inesperado_notifica_webhook(self):
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             mock_db.return_value = _mock_db_crash()
             resp = client.post("/api/v1/scheduling/reagendar-evento", json=REAGENDAR_PAYLOAD)
@@ -196,8 +196,8 @@ class TestReagendarEventoEndpoint:
 
 class TestEliminarEventoEndpoint:
     def test_event_id_no_encontrado_retorna_error_de_negocio(self):
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
-             patch("app.api.scheduling_routes.get_nylas", new_callable=AsyncMock), \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
+             patch("app.services.scheduling.get_nylas", new_callable=AsyncMock), \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             db = AsyncMock()
             db.query = AsyncMock(return_value=None)
@@ -210,7 +210,7 @@ class TestEliminarEventoEndpoint:
         mock_wh.assert_not_called()
 
     def test_error_inesperado_notifica_webhook(self):
-        with patch("app.api.scheduling_routes.get_supabase", new_callable=AsyncMock) as mock_db, \
+        with patch("app.services.scheduling.get_supabase", new_callable=AsyncMock) as mock_db, \
              patch("app.api.scheduling_routes.send_error_to_webhook", new_callable=AsyncMock) as mock_wh:
             mock_db.return_value = _mock_db_crash()
             resp = client.post("/api/v1/scheduling/eliminar-evento", json=ELIMINAR_PAYLOAD)
