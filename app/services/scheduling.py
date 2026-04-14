@@ -243,13 +243,34 @@ def hora_dentro_de_horarios_normales(dt_utc: datetime, disponibilidad: dict | No
     return False
 
 
-def parse_iso_to_unix(iso_str: str) -> tuple[int, datetime]:
+def parse_iso_to_unix(iso_str: str, tz_name: str | None = None) -> tuple[int, datetime]:
+    """Parsea un ISO datetime a (unix_timestamp, datetime).
+
+    Si el string no incluye información de zona horaria, se usa tz_name
+    (zona del contacto). Si tz_name tampoco está disponible, se asume UTC.
+    """
     parts = iso_str.split("T")
     y, m, d = map(int, parts[0].split("-"))
     time_parts = (parts[1] if len(parts) > 1 else "00:00:00").split(":")
     h = int(time_parts[0]) if len(time_parts) > 0 else 0
     mi = int(time_parts[1]) if len(time_parts) > 1 else 0
     s = int(float(time_parts[2])) if len(time_parts) > 2 else 0
+
+    # Intentar parsear timezone embebida en el string (ej: +05:00 o Z)
+    try:
+        dt_parsed = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        if dt_parsed.tzinfo is not None:
+            return int(dt_parsed.timestamp()), dt_parsed
+    except Exception:
+        pass
+
+    # Sin timezone en el string — usar zona del contacto, no UTC
+    if tz_name:
+        try:
+            dt = datetime(y, m, d, h, mi, s, tzinfo=ZoneInfo(tz_name))
+            return int(dt.timestamp()), dt
+        except Exception:
+            pass
 
     dt = datetime(y, m, d, h, mi, s, tzinfo=timezone.utc)
     return int(dt.timestamp()), dt
@@ -514,10 +535,9 @@ async def seleccionar_mejor_asesor(
 ) -> dict[str, Any] | None:
     nylas = await get_nylas()
 
-    dt = datetime.fromisoformat(fecha_hora_iso.replace("Z", "+00:00")) if "T" in fecha_hora_iso else datetime.fromisoformat(fecha_hora_iso)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    start_unix = int(dt.timestamp())
+    # Parsear usando la zona del contacto cuando el ISO no incluye tz explícita
+    _start_unix, dt = parse_iso_to_unix(fecha_hora_iso, tz_name)
+    start_unix = _start_unix
 
     if contacto_id:
         asesor_fijo = await get_asesor_fijo_de_contacto(contacto_id)
@@ -767,7 +787,7 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
         return CrearEventoResponse(error=nylas_grant_disabled_message())
     calendar_id = asesor["email"]
 
-    start_unix, fecha_inicio = parse_iso_to_unix(req.start)
+    start_unix, fecha_inicio = parse_iso_to_unix(req.start, tz_name)
     duracion_min = asesor.get("duracion_cita_minutos") or 30
     end_unix = start_unix + (duracion_min * 60)
 
@@ -887,7 +907,7 @@ async def reagendar_evento_core(req: ReagendarEventoRequest) -> ReagendarEventoR
         return ReagendarEventoResponse(error=nylas_grant_disabled_message())
     cambio_asesor = not seleccion.get("es_asesor_fijo") and (asesor_actual is None or asesor_actual["id"] != asesor_nuevo["id"])
 
-    start_unix, fecha_inicio = parse_iso_to_unix(req.start)
+    start_unix, fecha_inicio = parse_iso_to_unix(req.start, tz_name)
     duracion_min = req.Duracion_minutos or asesor_nuevo.get("duracion_cita_minutos") or 30
     end_unix = start_unix + (duracion_min * 60)
 
