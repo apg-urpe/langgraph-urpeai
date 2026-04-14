@@ -11,6 +11,7 @@ import logging
 
 from langchain_core.tools import tool
 
+from app.db import queries as db
 from app.schemas.scheduling import (
     CrearEventoRequest,
     DisponibilidadRequest,
@@ -26,6 +27,31 @@ from app.services.scheduling import (
 
 logger = logging.getLogger(__name__)
 
+# Valores que indican timezone no configurado
+_TIMEZONE_NO_DEFINIDO = {"por definir", "", "none", "null"}
+
+
+async def _get_timezone_contacto(contacto_id: int) -> str | None:
+    """Retorna el timezone del contacto, o None si no está definido."""
+    try:
+        contacto = await db.get_contacto(contacto_id)
+        if not contacto:
+            return None
+        tz = (contacto.get("timezone") or "").strip()
+        if tz.lower() in _TIMEZONE_NO_DEFINIDO:
+            return None
+        return tz
+    except Exception as exc:
+        logger.warning("No se pudo obtener timezone del contacto %s: %s", contacto_id, exc)
+        return None
+
+
+_MSG_SIN_TIMEZONE = (
+    "ACCIÓN REQUERIDA — El contacto no tiene zona horaria configurada. "
+    "Debes preguntarle en qué ciudad o país se encuentra ANTES de continuar con el agendamiento. "
+    "Ejemplo: '¿En qué ciudad o país estás ubicado/a?'"
+)
+
 
 # ════════════════════════════════════════════════════════════
 # Tool 1: Consultar disponibilidad
@@ -35,7 +61,7 @@ logger = logging.getLogger(__name__)
 def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
 
     @tool
-    async def consultar_disponibilidad(time_zone: str = "America/Bogota") -> str:
+    async def consultar_disponibilidad(time_zone: str = "") -> str:
         """📅 Consultar disponibilidad de agenda — Muestra los horarios disponibles para agendar una cita en los próximos 7 días.
 
         CUÁNDO USARLA:
@@ -44,13 +70,20 @@ def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
         - Cuando quiere saber si hay disponibilidad en una fecha
 
         Args:
-            time_zone: Zona horaria del contacto (default: America/Bogota). Ejemplos: America/Mexico_City, America/Argentina/Buenos_Aires
+            time_zone: Zona horaria del contacto (ej: America/Bogota, America/New_York). Dejar vacío para usar la zona del perfil.
         """
         try:
+            # Verificar timezone — si no está definido, pedir al agente que lo pregunte
+            tz = time_zone.strip() if time_zone else ""
+            if not tz:
+                tz = await _get_timezone_contacto(contacto_id) or ""
+            if not tz or tz.lower() in _TIMEZONE_NO_DEFINIDO:
+                return _MSG_SIN_TIMEZONE
+
             req = DisponibilidadRequest(
                 contacto_id=contacto_id,
                 empresa_id=empresa_id,
-                time_zone_contacto=time_zone,
+                time_zone_contacto=tz,
             )
             resp = await disponibilidad_agenda_core(req)
 
@@ -132,6 +165,11 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
             descripcion: Descripción opcional del evento
         """
         try:
+            # Verificar timezone antes de agendar
+            tz = await _get_timezone_contacto(contacto_id)
+            if not tz:
+                return _MSG_SIN_TIMEZONE
+
             req = CrearEventoRequest(
                 start=start,
                 attendeeEmail=email_contacto,
@@ -194,6 +232,11 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
             modalidad: "Virtual" o "Presencial"
         """
         try:
+            # Verificar timezone antes de reagendar
+            tz = await _get_timezone_contacto(contacto_id)
+            if not tz:
+                return _MSG_SIN_TIMEZONE
+
             req = ReagendarEventoRequest(
                 event_id=event_id,
                 start=nuevo_inicio,
