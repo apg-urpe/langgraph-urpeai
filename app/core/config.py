@@ -19,8 +19,10 @@ class Settings(BaseSettings):
     KAPSO_BRIDGE_PORT: int | None = None
     KAPSO_BASE_URL: str | None = None
     KAPSO_BRIDGE_URL: str | None = None
-    # phone_number_id desconocido → usar este número de fallback para testeo
-    KAPSO_FALLBACK_PHONE_NUMBER: str | None = None
+    # Fallback de testeo: si llega EXACTAMENTE este phone_number_id desconocido,
+    # procesarlo como si fuera KAPSO_FALLBACK_PHONE_NUMBER (número ya registrado en wp_numeros)
+    KAPSO_FALLBACK_PHONE_NUMBER_ID: str | None = None   # el que NO está en wp_numeros
+    KAPSO_FALLBACK_PHONE_NUMBER: str | None = None      # el que SÍ está en wp_numeros
     INTERNAL_AGENT_API_URL: str | None = None
     PYTHON_SERVICE_HOST: str | None = None
     # Nylas API

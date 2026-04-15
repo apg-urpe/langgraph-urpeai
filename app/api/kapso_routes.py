@@ -1267,17 +1267,18 @@ async def kapso_inbound(
             numero = await db.get_numero_por_id_kapso(request.phone_number_id)
             resolved_via = "id_kapso" if numero else None
 
-        # 3. Si no se encontró → intentar fallback de testeo antes de tirar 404
+        # 3. Si no se encontró → intentar fallback de testeo SOLO para el phone_number_id configurado
         if not numero:
+            fallback_id = settings.KAPSO_FALLBACK_PHONE_NUMBER_ID
             fallback_tel = settings.KAPSO_FALLBACK_PHONE_NUMBER
-            if fallback_tel:
+            if fallback_id and fallback_tel and request.phone_number_id == fallback_id:
                 numero = await db.get_numero_por_telefono(fallback_tel)
                 if not numero:
                     numero = await db.get_numero_por_id_kapso(fallback_tel)
                 if numero:
                     resolved_via = "fallback"
                     logger.warning(
-                        "Kapso inbound: phone_number_id=%s no encontrado — usando fallback %s (id numero=%s)",
+                        "Kapso inbound: phone_number_id=%s → fallback a %s (id numero=%s)",
                         request.phone_number_id, fallback_tel, numero.get("id"),
                     )
                     add_kapso_debug_event(
