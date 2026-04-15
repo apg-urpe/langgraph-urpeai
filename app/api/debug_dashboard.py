@@ -894,27 +894,36 @@ async def debug_agentes(
                     canales_map.setdefault(aid, []).append(canal)
 
         # ── Conversaciones por agente y canal ────────────────────────────
-        # Filtramos por los IDs de agentes conocidos para acotar el dataset
-        # sin depender del limit global de toda la tabla.
-        conv_raw: dict[str, str] = {}
+        # Supabase tiene max-rows=1000 a nivel PostgREST que ignora ?limit=N.
+        # Paginamos con offset hasta agotar todos los registros.
+        _PAGE = 1000
+        conv_base: dict[str, str] = {}
         if empresa_id:
-            conv_raw["empresa_id"] = f"eq.{empresa_id}"
+            conv_base["empresa_id"] = f"eq.{empresa_id}"
         if agent_ids:
-            conv_raw["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
-        convs = await db.query(
-            "wp_conversaciones",
-            select="agente_id,canal",
-            raw_filters=conv_raw if conv_raw else None,
-            limit=200000,
-        ) or []
+            conv_base["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
 
         conv_map: dict[int, dict[str, int]] = {}
-        for conv in convs:
-            aid = conv.get("agente_id")
-            canal = (conv.get("canal") or "desconocido").strip()
-            if aid and aid in agent_ids:
-                conv_map.setdefault(aid, {})
-                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
+        offset = 0
+        while True:
+            page_raw = {**conv_base, "offset": str(offset)}
+            page: list[dict] = await db.query(
+                "wp_conversaciones",
+                select="agente_id,canal",
+                raw_filters=page_raw,
+                limit=_PAGE,
+            ) or []
+            for conv in page:
+                aid = conv.get("agente_id")
+                canal = (conv.get("canal") or "desconocido").strip()
+                if aid and aid in agent_ids:
+                    conv_map.setdefault(aid, {})
+                    conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
+            if len(page) < _PAGE:
+                break  # última página
+            offset += _PAGE
+            if offset >= 500_000:  # tope de seguridad
+                break
 
         # ── Agrupar agentes por empresa ───────────────────────────────────
         def _build_agent(agent: dict) -> dict:
