@@ -6203,6 +6203,11 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .filter-input,.filter-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none;min-width:0;width:100%}
 .filter-input::placeholder{color:var(--text-muted)}
 .filter-input:focus,.filter-select:focus{border-color:rgba(56,189,248,.5)}
+.filter-wrap{position:relative;display:flex;align-items:center;min-width:0}
+.filter-wrap .filter-input{padding-right:30px;width:100%}
+.filter-excl-btn{position:absolute;right:8px;background:none;border:none;color:var(--text-muted);font-size:13px;font-weight:700;cursor:pointer;padding:2px 0;line-height:1;transition:color .15s;-webkit-tap-highlight-color:transparent;user-select:none}
+.filter-excl-btn.active{color:var(--red)}
+.filter-wrap.exclude .filter-input{border-color:rgba(248,113,113,.45)}
 /* Stats bar */
 .statsbar{position:fixed;top:183px;left:0;right:0;background:rgba(8,12,30,.7);border-bottom:1px solid var(--border);padding:8px 16px;z-index:98;display:flex;gap:16px;overflow-x:auto;scrollbar-width:none}
 .statsbar::-webkit-scrollbar{display:none}
@@ -6284,7 +6289,10 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   </div>
 </div>
 <div class="filterbar">
-  <input class="filter-input" id="fContacto" placeholder="contacto_id..." oninput="scheduleFilter()"/>
+  <div class="filter-wrap" id="fContactoWrap">
+    <input class="filter-input" id="fContacto" placeholder="contacto_id..." oninput="scheduleFilter()"/>
+    <button class="filter-excl-btn" id="fContactoMode" onclick="toggleExcludeContacto()" title="Cambiar modo: incluir / excluir">＝</button>
+  </div>
   <input class="filter-input" id="fEmpresa" placeholder="empresa_id..." oninput="scheduleFilter()"/>
   <select class="filter-select" id="fCanal" onchange="loadData(true)">
     <option value="">Todos los canales</option>
@@ -6342,8 +6350,19 @@ function canalBadge(c){return '<span class="badge badge-canal">'+(c||'?')+'</spa
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
 let _rawInteractions=[];
+let _excludeContacto=false;
 let _filterTimer=null;
-function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>loadData(true),600);}
+function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>applyClientFilters(),600);}
+
+function toggleExcludeContacto(){
+  _excludeContacto=!_excludeContacto;
+  const btn=document.getElementById('fContactoMode');
+  const wrap=document.getElementById('fContactoWrap');
+  btn.textContent=_excludeContacto?'≠':'＝';
+  btn.classList.toggle('active',_excludeContacto);
+  wrap.classList.toggle('exclude',_excludeContacto);
+  applyClientFilters();
+}
 
 function _countTools(x){
   let n=0;
@@ -6362,7 +6381,10 @@ function applyClientFilters(){
   if(status) items=items.filter(x=>x.status===status);
   if(tools==='any') items=items.filter(x=>_countTools(x)>0);
   if(tools==='none') items=items.filter(x=>_countTools(x)===0);
-  if(contacto) items=items.filter(x=>String(x.contacto_id??'')===contacto);
+  if(contacto){
+    if(_excludeContacto) items=items.filter(x=>String(x.contacto_id??'')!==contacto);
+    else items=items.filter(x=>String(x.contacto_id??'')===contacto);
+  }
   if(empresa) items=items.filter(x=>String(x.empresa_id??'')===empresa);
   renderList(items);
 }
