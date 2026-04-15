@@ -673,6 +673,9 @@ async def debug_interactions(
                 "total_ms": payload.get("total_ms") or _timing.get("total_ms"),
                 "llm_ms": _timing.get("llm_ms"),
                 "tool_ms": _timing.get("tool_execution_ms"),
+                "bubbles_sent": payload.get("bubbles_sent"),
+                "send_ok": payload.get("ghl_send_ok") if payload.get("ghl_send_ok") is not None else payload.get("send_ok"),
+                "send_error": payload.get("ghl_send_error") or payload.get("send_error"),
             })
         elif stage == "run_funnel_done":
             stage_detail.update({

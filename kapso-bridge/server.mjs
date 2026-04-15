@@ -6570,11 +6570,18 @@ function stageItemHtml(s){
   // run_agent_done
   else if(s.stage==='run_agent_done'){
     if(s.reply)body+=\`<div class="tl-reply">\${esc(s.reply)}</div>\`;
+    else body+=\`<div class="tl-err" style="color:var(--orange)">⚠ Sin texto de respuesta — el agente ejecutó tools pero no generó reply</div>\`;
+    const sendStatus=s.send_ok===true?'<span class="tl-v" style="color:var(--green)">✓ Enviado</span>'
+      :s.send_ok===false?'<span class="tl-v" style="color:var(--red)">✗ No enviado</span>'
+      :s.send_error?'<span class="tl-v" style="color:var(--red)">✗ '+esc(s.send_error)+'</span>'
+      :'';
     body+=\`<div class="tl-kv" style="margin-top:6px">
       \${s.reply_type&&s.reply_type!=='text'?'<span class="tl-k">Tipo</span><span class="tl-v">'+esc(s.reply_type)+'</span>':''}
       \${s.total_ms?'<span class="tl-k">Total</span><span class="tl-v">'+s.total_ms+'ms</span>':''}
       \${s.llm_ms?'<span class="tl-k">LLM</span><span class="tl-v">'+s.llm_ms+'ms</span>':''}
       \${s.tool_ms?'<span class="tl-k">Tools</span><span class="tl-v">'+s.tool_ms+'ms</span>':''}
+      \${s.bubbles_sent!=null?'<span class="tl-k">Burbujas</span><span class="tl-v">'+s.bubbles_sent+'</span>':''}
+      \${sendStatus?'<span class="tl-k">Envío</span>'+sendStatus:''}
     </div>\`;
     if(s.tools_used&&s.tools_used.length){
       const chips=s.tools_used.map(t=>{
