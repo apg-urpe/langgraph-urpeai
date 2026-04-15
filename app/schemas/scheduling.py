@@ -89,8 +89,9 @@ class DisponibilidadResponse(BaseModel):
     total_asesores: int
     asesores_consultados: int
     tiempo_consulta_ms: int
-    disponibilidad: list[DisponibilidadDia]
+    disponibilidad: list[DisponibilidadDia] = []
     hay_disponibilidad: bool
+    calendario_texto: Optional[str] = None
     error: Optional[str] = None
 
 

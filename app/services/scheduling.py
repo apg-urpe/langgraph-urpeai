@@ -296,7 +296,7 @@ async def get_asesores_by_empresa(empresa_id: int) -> list[dict[str, Any]]:
     db = await get_supabase()
     asesores = await db.query(
         "wp_team_humano",
-        select="id,nombre,apellido,email,grant_id,timezone,duracion_cita_minutos,disponibilidad",
+        select="id,nombre,apellido,email,grant_id,timezone,duracion_cita_minutos",
         filters={"empresa_id": empresa_id, "is_active": True, "acepta_citas": True},
     )
     if not asesores or not isinstance(asesores, list):
@@ -308,7 +308,7 @@ async def get_asesor_by_id(asesor_id: int) -> dict[str, Any] | None:
     db = await get_supabase()
     return await db.query(
         "wp_team_humano",
-        select="id,nombre,apellido,email,grant_id,timezone,duracion_cita_minutos,disponibilidad",
+        select="id,nombre,apellido,email,grant_id,timezone,duracion_cita_minutos",
         filters={"id": asesor_id, "is_active": True, "acepta_citas": True},
         single=True,
     )
@@ -637,6 +637,8 @@ async def seleccionar_mejor_asesor(
 
 
 async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> DisponibilidadResponse:
+    """Obtiene el calendario completo de cada asesor (eventos reales de Nylas + wp_citas)
+    y lo normaliza como texto para el agente. No usa la columna `disponibilidad`."""
     start_time = time.time()
     tz_name = normalizar_tz(req.time_zone_contacto)
     if not tz_name:
@@ -648,7 +650,6 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             total_asesores=0,
             asesores_consultados=0,
             tiempo_consulta_ms=0,
-            disponibilidad=[],
             hay_disponibilidad=False,
             error="ZONA_HORARIA_NO_DEFINIDA: El contacto no tiene zona horaria configurada. Pregúntale en qué ciudad o país se encuentra.",
         )
@@ -659,7 +660,6 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Paralelizar queries iniciales de DB
     asesor_fijo, cita_info = await asyncio.gather(
         get_asesor_fijo_de_contacto(req.contacto_id),
         get_cita_contacto(req.contacto_id),
@@ -679,7 +679,6 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             total_asesores=0,
             asesores_consultados=0,
             tiempo_consulta_ms=int((time.time() - start_time) * 1000),
-            disponibilidad=[],
             hay_disponibilidad=False,
             error="No se encontraron asesores con calendario configurado",
         )
@@ -688,50 +687,113 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     ahora_unix = int(ahora.timestamp())
     fin_rango = ahora + timedelta(days=7)
     fin_unix = int(fin_rango.timestamp())
+    tz = ZoneInfo(tz_name)
 
-    async def _fb(asesor: dict):
+    # ── 1. Traer todos los eventos reales del calendario Nylas ──
+    async def _get_events(asesor: dict):
         if not asesor_grant_habilitado(asesor):
-            return {"asesor": asesor, "freeBusy": None, "ok": False}
+            return {"asesor": asesor, "events": [], "ok": False}
         try:
-            data = await asyncio.wait_for(
-                nylas.get_free_busy(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix),
-                timeout=10.0,
+            events = await asyncio.wait_for(
+                nylas.list_events(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix, limit=200),
+                timeout=12.0,
             )
-            # Nylas puede devolver objetos de error dentro de data:
-            # {"email": "...", "error": "...", "object": "error"}
-            # En ese caso, no tenemos info confiable de busy → tratar como sin disponibilidad
-            if isinstance(data, list):
-                for item in data:
-                    if item.get("error") or item.get("object") == "error":
-                        logger.warning(
-                            "Free/busy Nylas retornó error para asesor %s (grant=%s): %s",
-                            asesor["id"], asesor.get("grant_id"), item.get("error", "unknown"),
-                        )
-                        return {"asesor": asesor, "freeBusy": None, "ok": False}
-                # Log de diagnóstico: cuántos busy slots hay
-                total_busy = sum(
-                    sum(1 for s in (item.get("time_slots") or []) if s.get("status") == "busy")
-                    for item in data
-                )
-                logger.info(
-                    "Free/busy asesor %s (%s): %d slots ocupados en próximos 7d",
-                    asesor["id"], asesor.get("email", "?"), total_busy,
-                )
-            return {"asesor": asesor, "freeBusy": data, "ok": True}
+            logger.info("Calendario asesor %s (%s): %d eventos en próximos 7d",
+                        asesor["id"], asesor.get("email", "?"), len(events or []))
+            return {"asesor": asesor, "events": events or [], "ok": True}
         except asyncio.TimeoutError:
-            logger.warning("Timeout free/busy asesor %s (>10s)", asesor["id"])
-            return {"asesor": asesor, "freeBusy": None, "ok": False}
+            logger.warning("Timeout list_events asesor %s (>12s)", asesor["id"])
+            return {"asesor": asesor, "events": [], "ok": False}
         except Exception as e:
             if should_disable_nylas_grant(e):
                 disable_nylas_grant(asesor, e)
-            logger.warning("Error free/busy asesor %s: %s", asesor["id"], e)
-            return {"asesor": asesor, "freeBusy": None, "ok": False}
+            logger.warning("Error list_events asesor %s: %s", asesor["id"], e)
+            return {"asesor": asesor, "events": [], "ok": False}
 
-    resultados = await asyncio.gather(*[_fb(a) for a in asesores])
+    resultados = await asyncio.gather(*[_get_events(a) for a in asesores])
     asesores_ok = [r for r in resultados if r["ok"]]
 
+    # ── 2. Cargar citas de wp_citas como fuente suplementaria ──
+    _db = await get_supabase()
+    asesor_ids = [r["asesor"]["id"] for r in resultados]
+    db_citas_por_asesor: dict[int, list[dict]] = {aid: [] for aid in asesor_ids}
+    try:
+        citas_db = await _db.query(
+            "wp_citas",
+            select="team_humano_id,fecha_hora,duracion,titulo,event_id",
+            filters={"estado": "confirmada"},
+        )
+        if isinstance(citas_db, list):
+            for c in citas_db:
+                aid = c.get("team_humano_id")
+                if aid not in db_citas_por_asesor:
+                    continue
+                fh = c.get("fecha_hora")
+                if not fh:
+                    continue
+                try:
+                    c_start, _ = parse_iso_to_unix(fh)
+                    dur = c.get("duracion") or 30
+                    c_end = c_start + (dur * 60)
+                    if c_end > ahora_unix and c_start < fin_unix:
+                        db_citas_por_asesor[aid].append({
+                            "start": c_start,
+                            "end": c_end,
+                            "title": c.get("titulo") or "Cita confirmada",
+                            "event_id": c.get("event_id"),
+                        })
+                except Exception:
+                    pass
+    except Exception as exc:
+        logger.warning("Error cargando wp_citas para calendario: %s", exc)
+
+    # ── 3. Formatear calendario como texto ──
+    def _fmt_hora(unix_ts: int) -> str:
+        return datetime.fromtimestamp(unix_ts, tz=tz).strftime("%-I:%M %p").lower()
+
+    def _fmt_horas_libres(eventos: list[dict]) -> str:
+        """Calcula y describe los bloques libres entre eventos."""
+        if not eventos:
+            return "todo el día libre"
+        libres = []
+        eventos_sorted = sorted(eventos, key=lambda e: e["start"])
+        # Antes del primer evento
+        primer_inicio = datetime.fromtimestamp(eventos_sorted[0]["start"], tz=tz)
+        if primer_inicio.hour > 0:
+            libres.append(f"antes de {_fmt_hora(eventos_sorted[0]['start'])}")
+        # Entre eventos
+        for i in range(len(eventos_sorted) - 1):
+            fin_actual = eventos_sorted[i]["end"]
+            inicio_sig = eventos_sorted[i + 1]["start"]
+            if inicio_sig - fin_actual > 300:  # más de 5 min de hueco
+                libres.append(f"{_fmt_hora(fin_actual)} - {_fmt_hora(inicio_sig)}")
+        # Después del último evento
+        ultimo_fin = datetime.fromtimestamp(eventos_sorted[-1]["end"], tz=tz)
+        if ultimo_fin.hour < 23:
+            libres.append(f"después de {_fmt_hora(eventos_sorted[-1]['end'])}")
+        return ", ".join(libres) if libres else "sin huecos visibles"
+
+    lines = []
+
+    # Encabezado
+    hora_local = ahora.strftime("%-I:%M %p").lower()
+    fecha_local = ahora.strftime("%A %d de %B de %Y").lower()
+    lines.append(f"CALENDARIO DE ASESORES — próximos 7 días")
+    lines.append(f"Hora actual: {hora_local}, {fecha_local} (zona {tz_name})")
+
+    if cita_info and cita_info.get("tiene_cita"):
+        lines.append("")
+        lines.append(f"CITA EXISTENTE DEL CONTACTO: {cita_info.get('texto', '')}")
+        lines.append(f"  Estado: {cita_info.get('estado', '')} | Fecha: {cita_info.get('fecha', '')}")
+
+    if asesor_fijo:
+        lines.append(f"\nASESOR ASIGNADO: {asesor_fijo['nombre']} {asesor_fijo.get('apellido', '').strip()}")
+
     if not asesores_ok:
+        lines.append("\nNo se pudo obtener el calendario de ningún asesor.")
+        cal_texto = "\n".join(lines)
         return DisponibilidadResponse(
+            cita_actual=cita_info,
             contacto_id=req.contacto_id,
             empresa_id=req.empresa_id,
             time_zone=tz_name,
@@ -739,125 +801,87 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             total_asesores=len(asesores),
             asesores_consultados=0,
             tiempo_consulta_ms=int((time.time() - start_time) * 1000),
-            disponibilidad=[],
             hay_disponibilidad=False,
-            error="No se pudo obtener disponibilidad de ningún asesor",
+            calendario_texto=cal_texto,
+            error="No se pudo obtener el calendario de ningún asesor",
         )
 
-    # Cargar citas confirmadas desde wp_citas como fuente suplementaria de busy periods
-    # (cubre casos donde Nylas free/busy no refleja correctamente los eventos)
-    _db = await get_supabase()
-    asesor_ids = [r["asesor"]["id"] for r in asesores_ok]
-    db_busy_por_asesor: dict[int, list[dict[str, int]]] = {aid: [] for aid in asesor_ids}
-    try:
-        citas_db = await _db.query(
-            "wp_citas",
-            select="team_humano_id,fecha_hora,duracion",
-            filters={"estado": "confirmada"},
-        )
-        if isinstance(citas_db, list):
-            for c in citas_db:
-                aid = c.get("team_humano_id")
-                if aid not in db_busy_por_asesor:
-                    continue
-                fh = c.get("fecha_hora")
-                dur = c.get("duracion") or 30
-                if not fh:
-                    continue
-                try:
-                    c_start_unix, _ = parse_iso_to_unix(fh)
-                    c_end_unix = c_start_unix + (dur * 60)
-                    # Solo agregar si está dentro del rango consultado
-                    if c_end_unix > ahora_unix and c_start_unix < fin_unix:
-                        db_busy_por_asesor[aid].append({"start": c_start_unix, "end": c_end_unix})
-                except Exception:
-                    pass
-        total_db_busy = sum(len(v) for v in db_busy_por_asesor.values())
-        logger.info("wp_citas busy periods cargados: %d citas para %d asesores", total_db_busy, len(asesor_ids))
-    except Exception as exc:
-        logger.warning("No se pudo cargar wp_citas para busy periods suplementarios: %s", exc)
+    lines.append("")
 
-    disponibilidad_por_dia: dict[str, dict] = {}
+    for result in resultados:
+        asesor = result["asesor"]
+        nombre = f"{asesor['nombre']} {asesor.get('apellido', '')}".strip()
+        events_nylas = result.get("events", [])
 
-    for item in asesores_ok:
-        asesor = item["asesor"]
-        fb_data = item["freeBusy"]
+        # Unificar eventos Nylas + wp_citas (evitar duplicados por event_id)
+        nylas_event_ids = {ev.get("id") for ev in events_nylas if ev.get("id")}
+        eventos_unif: list[dict] = []
 
-        busy_periods: list[dict[str, int]] = []
-        if isinstance(fb_data, list):
-            for fb in fb_data:
-                for slot in fb.get("time_slots") or []:
-                    if slot.get("status") == "busy":
-                        busy_periods.append({"start": slot["start_time"], "end": slot["end_time"]})
+        for ev in events_nylas:
+            when = ev.get("when") or {}
+            ev_start = when.get("start_time")
+            ev_end = when.get("end_time")
+            if not isinstance(ev_start, int) or not isinstance(ev_end, int):
+                continue
+            if ev.get("status") == "cancelled":
+                continue
+            eventos_unif.append({
+                "start": ev_start,
+                "end": ev_end,
+                "title": ev.get("title") or "Evento",
+                "fuente": "nylas",
+            })
 
-        # Agregar busy periods desde wp_citas (suplementario a Nylas)
-        db_periods = db_busy_por_asesor.get(asesor["id"], [])
-        if db_periods:
-            # Fusionar, evitando duplicados exactos
-            existing = {(p["start"], p["end"]) for p in busy_periods}
-            for p in db_periods:
-                if (p["start"], p["end"]) not in existing:
-                    busy_periods.append(p)
-            logger.debug(
-                "Asesor %s: %d busy de Nylas + %d de wp_citas = %d total",
-                asesor["id"], len(busy_periods) - len(db_periods), len(db_periods), len(busy_periods),
-            )
+        for c in db_citas_por_asesor.get(asesor["id"], []):
+            # Agregar solo si no está ya en Nylas
+            if c.get("event_id") and c["event_id"] in nylas_event_ids:
+                continue
+            # Verificar que no se solape exactamente con algo que ya tenemos
+            ya_existe = any(abs(e["start"] - c["start"]) < 60 for e in eventos_unif)
+            if not ya_existe:
+                eventos_unif.append({
+                    "start": c["start"],
+                    "end": c["end"],
+                    "title": c.get("title") or "Cita confirmada",
+                    "fuente": "db",
+                })
 
-        duracion = asesor.get("duracion_cita_minutos") or 30
+        eventos_unif.sort(key=lambda e: e["start"])
 
+        # Agrupar por día
+        dias: dict[str, list] = {}
         for i in range(7):
-            fecha = ahora + timedelta(days=i)
-            fecha_key = fecha.strftime("%Y-%m-%d")
+            dia_dt = ahora + timedelta(days=i)
+            dias[dia_dt.strftime("%Y-%m-%d")] = []
+        for ev in eventos_unif:
+            dia_key = datetime.fromtimestamp(ev["start"], tz=tz).strftime("%Y-%m-%d")
+            if dia_key in dias:
+                dias[dia_key].append(ev)
 
-            if fecha_key not in disponibilidad_por_dia:
-                disponibilidad_por_dia[fecha_key] = {
-                    "fecha": fecha_key,
-                    "fecha_obj": fecha,
-                    "horarios_unicos": {},
-                }
-
-            slots = calcular_slots(fecha, busy_periods, duracion, tz_name)
-
-            dia_data = disponibilidad_por_dia[fecha_key]
-            for slot in slots:
-                key = slot["hora"]
-                if key not in dia_data["horarios_unicos"]:
-                    dia_data["horarios_unicos"][key] = {
-                        "inicio": slot["inicio"],
-                        "fin": slot["fin"],
-                        "hora": slot["hora"],
-                        "startUnix": slot["startUnix"],
-                        "endUnix": slot["endUnix"],
-                        "asesores_disponibles": 0,
-                    }
-                dia_data["horarios_unicos"][key]["asesores_disponibles"] += 1
-
-    dias_resultado = []
-    for fecha_key in sorted(disponibilidad_por_dia.keys()):
-        dia_data = disponibilidad_por_dia[fecha_key]
-        if not dia_data["horarios_unicos"]:
+        lines.append(f"━━━ {nombre.upper()} ━━━")
+        if not result["ok"]:
+            lines.append("  ⚠️  No se pudo obtener el calendario (error de conexión Nylas)")
+            lines.append("")
             continue
 
-        fecha_obj = dia_data["fecha_obj"]
-        fecha_texto = fecha_obj.strftime("%A %d de %B").lower()
-        slots_unicos = sorted(dia_data["horarios_unicos"].values(), key=lambda s: s["startUnix"])
+        for dia_key in sorted(dias.keys()):
+            dia_dt = datetime.fromisoformat(dia_key).replace(tzinfo=tz)
+            fecha_texto = dia_dt.strftime("%A %d de %B").lower()
+            eventos_dia = dias[dia_key]
 
-        por_periodo: dict[str, list] = {}
-        for s in slots_unicos:
-            try:
-                dt_local = datetime.fromisoformat(s["inicio"]).astimezone(ZoneInfo(tz_name))
-                per = periodo_dia(dt_local.hour)
-            except Exception:
-                per = "Mañana"
-            por_periodo.setdefault(per, []).append(s)
+            lines.append(f"\n  📅 {fecha_texto.upper()}:")
+            if not eventos_dia:
+                lines.append("    ✅ Sin eventos — día completamente libre")
+            else:
+                for ev in eventos_dia:
+                    inicio_str = _fmt_hora(ev["start"])
+                    fin_str = _fmt_hora(ev["end"])
+                    title = ev["title"]
+                    lines.append(f"    🔴 {inicio_str} – {fin_str} → {title}")
+                libres = _fmt_horas_libres(eventos_dia)
+                lines.append(f"    ✅ Libre: {libres}")
 
-        dias_resultado.append({
-            "fecha": fecha_key,
-            "fechaTexto": fecha_texto,
-            "total_horarios": len(slots_unicos),
-            "slots": slots_unicos,
-            "porPeriodo": por_periodo,
-        })
+        lines.append("")
 
     asesor_fijo_info = None
     if asesor_fijo:
@@ -867,6 +891,8 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             "email": asesor_fijo["email"],
             "mensaje": "Este contacto tiene una cita Realizada. Solo se muestra disponibilidad de su asesor asignado.",
         }
+
+    cal_texto = "\n".join(lines)
 
     return DisponibilidadResponse(
         cita_actual=cita_info,
@@ -878,8 +904,8 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         total_asesores=len(asesores),
         asesores_consultados=len(asesores_ok),
         tiempo_consulta_ms=int((time.time() - start_time) * 1000),
-        disponibilidad=dias_resultado,
-        hay_disponibilidad=len(dias_resultado) > 0,
+        hay_disponibilidad=len(asesores_ok) > 0,
+        calendario_texto=cal_texto,
     )
 
 

@@ -87,46 +87,14 @@ def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
             )
             resp = await disponibilidad_agenda_core(req)
 
-            if resp.error:
+            if resp.error and not resp.calendario_texto:
                 return f"Error al consultar disponibilidad: {resp.error}"
 
-            lines = []
+            # Devolver el calendario completo formateado como texto
+            if resp.calendario_texto:
+                return resp.calendario_texto
 
-            if resp.cita_actual and resp.cita_actual.get("tiene_cita"):
-                cita = resp.cita_actual
-                lines.append(f"CITA EXISTENTE: {cita.get('texto', '')}")
-                lines.append(f"  Estado: {cita.get('estado', '')}")
-                if cita.get("fecha"):
-                    lines.append(f"  Fecha: {cita['fecha']}")
-                if cita.get("link"):
-                    lines.append(f"  Link: {cita['link']}")
-                lines.append("")
-
-            if resp.asesor_fijo:
-                af = resp.asesor_fijo
-                nombre = af.get("nombre", "") if isinstance(af, dict) else getattr(af, "nombre", "")
-                if nombre:
-                    lines.append(f"Asesor asignado: {nombre}")
-                    lines.append("")
-
-            if not resp.hay_disponibilidad:
-                lines.append("No hay disponibilidad en los próximos 7 días.")
-                return "\n".join(lines)
-
-            lines.append(f"DISPONIBILIDAD (próximos 7 días, zona {resp.time_zone}):")
-
-            for dia in resp.disponibilidad:
-                dia_d = dia if isinstance(dia, dict) else dia.model_dump()
-                lines.append(f"\n{dia_d['fechaTexto'].upper()} ({dia_d['fecha']}):")
-                por_periodo = dia_d.get("porPeriodo", {})
-                for periodo, slots in por_periodo.items():
-                    horas = ", ".join(
-                        (s.get("hora") if isinstance(s, dict) else s.hora)
-                        for s in slots
-                    )
-                    lines.append(f"  {periodo}: {horas}")
-
-            return "\n".join(lines)
+            return "No se pudo obtener el calendario de los asesores."
         except Exception as exc:
             logger.error("consultar_disponibilidad tool error: %s", exc, exc_info=True)
             return f"Error al consultar disponibilidad: {exc}"
