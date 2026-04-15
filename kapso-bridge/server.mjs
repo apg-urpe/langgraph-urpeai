@@ -6553,7 +6553,7 @@ function cardHtml(x,i){
   const copyVal=x.contacto_id||x.from_phone||'';
   const copyLabel=x.contacto_id?esc(x.contacto_id):esc(x.from_phone||'');
   const phone=copyVal
-    ?'<span class="phone">'+copyLabel+'</span><button class="copy-btn" onclick="event.stopPropagation();copyId(\''+copyVal.replace(/'/g,"\\'")+'\')" title="Copiar">⎘</button>'
+    ?'<span class="phone">'+copyLabel+'</span><button class="copy-btn" onclick="event.stopPropagation();copyId(\\''+copyVal.replace(/'/g,"\\\\'")+'\\')" title="Copiar">⎘</button>'
     :'';
   const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
   const stages=(x.stages_detail||[]).map(s=>stageItemHtml(s)).join('');
