@@ -6325,6 +6325,7 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .ag-sep-line{flex:1;height:1px;background:var(--border)}
 .ag-sep-lbl{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
 /* Toggle switch */
+.ag-conv-badge{font-size:12px;font-weight:700;color:var(--blue-300);background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.2);border-radius:10px;padding:2px 8px;white-space:nowrap}
 .ag-toggle-wrap{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
 .ag-toggle{position:relative;width:34px;height:19px;background:rgba(100,116,139,.4);border:1px solid rgba(100,116,139,.3);border-radius:10px;cursor:pointer;transition:background .2s,border-color .2s;flex-shrink:0;-webkit-tap-highlight-color:transparent}
 .ag-toggle.on{background:rgba(52,211,153,.35);border-color:rgba(52,211,153,.5)}
@@ -6923,6 +6924,7 @@ function _renderAgCard(ag){
       \${channels?'<div class="ag-channels">'+channels+'</div>':''}
     </div>
     <div class="ag-toggle-wrap" onclick="event.stopPropagation()">
+      \${ag.conversaciones_total>0?'<span class="ag-conv-badge">'+ag.conversaciones_total+'</span>':''}
       <div class="ag-toggle\${isOk?' on':''}" id="agToggle\${idx}" onclick="toggleAgenteActivo(\${ag.id},\${isOk},\${idx})"></div>
       <span class="ag-toggle-lbl">\${isOk?'Activo':'Inactivo'}</span>
     </div>
@@ -6945,8 +6947,9 @@ function toggleAgCard(idx){
 let _agEmpresaIdx=0;
 function _renderEmpresaGroup(emp){
   const eidx=_agEmpresaIdx++;
-  const activos=emp.agentes.filter(a=>a.activo!==false);
-  const inactivos=emp.agentes.filter(a=>a.activo===false);
+  const byConv=(a,b)=>(b.conversaciones_total||0)-(a.conversaciones_total||0);
+  const activos=emp.agentes.filter(a=>a.activo!==false).sort(byConv);
+  const inactivos=emp.agentes.filter(a=>a.activo===false).sort(byConv);
   const count=activos.length;
   const sub=[emp.rubro,emp.ubicacion].filter(Boolean).join(' · ');
   let cards=activos.map(ag=>_renderAgCard(ag)).join('');

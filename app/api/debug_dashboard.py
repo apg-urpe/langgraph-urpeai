@@ -857,7 +857,7 @@ async def debug_agentes(
         if not agents:
             return {"empresas": [], "empresa_id": empresa_id}
 
-        # Activos primero, luego archivados
+        # Pre-sort por empresa (agrupación) y archivado; el orden por convs se aplica al final en JS
         agents.sort(key=lambda a: (a.get("empresa_id") or 0, bool(a.get("archivado"))))
 
         # ── IDs de empresa únicos → fetch nombres ─────────────────────────
