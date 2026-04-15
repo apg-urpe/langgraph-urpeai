@@ -6382,8 +6382,9 @@ function applyClientFilters(){
   if(tools==='any') items=items.filter(x=>_countTools(x)>0);
   if(tools==='none') items=items.filter(x=>_countTools(x)===0);
   if(contacto){
-    if(_excludeContacto) items=items.filter(x=>String(x.contacto_id??'')!==contacto);
-    else items=items.filter(x=>String(x.contacto_id??'')===contacto);
+    const matchC=x=>String(x.contacto_id??'')===contacto||String(x.from_phone??'').replace(/\D/g,'').includes(contacto.replace(/\D/g,''));
+    if(_excludeContacto) items=items.filter(x=>!matchC(x));
+    else items=items.filter(x=>matchC(x));
   }
   if(empresa) items=items.filter(x=>String(x.empresa_id??'')===empresa);
   renderList(items);
