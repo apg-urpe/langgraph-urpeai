@@ -762,19 +762,17 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         return f"{_DIAS_ES[dt.weekday()]} {dt.day} de {_MESES_ES[dt.month - 1]}"
 
     def _huecos_libres(eventos: list[dict], dia_dt: datetime) -> list[str]:
-        """Devuelve lista de bloques libres como rangos exactos 'X:XX am - Y:YY pm'."""
-        # Ventana del día: 12:00 am a 11:59 pm
-        dia_inicio_unix = int(dia_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-        dia_fin_unix    = int(dia_dt.replace(hour=23, minute=59, second=0, microsecond=0).timestamp())
+        """Devuelve los huecos libres ENTRE eventos como rangos exactos.
+        No incluye desde medianoche ni hasta medianoche — solo los espacios
+        entre un evento y el siguiente."""
+        if not eventos:
+            return []  # día sin eventos → libre todo el día
 
-        # Construir lista de bloques ocupados fusionando solapamientos
+        # Fusionar eventos solapados para calcular huecos reales
         ocupados = sorted(eventos, key=lambda e: e["start"])
         merged: list[tuple[int, int]] = []
         for ev in ocupados:
             s, e = ev["start"], ev["end"]
-            # Clamp al día
-            s = max(s, dia_inicio_unix)
-            e = min(e, dia_fin_unix)
             if s >= e:
                 continue
             if merged and s <= merged[-1][1]:
@@ -782,15 +780,13 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             else:
                 merged.append((s, e))
 
-        # Calcular huecos entre bloques ocupados
+        # Huecos entre bloques consecutivos
         huecos: list[str] = []
-        cursor = dia_inicio_unix
-        for (s, e) in merged:
-            if s - cursor > 60:  # hueco de más de 1 min
-                huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(s)}")
-            cursor = e
-        if dia_fin_unix - cursor > 60:
-            huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(dia_fin_unix)}")
+        for i in range(len(merged) - 1):
+            fin_actual = merged[i][1]
+            inicio_sig = merged[i + 1][0]
+            if inicio_sig - fin_actual > 60:  # más de 1 minuto libre
+                huecos.append(f"{_fmt_hora(fin_actual)} - {_fmt_hora(inicio_sig)}")
 
         return huecos
 
@@ -892,18 +888,14 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
 
             lines.append(f"\n  📅 {fecha_texto.upper()}:")
             if not eventos_dia:
-                lines.append("    ✅ Día completamente libre (sin eventos en calendario)")
+                lines.append("    ✅ Día completamente libre")
             else:
-                for ev in sorted(eventos_dia, key=lambda e: e["start"]):
-                    inicio_str = _fmt_hora(ev["start"])
-                    fin_str = _fmt_hora(ev["end"])
-                    title = ev["title"]
-                    lines.append(f"    🔴 {inicio_str} – {fin_str} → {title}")
                 huecos = _huecos_libres(eventos_dia, dia_dt)
                 if huecos:
-                    lines.append(f"    ✅ Libre: {' | '.join(huecos)}")
+                    for h in huecos:
+                        lines.append(f"    ✅ {h}")
                 else:
-                    lines.append("    ❌ Sin huecos libres en este día")
+                    lines.append("    ❌ Sin huecos entre eventos")
 
         lines.append("")
 
