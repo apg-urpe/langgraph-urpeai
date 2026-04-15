@@ -6548,7 +6548,7 @@ function stageItemHtml(s){
 
 function cardHtml(x,i){
   const name=esc(x.contact_name||x.from_phone||'Desconocido');
-  const phone=x.from_phone&&x.contact_name?'<span class="phone">'+esc(x.from_phone)+'</span>':'';
+  const phone=x.contacto_id?'<span class="phone">'+esc(x.contacto_id)+'</span>':'';
   const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
   const stages=(x.stages_detail||[]).map(s=>stageItemHtml(s)).join('');
   const nTools=_countTools(x);
