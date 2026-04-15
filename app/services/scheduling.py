@@ -697,10 +697,29 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         if not asesor_grant_habilitado(asesor):
             return {"asesor": asesor, "events": [], "ok": False}
         try:
-            events = await asyncio.wait_for(
-                nylas.list_events(asesor["grant_id"], None, ahora_unix, fin_unix, limit=200),
-                timeout=12.0,
-            )
+            # Obtener todos los calendarios del asesor para no perder eventos
+            # en calendarios secundarios (compartidos, de equipo, etc.)
+            try:
+                calendars = await asyncio.wait_for(
+                    nylas.list_calendars(asesor["grant_id"]),
+                    timeout=8.0,
+                )
+                calendar_ids = [c["id"] for c in (calendars or []) if c.get("id")]
+            except Exception:
+                calendar_ids = [asesor["email"]]
+
+            if not calendar_ids:
+                calendar_ids = [asesor["email"]]
+
+            # Traer eventos de cada calendario en paralelo
+            async def _fetch_cal(cal_id: str):
+                try:
+                    return await nylas.list_events(asesor["grant_id"], cal_id, ahora_unix, fin_unix, limit=200)
+                except Exception:
+                    return []
+
+            all_cal_events = await asyncio.gather(*[_fetch_cal(cid) for cid in calendar_ids])
+            events = [ev for evs in all_cal_events for ev in (evs or [])]
             logger.info("Calendario asesor %s (%s): %d eventos en próximos 7d",
                         asesor["id"], asesor.get("email", "?"), len(events or []))
             return {"asesor": asesor, "events": events or [], "ok": True}
