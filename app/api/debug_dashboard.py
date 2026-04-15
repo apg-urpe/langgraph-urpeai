@@ -546,7 +546,7 @@ def _render_dashboard_html(config: dict) -> str:
 @router.get("/api/v1/debug/interactions")
 async def debug_interactions(
     page: int = Query(default=1, ge=1),
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=500),
     channel: str = Query(default=""),
     empresa_id: int = Query(default=0),
     days: int = Query(default=30, ge=1, le=365),

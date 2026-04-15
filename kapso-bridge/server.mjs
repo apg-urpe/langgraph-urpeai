@@ -6147,7 +6147,7 @@ app.get('/events/api/interactions', async (req, res) => {
     if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
     if (req.query.days)       qs.set('days',        req.query.days);
     if (req.query.since)      qs.set('since',       req.query.since);
-    qs.set('limit', String(Math.min(Number(req.query.limit) || 50, 100)));
+    qs.set('limit', String(Math.min(Number(req.query.limit) || 200, 500)));
     qs.set('page',  req.query.page || '1');
     const url = `${base}/api/v1/debug/interactions?${qs}`;
     const upstream = await fetch(url, {
@@ -6340,8 +6340,10 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   <button class="tools-trigger" id="fToolsTrigger" onclick="openToolsSheet()">Todas las interacciones</button>
   <select class="filter-select" id="fDays" onchange="loadData(true)">
     <option value="1">Hoy</option>
-    <option value="3" selected>3 días</option>
-    <option value="7">7 días</option>
+    <option value="1">Hoy</option>
+    <option value="3">3 días</option>
+    <option value="7" selected>7 días</option>
+    <option value="14">14 días</option>
     <option value="30">30 días</option>
   </select>
 </div>
@@ -6483,9 +6485,11 @@ function applyClientFilters(){
     else items=items.filter(x=>matchC(x));
   }
   if(empresa) items=items.filter(x=>String(x.empresa_id??'')===empresa);
+  renderFilteredStats(items);
   renderList(items);
 }
 
+let _apiStats={};
 async function loadData(showLoader=false){
   if(!_token){window.location.href='/events';return;}
   const list=document.getElementById('list');
@@ -6494,26 +6498,33 @@ async function loadData(showLoader=false){
   btn.classList.add('spinning');
   const canal=document.getElementById('fCanal').value;
   const days=document.getElementById('fDays').value;
-  const qs=new URLSearchParams({token:_token,days,limit:'100'});
+  const qs=new URLSearchParams({token:_token,days,limit:'500'});
   if(canal)qs.set('channel',canal);
   try{
     const r=await fetch('/events/api/interactions?'+qs);
     if(r.status===401){logout();return;}
     const data=await r.json();
     _rawInteractions=data.interactions||[];
+    _apiStats=data.stats||{};
     updateToolsFilter();
-    renderStats(data.stats||{});
     applyClientFilters();
   }catch(e){
     list.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>Error cargando datos</p></div>';
   }finally{btn.classList.remove('spinning');}
 }
 
-function renderStats(s){
-  document.getElementById('sTot').textContent=s.total??'—';
-  document.getElementById('sOk').textContent=s.ok??'—';
-  document.getElementById('sErr').textContent=s.errors??'—';
-  document.getElementById('sMs').textContent=s.avg_ms!=null?Math.round(s.avg_ms)+'ms':'—';
+function renderFilteredStats(items){
+  const total=items.length;
+  const rawTotal=_rawInteractions.length;
+  const ok=items.filter(x=>x.status==='ok').length;
+  const errors=items.filter(x=>x.status==='error').length;
+  const durs=items.filter(x=>x.duration_ms!=null).map(x=>x.duration_ms);
+  const avg=durs.length?Math.round(durs.reduce((a,b)=>a+b,0)/durs.length):null;
+  const isFiltered=total!==rawTotal;
+  document.getElementById('sTot').textContent=isFiltered?total+'/'+rawTotal:total;
+  document.getElementById('sOk').textContent=ok;
+  document.getElementById('sErr').textContent=errors;
+  document.getElementById('sMs').textContent=avg!=null?avg+'ms':'—';
 }
 
 function renderList(items){
