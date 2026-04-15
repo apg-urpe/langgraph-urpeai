@@ -6215,7 +6215,21 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .stat-val{font-size:16px;font-weight:700;color:var(--blue-300)}
 .stat-lbl{font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:1px}
 /* Card list */
-.list{position:fixed;top:225px;bottom:0;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+.list{position:fixed;top:225px;bottom:60px;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+/* Bottom nav */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;height:60px;background:rgba(8,12,30,.96);border-top:1px solid var(--border);display:flex;align-items:stretch;justify-content:space-around;z-index:200;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding-bottom:env(safe-area-inset-bottom,0px)}
+.bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;-webkit-tap-highlight-color:transparent;border:none;background:none;color:var(--text-muted);transition:color .18s;font-size:11px;font-weight:500;letter-spacing:.03em}
+.bnav-item:active{opacity:.7}
+.bnav-item.active{color:var(--blue-400)}
+.bnav-item svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+/* Config screen */
+.config-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:40px 24px}
+.config-screen.active{display:flex}
+.config-screen .cs-icon{font-size:56px;margin-bottom:4px;opacity:.5}
+.config-screen .cs-title{font-size:20px;font-weight:700;color:var(--blue-300);text-align:center}
+.config-screen .cs-sub{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.6;max-width:280px}
+.config-screen .cs-badge{background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:20px;padding:5px 14px;font-size:12px;color:var(--blue-400);font-weight:600;letter-spacing:.04em;animation:pulse-soft 2.4s ease-in-out infinite}
+@keyframes pulse-soft{0%,100%{opacity:.7}50%{opacity:1}}
 .badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
 /* Bottom sheet for tools */
 .tools-trigger{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%;-webkit-tap-highlight-color:transparent;transition:border-color .2s}
@@ -6360,6 +6374,26 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   </div>
 </div>
 <div class="list" id="list"></div>
+
+<!-- Config / Agentes screen (placeholder) -->
+<div class="config-screen" id="configScreen">
+  <div class="cs-icon">🤖</div>
+  <div class="cs-title">Configuración de Agentes</div>
+  <div class="cs-sub">Esta sección está en desarrollo.<br>Pronto podrás configurar el comportamiento, herramientas y personalidad de cada agente desde aquí.</div>
+  <div class="cs-badge">⚙️ Haciéndose...</div>
+</div>
+
+<!-- Bottom nav bar -->
+<nav class="bottom-nav">
+  <button class="bnav-item active" id="bnavDebug" onclick="showTab('debug')">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
+    Debug
+  </button>
+  <button class="bnav-item" id="bnavConfig" onclick="showTab('config')">
+    <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    Agentes
+  </button>
+</nav>
 <script>
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/events/sw.js').catch(()=>{});
 const TOKEN_KEY='urpe_events_token';
@@ -6725,6 +6759,16 @@ function toggle(i){
   const d=document.getElementById('detail'+i);
   const isOpen=d.classList.toggle('open');
   card.classList.toggle('open',isOpen);
+}
+
+function showTab(tab){
+  const isDebug=tab==='debug';
+  document.getElementById('list').style.display=isDebug?'block':'none';
+  document.getElementById('configScreen').classList.toggle('active',!isDebug);
+  document.querySelector('.filterbar').style.display=isDebug?'grid':'none';
+  document.getElementById('statsbar').style.display=isDebug?'flex':'none';
+  document.getElementById('bnavDebug').classList.toggle('active',isDebug);
+  document.getElementById('bnavConfig').classList.toggle('active',!isDebug);
 }
 
 loadData(true);
