@@ -422,6 +422,7 @@ async def get_cita_contacto(contacto_id: int) -> dict[str, Any]:
         "link": ubicacion if es_virtual else None,
         "fecha": cita.get("fecha_hora"),
         "estado": cita.get("estado") or "confirmada",
+        "event_id": cita.get("event_id"),
     }
 
 
@@ -836,6 +837,8 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         lines.append("")
         lines.append(f"CITA EXISTENTE DEL CONTACTO: {cita_info.get('texto', '')}")
         lines.append(f"  Estado: {cita_info.get('estado', '')} | Fecha: {cita_info.get('fecha', '')}")
+        if cita_info.get("event_id"):
+            lines.append(f"  Event ID: {cita_info['event_id']}  ← usar este ID para reagendar o cancelar")
 
     if asesor_fijo:
         lines.append(f"\nASESOR ASIGNADO: {asesor_fijo['nombre']} {asesor_fijo.get('apellido', '').strip()}")
@@ -1283,17 +1286,35 @@ async def eliminar_evento_core(req: EliminarEventoRequest) -> EliminarEventoResp
 
     calendar_id = asesor["email"]
     eliminado_en_nylas = False
+    nylas_error: str | None = None
 
     try:
         await nylas.delete_event(asesor["grant_id"], calendar_id, req.event_id)
         eliminado_en_nylas = True
-        logger.info("✅ Evento eliminado de Nylas")
+        logger.info("✅ Evento eliminado de Nylas: event_id=%s grant=%s calendar=%s",
+                    req.event_id, asesor["grant_id"], calendar_id)
     except Exception as e:
+        nylas_error = str(e)
         if should_disable_nylas_grant(e):
             disable_nylas_grant(asesor, e)
-        logger.warning("⚠️ Error al eliminar en Nylas: %s — continuando con cancelación en Supabase", e)
+        logger.error("❌ Error al eliminar en Nylas: event_id=%s grant=%s calendar=%s error=%s",
+                     req.event_id, asesor["grant_id"], calendar_id, e)
 
+    # Siempre actualizar estado en Supabase
     await actualizar_estado_cita(req.event_id, "cancelada")
+
+    if not eliminado_en_nylas:
+        # El evento NO se borró del calendario real — reportar como fallo
+        return EliminarEventoResponse(
+            success=False,
+            event_id=req.event_id,
+            contacto_id=req.contacto_id or cita.get("contacto_id"),
+            asesor=f"{asesor['nombre']} {asesor.get('apellido', '')}".strip(),
+            asesor_email=asesor["email"],
+            eliminado_en_nylas=False,
+            error=f"No se pudo eliminar el evento del calendario: {nylas_error}",
+            mensaje="La cita fue marcada como cancelada en el sistema, pero el evento sigue en el calendario del asesor.",
+        )
 
     return EliminarEventoResponse(
         success=True,
@@ -1301,6 +1322,6 @@ async def eliminar_evento_core(req: EliminarEventoRequest) -> EliminarEventoResp
         contacto_id=req.contacto_id or cita.get("contacto_id"),
         asesor=f"{asesor['nombre']} {asesor.get('apellido', '')}".strip(),
         asesor_email=asesor["email"],
-        eliminado_en_nylas=eliminado_en_nylas,
-        mensaje="Evento eliminado correctamente" if eliminado_en_nylas else "Cita cancelada en Supabase (el evento ya no existía en el calendario)",
+        eliminado_en_nylas=True,
+        mensaje="Evento eliminado correctamente del calendario.",
     )

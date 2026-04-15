@@ -265,11 +265,17 @@ def _create_cancelar_cita_tool(contacto_id: int):
             )
             resp = await eliminar_evento_core(req)
 
-            if resp.error:
-                return f"Error al cancelar cita: {resp.error}"
+            if not resp.success:
+                # Incluir el error completo para que el agente lo comunique al contacto
+                detalle = resp.error or resp.mensaje or "Error desconocido"
+                return (
+                    f"No se pudo cancelar la cita en el calendario.\n"
+                    f"  Detalle: {detalle}\n"
+                    f"  Comunica al contacto que la cancelación falló y que debe intentarlo de nuevo."
+                )
 
             return (
-                f"Cita cancelada exitosamente.\n"
+                f"Cita cancelada exitosamente y eliminada del calendario.\n"
                 f"  Asesor: {resp.asesor}\n"
                 f"  Event ID: {resp.event_id}\n"
                 f"  {resp.mensaje}"
