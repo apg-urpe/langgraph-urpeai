@@ -6955,7 +6955,7 @@ function _renderEmpresaGroup(emp){
     cards+=inactivos.map(ag=>_renderAgCard(ag)).join('');
   }
   return \`<div class="ag-empresa">
-  <div class="ag-emp-hdr" id="agEmpHdr\${eidx}" onclick="toggleEmpresa(\${eidx})">
+  <div class="ag-emp-hdr" id="agEmpHdr\${eidx}" data-empresa-id="\${emp.empresa_id}" onclick="toggleEmpresa(\${eidx})">
     <span class="ag-emp-icon">🏢</span>
     <div class="ag-emp-info">
       <div class="ag-emp-name">\${emp.nombre}</div>
@@ -6968,10 +6968,41 @@ function _renderEmpresaGroup(emp){
 </div>\`;
 }
 
-function toggleEmpresa(idx){
+async function toggleEmpresa(idx){
   const hdr=document.getElementById('agEmpHdr'+idx);
   const body=document.getElementById('agEmpBody'+idx);
-  if(hdr&&body){hdr.classList.toggle('open');body.classList.toggle('open');}
+  if(!hdr||!body)return;
+  const opening=!hdr.classList.contains('open');
+  hdr.classList.toggle('open');
+  body.classList.toggle('open');
+  // Si se abre y los agentes no tienen instrucciones, recargar esa empresa con detalle completo
+  if(opening&&body.dataset.loaded!=='1'){
+    const empresaId=hdr.dataset.empresaId;
+    if(empresaId&&empresaId!=='0'){
+      body.dataset.loaded='1';
+      // Reemplazar cards con versión completa (con instrucciones)
+      try{
+        const qs=new URLSearchParams({token:_token,empresa_id:empresaId});
+        const r=await fetch('/events/api/agentes?'+qs);
+        if(!r.ok)return;
+        const data=await r.json();
+        const emp=(data.empresas||[])[0];
+        if(!emp)return;
+        // Actualizar los agentes en _allEmpresas
+        const allEmp=_allEmpresas.find(e=>String(e.empresa_id)===String(empresaId));
+        if(allEmp)allEmp.agentes=emp.agentes;
+        // Re-renderizar solo este body
+        const activos=emp.agentes.filter(a=>a.activo!==false);
+        const inactivos=emp.agentes.filter(a=>a.activo===false);
+        let cards=activos.map(ag=>_renderAgCard(ag)).join('');
+        if(inactivos.length){
+          cards+=\`<div class="ag-sep"><div class="ag-sep-line"></div><span class="ag-sep-lbl">Inactivos (\${inactivos.length})</span><div class="ag-sep-line"></div></div>\`;
+          cards+=inactivos.map(ag=>_renderAgCard(ag)).join('');
+        }
+        body.innerHTML=cards;
+      }catch(e){/* silencioso */}
+    }
+  }
 }
 
 function _renderEmpresas(empresas){

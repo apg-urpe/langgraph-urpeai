@@ -830,7 +830,10 @@ async def debug_agentes(
     try:
         db = await get_supabase()
 
-        _AG_SELECT = (
+        # Campos base (sin los textos largos) — se traen para todos los agentes
+        _AG_BASE = "id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente"
+        # Campos completos (con instrucciones) — solo cuando se pide un agente específico
+        _AG_FULL = (
             "id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente,"
             "instrucciones,comportamiento,restricciones,instrucciones_mensajes,"
             "instrucciones_multimedia,formato_respuesta,areas_de_expertise,"
@@ -841,13 +844,21 @@ async def debug_agentes(
         if empresa_id:
             ag_filters["empresa_id"] = empresa_id
 
-        agents = await db.query("wp_agentes", select=_AG_SELECT, filters=ag_filters or None) or []
+        # Dos pasadas: base rápida para todos, luego completa solo si hay empresa_id
+        use_full = bool(empresa_id)
+        agents = await db.query(
+            "wp_agentes",
+            select=_AG_FULL if use_full else _AG_BASE,
+            filters=ag_filters or None,
+            order="empresa_id",
+            limit=500,
+        ) or []
 
         if not agents:
             return {"empresas": [], "empresa_id": empresa_id}
 
         # Activos primero, luego archivados
-        agents.sort(key=lambda a: bool(a.get("archivado")))
+        agents.sort(key=lambda a: (a.get("empresa_id") or 0, bool(a.get("archivado"))))
 
         # ── IDs de empresa únicos → fetch nombres ─────────────────────────
         emp_ids = list({a["empresa_id"] for a in agents if a.get("empresa_id")})
@@ -914,7 +925,7 @@ async def debug_agentes(
                 "canales": canales_map.get(aid, []),
                 "conversaciones_total": sum(por_canal.values()),
                 "por_canal": por_canal,
-                # Instrucciones para el panel expandible
+                # Instrucciones — solo presentes cuando se consultó con empresa_id
                 "instrucciones": {
                     "instrucciones": agent.get("instrucciones") or "",
                     "comportamiento": agent.get("comportamiento") or "",
@@ -927,7 +938,7 @@ async def debug_agentes(
                     "manejo_herramientas": agent.get("manejo_herramientas") or "",
                     "prompt_personalizado": agent.get("prompt_personalizado") or "",
                     "idioma": agent.get("idioma") or "",
-                },
+                } if use_full else None,
             }
 
         grupos: dict[int, dict] = {}
