@@ -6634,8 +6634,8 @@ function stageItemHtml(s){
 
 function cardHtml(x,i){
   const name=esc(x.contact_name||x.from_phone||'Desconocido');
-  const copyVal=x.contacto_id||x.from_phone||'';
-  const copyLabel=x.contacto_id?esc(x.contacto_id):esc(x.from_phone||'');
+  const copyVal=String(x.contacto_id||x.from_phone||'');
+  const copyLabel=x.contacto_id?esc(String(x.contacto_id)):esc(x.from_phone||'');
   const phone=copyVal
     ?'<span class="phone">'+copyLabel+'</span><button class="copy-btn" onclick="event.stopPropagation();copyId(\\''+copyVal.replace(/'/g,"\\\\'")+'\\')" title="Copiar">⎘</button>'
     :'';
