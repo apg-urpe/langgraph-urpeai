@@ -775,19 +775,21 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
 
     def _fmt_hora(unix_ts: int) -> str:
-        return datetime.fromtimestamp(unix_ts, tz=tz).strftime("%-I:%M %p").lower()
+        return datetime.fromtimestamp(unix_ts, tz=tz).strftime("%H:%M")
 
     def _fecha_es(dt: datetime) -> str:
         return f"{_DIAS_ES[dt.weekday()]} {dt.day} de {_MESES_ES[dt.month - 1]}"
 
     def _huecos_libres(eventos: list[dict], dia_dt: datetime) -> list[str]:
-        """Devuelve los huecos libres ENTRE eventos como rangos exactos.
-        No incluye desde medianoche ni hasta medianoche — solo los espacios
-        entre un evento y el siguiente."""
-        if not eventos:
-            return []  # día sin eventos → libre todo el día
+        """Devuelve huecos libres del día como rangos exactos en hora militar.
+        Incluye: antes del primer evento, entre eventos y después del último.
+        Filtra huecos menores a 15 minutos."""
+        MIN_HUECO_SEG = 15 * 60
 
-        # Fusionar eventos solapados para calcular huecos reales
+        if not eventos:
+            return []  # día sin eventos → libre todo el día (se maneja fuera)
+
+        # Fusionar eventos solapados
         ocupados = sorted(eventos, key=lambda e: e["start"])
         merged: list[tuple[int, int]] = []
         for ev in ocupados:
@@ -799,20 +801,30 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             else:
                 merged.append((s, e))
 
-        # Huecos entre bloques consecutivos
+        if not merged:
+            return []
+
+        dia_inicio = int(dia_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        dia_fin    = int(dia_dt.replace(hour=23, minute=59, second=0, microsecond=0).timestamp())
+
         huecos: list[str] = []
-        for i in range(len(merged) - 1):
-            fin_actual = merged[i][1]
-            inicio_sig = merged[i + 1][0]
-            if inicio_sig - fin_actual > 60:  # más de 1 minuto libre
-                huecos.append(f"{_fmt_hora(fin_actual)} - {_fmt_hora(inicio_sig)}")
+        cursor = dia_inicio
+
+        for (s, e) in merged:
+            if s - cursor >= MIN_HUECO_SEG:
+                huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(s)}")
+            cursor = max(cursor, e)
+
+        # Hueco después del último evento
+        if dia_fin - cursor >= MIN_HUECO_SEG:
+            huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(dia_fin)}")
 
         return huecos
 
     lines = []
 
     # Encabezado
-    hora_local = ahora.strftime("%-I:%M %p").lower()
+    hora_local = ahora.strftime("%H:%M")
     fecha_local = _fecha_es(ahora) + f" de {ahora.year}"
     lines.append(f"CALENDARIO DE ASESORES — próximos 7 días")
     lines.append(f"Hora actual: {hora_local}, {fecha_local} (zona {tz_name})")
