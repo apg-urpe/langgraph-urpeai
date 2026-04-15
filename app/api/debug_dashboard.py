@@ -701,6 +701,16 @@ async def debug_interactions(
                 "result": payload.get("result"),
                 "suppressed": (payload.get("result") or {}).get("suppressed") if isinstance(payload.get("result"), dict) else None,
             })
+        elif stage == "slash_command_done":
+            stage_detail.update({
+                "command": payload.get("command"),
+                "result": payload.get("result") or payload.get("response"),
+            })
+        elif stage == "slash_command_detected":
+            stage_detail.update({
+                "command": payload.get("command"),
+                "text": payload.get("message_text") or payload.get("text"),
+            })
         elif stage in ("inbound_error", "error", "exception", "http_error"):
             stage_detail.update({
                 "error": payload.get("error") or payload.get("detail"),
@@ -742,6 +752,17 @@ async def debug_interactions(
             preview = payload.get("response_preview") or payload.get("reply_text") or ""
             interaction["response_preview"] = preview[:200] if preview else interaction["response_preview"]
             interaction["channel"] = interaction["channel"] or _infer_channel(payload, row)
+
+        # Slash commands and successful send/call also mark interaction as ok
+        if stage in ("slash_command_done", "kapso_send_done", "call_fastapi_done"):
+            if interaction["status"] == "processing":
+                interaction["status"] = "ok"
+            if stage == "kapso_send_done":
+                result = payload.get("result") or {}
+                if isinstance(result, dict) and result.get("suppressed"):
+                    interaction["status"] = "suprimido"
+            if stage == "call_fastapi_done":
+                interaction["duration_ms"] = interaction["duration_ms"] or payload.get("total_ms")
 
         if stage in ("inbound_error", "error", "exception", "http_error"):
             if interaction["status"] != "ok":
