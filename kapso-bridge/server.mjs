@@ -6423,15 +6423,25 @@ function _updateToolsTriggerLabel(){
   else if(_toolsFilterVal==='none') btn.textContent='Sin herramientas';
   else btn.textContent='🔧 '+_toolsFilterVal.replace('tool:','');
 }
+const ALL_KNOWN_TOOLS=[
+  'guardar_nota','marcar_prospecto_calificado','desactivar_contacto_spam',
+  'consultar_disponibilidad','agendar_cita','reagendar_cita','cancelar_cita',
+  'send_reaction','ejecutar_comando','update_contact_info',
+];
 function openToolsSheet(){
-  const names=_getToolNames(_rawInteractions);
+  const dynamicNames=_getToolNames(_rawInteractions);
+  const allNames=[...new Set([...ALL_KNOWN_TOOLS,...dynamicNames])].sort();
+  const usedSet=new Set(dynamicNames);
   const list=document.getElementById('bsList');
   const items=[
     {val:'',label:'Todas las interacciones',icon:'📋'},
     {val:'any',label:'Con herramientas',icon:'🔧'},
     {val:'none',label:'Sin herramientas',icon:'🚫'},
   ];
-  for(const n of names) items.push({val:'tool:'+n,label:n,icon:'⚡'});
+  for(const n of allNames){
+    const count=usedSet.has(n)?_rawInteractions.filter(x=>_hasSpecificTool(x,n)).length:0;
+    items.push({val:'tool:'+n,label:n+(count?' ('+count+')':''),icon:'⚡'});
+  }
   list.innerHTML=items.map(it=>{
     const sel=it.val===_toolsFilterVal?'selected':'';
     return '<div class="bs-item '+sel+'" onclick="selectTool(\\''+it.val.replace(/'/g,"\\\\'")+'\\')"><span class="bs-icon">'+it.icon+'</span>'+esc(it.label)+'</div>';
