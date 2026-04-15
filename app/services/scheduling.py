@@ -684,8 +684,11 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         )
 
     ahora = ahora_en_tz(tz_name)
-    ahora_unix = int(ahora.timestamp())
-    fin_rango = ahora + timedelta(days=7)
+    # Consultar desde el inicio del día de hoy para ver TODOS los eventos de hoy,
+    # incluyendo los que ya pasaron (importante para mostrar el calendario completo)
+    inicio_hoy = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    ahora_unix = int(inicio_hoy.timestamp())
+    fin_rango = inicio_hoy + timedelta(days=7)
     fin_unix = int(fin_rango.timestamp())
     tz = ZoneInfo(tz_name)
 
@@ -748,36 +751,54 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         logger.warning("Error cargando wp_citas para calendario: %s", exc)
 
     # ── 3. Formatear calendario como texto ──
+    _DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    _MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
+                 "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
     def _fmt_hora(unix_ts: int) -> str:
         return datetime.fromtimestamp(unix_ts, tz=tz).strftime("%-I:%M %p").lower()
 
-    def _fmt_horas_libres(eventos: list[dict]) -> str:
-        """Calcula y describe los bloques libres entre eventos."""
-        if not eventos:
-            return "todo el día libre"
-        libres = []
-        eventos_sorted = sorted(eventos, key=lambda e: e["start"])
-        # Antes del primer evento
-        primer_inicio = datetime.fromtimestamp(eventos_sorted[0]["start"], tz=tz)
-        if primer_inicio.hour > 0:
-            libres.append(f"antes de {_fmt_hora(eventos_sorted[0]['start'])}")
-        # Entre eventos
-        for i in range(len(eventos_sorted) - 1):
-            fin_actual = eventos_sorted[i]["end"]
-            inicio_sig = eventos_sorted[i + 1]["start"]
-            if inicio_sig - fin_actual > 300:  # más de 5 min de hueco
-                libres.append(f"{_fmt_hora(fin_actual)} - {_fmt_hora(inicio_sig)}")
-        # Después del último evento
-        ultimo_fin = datetime.fromtimestamp(eventos_sorted[-1]["end"], tz=tz)
-        if ultimo_fin.hour < 23:
-            libres.append(f"después de {_fmt_hora(eventos_sorted[-1]['end'])}")
-        return ", ".join(libres) if libres else "sin huecos visibles"
+    def _fecha_es(dt: datetime) -> str:
+        return f"{_DIAS_ES[dt.weekday()]} {dt.day} de {_MESES_ES[dt.month - 1]}"
+
+    def _huecos_libres(eventos: list[dict], dia_dt: datetime) -> list[str]:
+        """Devuelve lista de bloques libres como rangos exactos 'X:XX am - Y:YY pm'."""
+        # Ventana del día: 12:00 am a 11:59 pm
+        dia_inicio_unix = int(dia_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        dia_fin_unix    = int(dia_dt.replace(hour=23, minute=59, second=0, microsecond=0).timestamp())
+
+        # Construir lista de bloques ocupados fusionando solapamientos
+        ocupados = sorted(eventos, key=lambda e: e["start"])
+        merged: list[tuple[int, int]] = []
+        for ev in ocupados:
+            s, e = ev["start"], ev["end"]
+            # Clamp al día
+            s = max(s, dia_inicio_unix)
+            e = min(e, dia_fin_unix)
+            if s >= e:
+                continue
+            if merged and s <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+            else:
+                merged.append((s, e))
+
+        # Calcular huecos entre bloques ocupados
+        huecos: list[str] = []
+        cursor = dia_inicio_unix
+        for (s, e) in merged:
+            if s - cursor > 60:  # hueco de más de 1 min
+                huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(s)}")
+            cursor = e
+        if dia_fin_unix - cursor > 60:
+            huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(dia_fin_unix)}")
+
+        return huecos
 
     lines = []
 
     # Encabezado
     hora_local = ahora.strftime("%-I:%M %p").lower()
-    fecha_local = ahora.strftime("%A %d de %B de %Y").lower()
+    fecha_local = _fecha_es(ahora) + f" de {ahora.year}"
     lines.append(f"CALENDARIO DE ASESORES — próximos 7 días")
     lines.append(f"Hora actual: {hora_local}, {fecha_local} (zona {tz_name})")
 
@@ -866,20 +887,23 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
 
         for dia_key in sorted(dias.keys()):
             dia_dt = datetime.fromisoformat(dia_key).replace(tzinfo=tz)
-            fecha_texto = dia_dt.strftime("%A %d de %B").lower()
+            fecha_texto = _fecha_es(dia_dt)
             eventos_dia = dias[dia_key]
 
             lines.append(f"\n  📅 {fecha_texto.upper()}:")
             if not eventos_dia:
-                lines.append("    ✅ Sin eventos — día completamente libre")
+                lines.append("    ✅ Día completamente libre (sin eventos en calendario)")
             else:
-                for ev in eventos_dia:
+                for ev in sorted(eventos_dia, key=lambda e: e["start"]):
                     inicio_str = _fmt_hora(ev["start"])
                     fin_str = _fmt_hora(ev["end"])
                     title = ev["title"]
                     lines.append(f"    🔴 {inicio_str} – {fin_str} → {title}")
-                libres = _fmt_horas_libres(eventos_dia)
-                lines.append(f"    ✅ Libre: {libres}")
+                huecos = _huecos_libres(eventos_dia, dia_dt)
+                if huecos:
+                    lines.append(f"    ✅ Libre: {' | '.join(huecos)}")
+                else:
+                    lines.append("    ❌ Sin huecos libres en este día")
 
         lines.append("")
 
