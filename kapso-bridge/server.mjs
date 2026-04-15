@@ -6165,6 +6165,24 @@ app.get('/events/api/interactions', async (req, res) => {
   }
 });
 
+app.get('/events/api/agentes', async (req, res) => {
+  const token = req.query.token || req.headers['x-token'] || '';
+  if (!_eventsTokenValid(token)) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const base = getFastApiBaseUrl();
+    const qs = new URLSearchParams();
+    if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
+    const url = `${base}/api/v1/debug/agentes?${qs}`;
+    const upstream = await fetch(url, {
+      headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
+    });
+    const data = await upstream.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err.message), agentes: [] });
+  }
+});
+
 app.get('/events/app', (_req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
@@ -6222,13 +6240,47 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .bnav-item:active{opacity:.7}
 .bnav-item.active{color:var(--blue-400)}
 .bnav-item svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-/* Config screen */
-.config-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;padding:40px 24px}
+/* Config / Agentes screen */
+.config-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;display:none;flex-direction:column;overflow:hidden}
 .config-screen.active{display:flex}
-.config-screen .cs-icon{font-size:56px;margin-bottom:4px;opacity:.5}
-.config-screen .cs-title{font-size:20px;font-weight:700;color:var(--blue-300);text-align:center}
-.config-screen .cs-sub{font-size:14px;color:var(--text-muted);text-align:center;line-height:1.6;max-width:280px}
-.config-screen .cs-badge{background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);border-radius:20px;padding:5px 14px;font-size:12px;color:var(--blue-400);font-weight:600;letter-spacing:.04em;animation:pulse-soft 2.4s ease-in-out infinite}
+/* Agentes filter bar */
+.ag-bar{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:9px 12px;display:flex;gap:8px;align-items:center;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.ag-input{flex:1;background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;transition:border-color .2s;-webkit-appearance:none;min-width:0}
+.ag-input::placeholder{color:var(--text-muted)}
+.ag-input:focus{border-color:rgba(56,189,248,.5)}
+.ag-load-btn{background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.25);border-radius:8px;color:var(--blue-400);font-size:13px;font-weight:600;padding:7px 14px;cursor:pointer;white-space:nowrap;transition:background .15s;-webkit-tap-highlight-color:transparent}
+.ag-load-btn:active{background:rgba(56,189,248,.22)}
+/* Agentes list */
+.ag-list{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 12px 16px}
+/* Placeholder */
+.ag-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;padding:40px 24px;text-align:center}
+.ag-ph-icon{font-size:52px;opacity:.45}
+.ag-ph-title{font-size:18px;font-weight:700;color:var(--blue-300)}
+.ag-ph-sub{font-size:13px;color:var(--text-muted);line-height:1.6;max-width:260px}
+/* Agent card */
+.ag-card{background:var(--glass);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden}
+.ag-card-top{display:flex;align-items:flex-start;gap:12px;padding:14px 14px 10px}
+.ag-avatar-wrap{position:relative;flex-shrink:0}
+.ag-avatar{width:54px;height:54px;border-radius:14px;border:1.5px solid;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}
+.ag-status-dot{position:absolute;bottom:-3px;right:-3px;width:14px;height:14px;border-radius:50%;border:2px solid var(--navy-900)}
+.status-ok{background:var(--green)}
+.status-off{background:var(--text-muted)}
+.ag-info{flex:1;min-width:0}
+.ag-name-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:2px}
+.ag-name{font-size:15px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ag-status-lbl{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:10px;flex-shrink:0}
+.ag-status-lbl.ok{color:var(--green);background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.2)}
+.ag-status-lbl.off{color:var(--text-muted);background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.2)}
+.ag-role{font-size:12px;color:var(--text-dim);margin-bottom:3px}
+.ag-model{font-size:11px;color:var(--text-muted);font-family:'SF Mono','Fira Code',monospace;margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-channels{display:flex;flex-wrap:wrap;gap:4px}
+.ag-ch{font-size:10px;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:8px;background:rgba(56,189,248,.1);color:var(--blue-300);border:1px solid rgba(56,189,248,.2)}
+.ag-ch.ch-ghl{background:rgba(167,139,250,.1);color:#a78bfa;border-color:rgba(167,139,250,.2)}
+.ag-ch.ch-manychat{background:rgba(34,211,238,.1);color:var(--cyan-400);border-color:rgba(34,211,238,.2)}
+/* Card stats row */
+.ag-stats{border-top:1px solid var(--border);padding:8px 14px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;background:rgba(8,12,30,.3)}
+.ag-total{font-size:13px;font-weight:700;color:var(--blue-300)}
+.ag-breakdown{font-size:11px;color:var(--text-muted);flex:1;text-align:right}
 @keyframes pulse-soft{0%,100%{opacity:.7}50%{opacity:1}}
 .badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
 /* Bottom sheet for tools */
@@ -6375,12 +6427,19 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 </div>
 <div class="list" id="list"></div>
 
-<!-- Config / Agentes screen (placeholder) -->
+<!-- Agentes screen -->
 <div class="config-screen" id="configScreen">
-  <div class="cs-icon">🤖</div>
-  <div class="cs-title">Configuración de Agentes</div>
-  <div class="cs-sub">Esta sección está en desarrollo.<br>Pronto podrás configurar el comportamiento, herramientas y personalidad de cada agente desde aquí.</div>
-  <div class="cs-badge">⚙️ Haciéndose...</div>
+  <div class="ag-bar">
+    <input class="ag-input" id="agEmpresaInput" type="number" placeholder="empresa_id..." oninput="" onkeydown="if(event.key==='Enter')loadAgentes()"/>
+    <button class="ag-load-btn" onclick="loadAgentes()">Cargar</button>
+  </div>
+  <div class="ag-list" id="agList">
+    <div class="ag-placeholder">
+      <div class="ag-ph-icon">🤖</div>
+      <div class="ag-ph-title">Agentes</div>
+      <div class="ag-ph-sub">Ingresa un empresa_id y presiona Cargar para ver los agentes configurados.</div>
+    </div>
+  </div>
 </div>
 
 <!-- Bottom nav bar -->
@@ -6761,6 +6820,75 @@ function toggle(i){
   card.classList.toggle('open',isOpen);
 }
 
+// ── Agentes tab ──────────────────────────────────────────────────────────────
+const _AG_COLORS=['#38bdf8','#818cf8','#f472b6','#22d3ee','#34d399','#fb923c'];
+const _AG_CH_NAMES={whatsapp:'WhatsApp',kapso:'Kapso',manychat:'ManyChat',ghl_instagram:'GHL IG',ghl_facebook:'GHL FB',ghl:'GHL'};
+
+function _agChClass(c){
+  if(c.startsWith('ghl'))return 'ch-ghl';
+  if(c==='manychat')return 'ch-manychat';
+  return '';
+}
+
+function _renderAgCard(ag){
+  const initial=(ag.nombre||'?').charAt(0).toUpperCase();
+  const color=_AG_COLORS[ag.id%_AG_COLORS.length];
+  const hexBg=color+'22';
+  const hexBd=color+'55';
+  const channels=(ag.canales||[]).map(c=>\`<span class="ag-ch \${_agChClass(c)}">\${_AG_CH_NAMES[c]||c}</span>\`).join('');
+  const canalStats=Object.entries(ag.por_canal||{}).map(([c,n])=>\`\${_AG_CH_NAMES[c]||c}: \${n}\`).join(' · ');
+  const isOk=ag.activo!==false;
+  return \`<div class="ag-card">
+  <div class="ag-card-top">
+    <div class="ag-avatar-wrap">
+      <div class="ag-avatar" style="background:\${hexBg};border-color:\${hexBd};color:\${color}">\${initial}</div>
+      <div class="ag-status-dot \${isOk?'status-ok':'status-off'}"></div>
+    </div>
+    <div class="ag-info">
+      <div class="ag-name-row">
+        <div class="ag-name">\${ag.nombre}</div>
+        <span class="ag-status-lbl \${isOk?'ok':'off'}">\${isOk?'Activo':'Archivado'}</span>
+      </div>
+      <div class="ag-role">\${ag.rol||'—'}</div>
+      <div class="ag-model">\${ag.llm||'—'}</div>
+      \${channels?'<div class="ag-channels">'+channels+'</div>':''}
+    </div>
+  </div>
+  <div class="ag-stats">
+    <span class="ag-total">\${ag.conversaciones_total} conversaciones</span>
+    \${canalStats?'<span class="ag-breakdown">'+canalStats+'</span>':''}
+  </div>
+</div>\`;
+}
+
+function _renderAgList(agentes){
+  const el=document.getElementById('agList');
+  if(!el)return;
+  if(!agentes||!agentes.length){
+    el.innerHTML='<div class="ag-placeholder"><div class="ag-ph-icon">🤖</div><div class="ag-ph-title">Sin agentes</div><div class="ag-ph-sub">No se encontraron agentes para esta empresa.</div></div>';
+    return;
+  }
+  el.innerHTML=agentes.map(a=>_renderAgCard(a)).join('');
+}
+
+async function loadAgentes(){
+  const empresaId=document.getElementById('agEmpresaInput').value||'';
+  if(!empresaId){
+    document.getElementById('agList').innerHTML='<div class="ag-placeholder"><div class="ag-ph-icon">🤖</div><div class="ag-ph-title">Agentes</div><div class="ag-ph-sub">Ingresa un empresa_id y presiona Cargar para ver los agentes configurados.</div></div>';
+    return;
+  }
+  document.getElementById('agList').innerHTML='<div class="loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+  try{
+    const qs=new URLSearchParams({token:_token,empresa_id:empresaId});
+    const r=await fetch('/events/api/agentes?'+qs);
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    _renderAgList(data.agentes||[]);
+  }catch(e){
+    document.getElementById('agList').innerHTML='<div class="ag-placeholder"><div class="ag-ph-icon">⚠️</div><div class="ag-ph-title">Error</div><div class="ag-ph-sub">'+String(e.message)+'</div></div>';
+  }
+}
+
 function showTab(tab){
   const isDebug=tab==='debug';
   document.getElementById('list').style.display=isDebug?'block':'none';
@@ -6769,6 +6897,14 @@ function showTab(tab){
   document.getElementById('statsbar').style.display=isDebug?'flex':'none';
   document.getElementById('bnavDebug').classList.toggle('active',isDebug);
   document.getElementById('bnavConfig').classList.toggle('active',!isDebug);
+  // Pre-fill empresa from debug filter when switching to agentes
+  if(!isDebug){
+    const debugEmpresa=document.getElementById('fEmpresa').value;
+    if(debugEmpresa){
+      document.getElementById('agEmpresaInput').value=debugEmpresa;
+      loadAgentes();
+    }
+  }
 }
 
 loadData(true);

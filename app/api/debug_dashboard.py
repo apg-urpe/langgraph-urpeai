@@ -822,6 +822,94 @@ async def debug_interactions(
     }
 
 
+@router.get("/api/v1/debug/agentes")
+async def debug_agentes(
+    empresa_id: int = Query(0),
+):
+    """Agentes de una empresa con canales y conteo de conversaciones."""
+    try:
+        db = await get_supabase()
+
+        ag_filters: dict = {"archivado": False}
+        if empresa_id:
+            ag_filters["empresa_id"] = empresa_id
+
+        agents = await db.query(
+            "wp_agentes",
+            select="id,nombre_agente,rol,llm,empresa_id,archivado",
+            filters=ag_filters,
+        ) or []
+
+        if not agents:
+            return {"agentes": [], "empresa_id": empresa_id}
+
+        agent_ids = {a["id"] for a in agents}
+
+        # ── Canales por agente (wp_numeros) ────────────────────────────────
+        num_filters: dict = {"activo": True}
+        if empresa_id:
+            num_filters["empresa_id"] = empresa_id
+        numeros = await db.query(
+            "wp_numeros",
+            select="agente_id,canal",
+            filters=num_filters,
+        ) or []
+
+        canales_map: dict[int, list[str]] = {}
+        seen_canal: dict[int, set] = {}
+        for num in numeros:
+            aid = num.get("agente_id")
+            canal = (num.get("canal") or "").strip()
+            if aid and canal and aid in agent_ids:
+                if aid not in seen_canal:
+                    seen_canal[aid] = set()
+                if canal not in seen_canal[aid]:
+                    seen_canal[aid].add(canal)
+                    canales_map.setdefault(aid, []).append(canal)
+
+        # ── Conversaciones por agente y canal (wp_conversaciones) ──────────
+        conv_filters: dict = {}
+        if empresa_id:
+            conv_filters["empresa_id"] = empresa_id
+        convs = await db.query(
+            "wp_conversaciones",
+            select="agente_id,canal",
+            filters=conv_filters if conv_filters else None,
+            limit=10000,
+        ) or []
+
+        conv_map: dict[int, dict[str, int]] = {}
+        for conv in convs:
+            aid = conv.get("agente_id")
+            canal = (conv.get("canal") or "desconocido").strip()
+            if aid and aid in agent_ids:
+                conv_map.setdefault(aid, {})
+                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
+
+        # ── Resultado ──────────────────────────────────────────────────────
+        result = []
+        for agent in agents:
+            aid = agent["id"]
+            por_canal = conv_map.get(aid, {})
+            result.append({
+                "id": aid,
+                "nombre": agent.get("nombre_agente") or "Sin nombre",
+                "rol": agent.get("rol") or "",
+                "llm": agent.get("llm") or "",
+                "empresa_id": agent.get("empresa_id"),
+                "activo": not agent.get("archivado", False),
+                "canales": canales_map.get(aid, []),
+                "conversaciones_total": sum(por_canal.values()),
+                "por_canal": por_canal,
+            })
+
+        return {"agentes": result, "empresa_id": empresa_id}
+
+    except Exception as exc:
+        logger.error("debug_agentes error: %s", exc)
+        return {"agentes": [], "error": str(exc), "empresa_id": empresa_id}
+
+
 @router.get("/debug/kapso/", response_class=HTMLResponse)
 @router.get("/debug/kapso", response_class=HTMLResponse)
 async def debug_kapso_dashboard():
