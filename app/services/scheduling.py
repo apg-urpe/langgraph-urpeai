@@ -804,8 +804,11 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         if not merged:
             return []
 
-        dia_inicio = int(dia_dt.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-        dia_fin    = int(dia_dt.replace(hour=23, minute=59, second=0, microsecond=0).timestamp())
+        # TODO: reemplazar estos límites hardcodeados por la configuración real
+        # del asesor (ej: columna disponibilidad.horarios_normales) una vez
+        # se defina dónde almacenar el horario laboral de cada asesor.
+        dia_inicio = int(dia_dt.replace(hour=8, minute=0, second=0, microsecond=0).timestamp())
+        dia_fin    = int(dia_dt.replace(hour=17, minute=0, second=0, microsecond=0).timestamp())
 
         huecos: list[str] = []
         cursor = dia_inicio
