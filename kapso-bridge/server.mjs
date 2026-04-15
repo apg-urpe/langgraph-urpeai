@@ -6964,7 +6964,7 @@ function _renderEmpresaGroup(emp){
     <span class="ag-emp-count">\${count} activo\${count!==1?'s':''}\${inactivos.length?' · '+inactivos.length+' inact.':''}</span>
     <span class="ag-emp-chev">▼</span>
   </div>
-  <div class="ag-emp-body open" id="agEmpBody\${eidx}">\${cards}</div>
+  <div class="ag-emp-body" id="agEmpBody\${eidx}">\${cards}</div>
 </div>\`;
 }
 
@@ -6983,13 +6983,6 @@ function _renderEmpresas(empresas){
   }
   _agCardIdx=0;_agEmpresaIdx=0;
   el.innerHTML=empresas.map(e=>_renderEmpresaGroup(e)).join('');
-  // Auto-open if only one empresa
-  if(empresas.length===1){
-    const hdr=document.getElementById('agEmpHdr0');
-    const body=document.getElementById('agEmpBody0');
-    if(hdr)hdr.classList.add('open');
-    if(body)body.classList.add('open');
-  }
 }
 
 let _allEmpresas=[];
@@ -6998,13 +6991,19 @@ function filterAgentes(q){
   if(!q.trim()){_renderEmpresas(_allEmpresas);return;}
   const s=q.toLowerCase();
   const filtered=_allEmpresas.map(emp=>{
-    const empMatch=emp.nombre.toLowerCase().includes(s)||emp.rubro.toLowerCase().includes(s);
-    const filteredAgs=emp.agentes.filter(ag=>ag.nombre.toLowerCase().includes(s)||ag.rol.toLowerCase().includes(s));
+    const empMatch=emp.nombre.toLowerCase().includes(s)||(emp.rubro||'').toLowerCase().includes(s);
+    const filteredAgs=emp.agentes.filter(ag=>ag.nombre.toLowerCase().includes(s)||(ag.rol||'').toLowerCase().includes(s));
     if(empMatch)return emp;
     if(filteredAgs.length)return {...emp,agentes:filteredAgs};
     return null;
   }).filter(Boolean);
   _renderEmpresas(filtered);
+  // Auto-abrir si filtra a una sola empresa
+  if(filtered.length===1){
+    const hdr=document.getElementById('agEmpHdr0');
+    const body=document.getElementById('agEmpBody0');
+    if(hdr&&!hdr.classList.contains('open')){hdr.classList.add('open');if(body)body.classList.add('open');}
+  }
 }
 
 async function loadAgentes(){
