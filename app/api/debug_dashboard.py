@@ -893,22 +893,28 @@ async def debug_agentes(
                     seen_canal[aid].add(canal)
                     canales_map.setdefault(aid, []).append(canal)
 
-        # ── Conversaciones por agente y canal ─────────────────────────────
-        conv_filters: dict = {}
+        # ── Conversaciones por agente y canal (aggregation) ──────────────
+        # Usamos count() de PostgREST para evitar traer filas individuales y
+        # no depender de límites de paginación (que truncaban conteos globales).
+        agg_raw: dict[str, str] = {}
         if empresa_id:
-            conv_filters["empresa_id"] = empresa_id
+            agg_raw["empresa_id"] = f"eq.{empresa_id}"
+        if agent_ids:
+            agg_raw["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
         convs = await db.query(
-            "wp_conversaciones", select="agente_id,canal",
-            filters=conv_filters if conv_filters else None, limit=10000,
+            "wp_conversaciones",
+            select="agente_id,canal,count()",
+            raw_filters=agg_raw if agg_raw else None,
         ) or []
 
         conv_map: dict[int, dict[str, int]] = {}
-        for conv in convs:
-            aid = conv.get("agente_id")
-            canal = (conv.get("canal") or "desconocido").strip()
+        for row in convs:
+            aid = row.get("agente_id")
+            canal = (row.get("canal") or "desconocido").strip()
+            cnt = int(row.get("count") or 0)
             if aid and aid in agent_ids:
                 conv_map.setdefault(aid, {})
-                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
+                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + cnt
 
         # ── Agrupar agentes por empresa ───────────────────────────────────
         def _build_agent(agent: dict) -> dict:
