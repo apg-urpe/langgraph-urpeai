@@ -6131,37 +6131,270 @@ self.addEventListener('fetch',e=>{if(e.request.mode==='navigate'){e.respondWith(
 `);
 });
 
+function _eventsTokenValid(token) {
+  if (!token) return false;
+  const allowed = new Set([KAPSO_DEBUG_TOKEN, KAPSO_INTERNAL_TOKEN].filter(Boolean));
+  return allowed.has(token);
+}
+
+app.get('/events/api/interactions', async (req, res) => {
+  const token = req.query.token || req.headers['x-token'] || '';
+  if (!_eventsTokenValid(token)) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const base = getFastApiBaseUrl();
+    const qs = new URLSearchParams();
+    if (req.query.channel)    qs.set('channel',    req.query.channel);
+    if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
+    if (req.query.days)       qs.set('days',        req.query.days);
+    if (req.query.since)      qs.set('since',       req.query.since);
+    qs.set('limit', String(Math.min(Number(req.query.limit) || 50, 100)));
+    qs.set('page',  req.query.page || '1');
+    const url = `${base}/api/v1/debug/interactions?${qs}`;
+    const upstream = await fetch(url, {
+      headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
+    });
+    const data = await upstream.json();
+    if (req.query.contacto_id && data.interactions) {
+      const cid = String(req.query.contacto_id);
+      data.interactions = data.interactions.filter(i => String(i.contacto_id ?? '') === cid);
+      data.total = data.interactions.length;
+    }
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err.message), interactions: [], total: 0 });
+  }
+});
+
 app.get('/events/app', (_req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#080c1e">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/events/manifest.json">
 <title>URPE AI — Events</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{background:#080c1e;min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#e2e8f0}
-.center{text-align:center;padding:40px 24px}
-.icon{font-size:48px;margin-bottom:20px}
-h1{font-size:22px;font-weight:700;color:#7dd3fc;margin-bottom:10px}
-p{color:#64748b;font-size:14px;line-height:1.6}
-.logout{margin-top:32px;display:inline-block;padding:10px 24px;border:1px solid rgba(56,189,248,0.3);border-radius:8px;color:#38bdf8;font-size:13px;cursor:pointer;background:none;letter-spacing:.05em}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --navy-900:#080c1e;--navy-800:#0b1230;--navy-700:#0d1b4b;
+  --blue-400:#38bdf8;--blue-300:#7dd3fc;--cyan-400:#22d3ee;
+  --green:#34d399;--red:#f87171;--yellow:#fbbf24;--orange:#fb923c;
+  --text:#e2e8f0;--text-dim:#94a3b8;--text-muted:#64748b;
+  --border:rgba(56,189,248,0.14);--glass:rgba(13,27,75,0.5);
+}
+html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}
+/* Topbar */
+.topbar{position:fixed;top:0;left:0;right:0;height:52px;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:100;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.topbar-brand{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;color:var(--blue-300);letter-spacing:.04em}
+.topbar-brand span{font-size:20px}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.refresh-btn{background:none;border:1px solid var(--border);border-radius:8px;color:var(--blue-400);padding:6px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:border-color .2s}
+.refresh-btn:hover{border-color:var(--blue-400)}
+.refresh-btn.spinning svg{animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.logout-btn{background:none;border:none;color:var(--text-muted);font-size:12px;cursor:pointer;padding:6px 4px}
+.logout-btn:hover{color:var(--red)}
+/* Filter bar */
+.filterbar{position:fixed;top:52px;left:0;right:0;background:rgba(8,12,30,.88);border-bottom:1px solid var(--border);padding:10px 12px;z-index:99;display:flex;flex-wrap:wrap;gap:8px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.filter-input,.filter-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none;min-width:0}
+.filter-input::placeholder{color:var(--text-muted)}
+.filter-input:focus,.filter-select:focus{border-color:rgba(56,189,248,.5)}
+.filter-input{flex:1;min-width:110px}
+.filter-select{flex:0 0 auto}
+/* Stats bar */
+.statsbar{position:fixed;top:120px;left:0;right:0;background:rgba(8,12,30,.7);border-bottom:1px solid var(--border);padding:8px 16px;z-index:98;display:flex;gap:16px;overflow-x:auto;scrollbar-width:none}
+.statsbar::-webkit-scrollbar{display:none}
+.stat{display:flex;flex-direction:column;align-items:center;flex:0 0 auto}
+.stat-val{font-size:16px;font-weight:700;color:var(--blue-300)}
+.stat-lbl{font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:1px}
+/* Card list */
+.list{position:fixed;top:162px;bottom:0;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+/* Interaction card */
+.card{background:var(--glass);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
+.card:active{border-color:rgba(56,189,248,.35)}
+.card-head{display:flex;align-items:center;gap:8px;padding:12px 14px 10px;cursor:pointer}
+.card-badges{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
+.badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:20px;white-space:nowrap}
+.badge-canal{background:rgba(56,189,248,.12);color:var(--blue-300);border:1px solid rgba(56,189,248,.2)}
+.badge-ok{background:rgba(52,211,153,.12);color:var(--green);border:1px solid rgba(52,211,153,.2)}
+.badge-error{background:rgba(248,113,113,.12);color:var(--red);border:1px solid rgba(248,113,113,.2)}
+.badge-processing{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.18)}
+.badge-suprimido{background:rgba(251,146,60,.1);color:var(--orange);border:1px solid rgba(251,146,60,.18)}
+.card-time{font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
+.card-body{padding:0 14px 12px}
+.card-contact{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.card-contact .phone{font-size:11px;color:var(--text-muted);font-weight:400}
+.card-meta{font-size:11px;color:var(--text-dim);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:8px}
+.card-msg{font-size:13px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-agent{margin-top:6px;font-size:11px;color:var(--text-muted)}
+/* Expandable detail */
+.card-detail{display:none;border-top:1px solid var(--border);padding:12px 14px;background:rgba(8,12,30,.4)}
+.card-detail.open{display:block}
+.detail-row{display:flex;gap:8px;margin-bottom:8px;font-size:12px}
+.detail-lbl{color:var(--text-muted);flex-shrink:0;min-width:80px}
+.detail-val{color:var(--text-dim);word-break:break-all}
+.detail-pre{background:rgba(8,12,30,.7);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all;max-height:160px;overflow-y:auto;margin-top:4px;font-family:'SF Mono','Fira Code',monospace}
+.detail-stages{margin-top:4px;display:flex;flex-direction:column;gap:4px}
+.stage-pill{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--text-dim)}
+/* Empty / loading */
+.empty{text-align:center;padding:60px 24px;color:var(--text-muted)}
+.empty-icon{font-size:36px;margin-bottom:12px}
+.loader{display:flex;justify-content:center;align-items:center;padding:48px;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--blue-400);animation:bounce .8s ease-in-out infinite}
+.dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
+.auto-lbl{font-size:10px;color:var(--text-muted);padding:2px 6px}
 </style>
 </head>
 <body>
-<div class="center">
-<div class="icon">⚡</div>
-<h1>Conectado</h1>
-<p>El panel de eventos está en construcción.<br>Próximamente aquí verás las notificaciones en tiempo real.</p>
-<button class="logout" onclick="localStorage.removeItem('urpe_events_token');window.location.href='/events'">Cerrar sesión</button>
+<div class="topbar">
+  <div class="topbar-brand"><span>⚡</span>URPE Events</div>
+  <div class="topbar-right">
+    <span class="auto-lbl" id="autoLbl"></span>
+    <button class="refresh-btn" id="refreshBtn" onclick="loadData(true)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Actualizar
+    </button>
+    <button class="logout-btn" onclick="logout()">Salir</button>
+  </div>
 </div>
+<div class="filterbar">
+  <input class="filter-input" id="fContacto" placeholder="contacto_id..." oninput="scheduleFilter()"/>
+  <input class="filter-input" id="fEmpresa" placeholder="empresa_id..." oninput="scheduleFilter()"/>
+  <select class="filter-select" id="fCanal" onchange="loadData(true)">
+    <option value="">Todos los canales</option>
+    <option value="whatsapp">WhatsApp</option>
+    <option value="instagram">Instagram</option>
+    <option value="facebook">Facebook</option>
+    <option value="manychat">ManyChat</option>
+    <option value="ghl">GHL</option>
+  </select>
+  <select class="filter-select" id="fDays" onchange="loadData(true)">
+    <option value="1">Hoy</option>
+    <option value="3" selected>3 días</option>
+    <option value="7">7 días</option>
+    <option value="30">30 días</option>
+  </select>
+</div>
+<div class="statsbar" id="statsbar">
+  <div class="stat"><div class="stat-val" id="sTot">—</div><div class="stat-lbl">Total</div></div>
+  <div class="stat"><div class="stat-val" id="sOk" style="color:var(--green)">—</div><div class="stat-lbl">OK</div></div>
+  <div class="stat"><div class="stat-val" id="sErr" style="color:var(--red)">—</div><div class="stat-lbl">Errores</div></div>
+  <div class="stat"><div class="stat-val" id="sMs">—</div><div class="stat-lbl">Avg ms</div></div>
+</div>
+<div class="list" id="list"></div>
 <script>
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/events/sw.js').catch(()=>{});
-if(!localStorage.getItem('urpe_events_token'))window.location.href='/events';
+const TOKEN_KEY='urpe_events_token';
+let _token=localStorage.getItem(TOKEN_KEY)||'';
+if(!_token){window.location.href='/events';}
+function logout(){localStorage.removeItem(TOKEN_KEY);window.location.href='/events';}
+
+function relTime(iso){
+  const d=new Date(iso),now=new Date(),s=Math.floor((now-d)/1000);
+  if(s<60)return 'hace '+s+'s';
+  if(s<3600)return 'hace '+Math.floor(s/60)+'m';
+  if(s<86400)return 'hace '+Math.floor(s/3600)+'h';
+  return 'hace '+Math.floor(s/86400)+'d';
+}
+function statusBadge(s){
+  const m={ok:'badge-ok',error:'badge-error',processing:'badge-processing',suprimido:'badge-suprimido'};
+  return '<span class="badge '+(m[s]||'badge-processing')+'">'+s+'</span>';
+}
+function canalBadge(c){return '<span class="badge badge-canal">'+(c||'?')+'</span>';}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+let _filterTimer=null;
+function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>loadData(true),600);}
+
+let _autoTimer=null;
+function startAuto(){
+  clearInterval(_autoTimer);
+  _autoTimer=setInterval(()=>loadData(false),30000);
+  updateAutoLbl();
+}
+function updateAutoLbl(){document.getElementById('autoLbl').textContent='auto 30s';}
+
+async function loadData(showLoader=false){
+  if(!_token){window.location.href='/events';return;}
+  const list=document.getElementById('list');
+  if(showLoader)list.innerHTML='<div class="loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
+  const btn=document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  const canal=document.getElementById('fCanal').value;
+  const empresa=document.getElementById('fEmpresa').value.trim();
+  const contacto=document.getElementById('fContacto').value.trim();
+  const days=document.getElementById('fDays').value;
+  const qs=new URLSearchParams({token:_token,days,limit:'50'});
+  if(canal)qs.set('channel',canal);
+  if(empresa)qs.set('empresa_id',empresa);
+  if(contacto)qs.set('contacto_id',contacto);
+  try{
+    const r=await fetch('/events/api/interactions?'+qs);
+    if(r.status===401){logout();return;}
+    const data=await r.json();
+    renderStats(data.stats||{});
+    renderList(data.interactions||[]);
+  }catch(e){
+    list.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>Error cargando datos</p></div>';
+  }finally{btn.classList.remove('spinning');}
+}
+
+function renderStats(s){
+  document.getElementById('sTot').textContent=s.total??'—';
+  document.getElementById('sOk').textContent=s.ok??'—';
+  document.getElementById('sErr').textContent=s.errors??'—';
+  document.getElementById('sMs').textContent=s.avg_ms!=null?Math.round(s.avg_ms)+'ms':'—';
+}
+
+function renderList(items){
+  const list=document.getElementById('list');
+  if(!items.length){list.innerHTML='<div class="empty"><div class="empty-icon">📭</div><p>Sin interacciones en este período</p></div>';return;}
+  list.innerHTML=items.map((x,i)=>cardHtml(x,i)).join('');
+}
+
+function cardHtml(x,i){
+  const name=esc(x.contact_name||x.from_phone||'Desconocido');
+  const phone=x.from_phone&&x.contact_name?'<span class="phone">'+esc(x.from_phone)+'</span>':'';
+  const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
+  const resp=x.response_preview?'<div class="detail-lbl">Respuesta</div><div class="detail-pre">'+esc(x.response_preview)+'</div>':'';
+  const err=x.error?'<div class="detail-lbl" style="color:var(--red);margin-top:8px">Error</div><div class="detail-pre" style="border-color:rgba(248,113,113,.3)">'+esc(x.error)+'</div>':'';
+  const stages=(x.stages||[]).map(s=>'<div class="stage-pill">'+esc(s.stage||s)+(s.ms?' · '+s.ms+'ms':'')+'</div>').join('');
+  return \`<div class="card" id="card\${i}">
+  <div class="card-head" onclick="toggle(\${i})">
+    <div class="card-badges">\${canalBadge(x.channel)}\${statusBadge(x.status)}</div>
+    <div class="card-time">\${relTime(x.started_at)}</div>
+  </div>
+  <div class="card-body">
+    <div class="card-contact">\${name}\${phone}</div>
+    <div class="card-meta">
+      \${x.empresa_id?'<span>🏢 '+esc(x.empresa_id)+'</span>':''}
+      \${x.contacto_id?'<span>👤 '+esc(x.contacto_id)+'</span>':''}
+      \${dur?'<span>⏱ '+dur+'</span>':''}
+    </div>
+    \${x.message_text?'<div class="card-msg">'+esc(x.message_text)+'</div>':''}
+    \${x.agent_name||x.model_used?'<div class="card-agent">🤖 '+esc(x.agent_name||'')+' '+esc(x.model_used||'')+'</div>':''}
+  </div>
+  <div class="card-detail" id="detail\${i}">
+    \${resp}\${err}
+    \${stages?'<div class="detail-lbl" style="margin-top:8px">Etapas</div><div class="detail-stages">'+stages+'</div>':''}
+    <div class="detail-row" style="margin-top:8px"><span class="detail-lbl">message_id</span><span class="detail-val">\${esc(x.message_id||'—')}</span></div>
+    \${x.message_type?'<div class="detail-row"><span class="detail-lbl">Tipo msg</span><span class="detail-val">'+esc(x.message_type)+'</span></div>':''}
+  </div>
+</div>\`;
+}
+
+function toggle(i){
+  const d=document.getElementById('detail'+i);
+  d.classList.toggle('open');
+}
+
+loadData(true);
+startAuto();
 </script>
 </body>
 </html>`);
