@@ -6216,7 +6216,10 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 /* Interaction card */
 .card{background:var(--glass);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
 .card:active{border-color:rgba(56,189,248,.35)}
-.card-head{display:flex;align-items:center;gap:8px;padding:12px 14px 10px;cursor:pointer}
+.card.open{border-color:rgba(56,189,248,.3)}
+.card-head{display:flex;align-items:center;gap:8px;padding:12px 14px 10px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.card-chev{flex-shrink:0;color:var(--text-muted);transition:transform .25s ease,color .2s}
+.card.open .card-chev{transform:rotate(180deg);color:var(--blue-400)}
 .card-badges{display:flex;gap:5px;flex-wrap:wrap;flex:1;min-width:0}
 .badge{display:inline-flex;align-items:center;font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:20px;white-space:nowrap}
 .badge-canal{background:rgba(56,189,248,.12);color:var(--blue-300);border:1px solid rgba(56,189,248,.2)}
@@ -6268,14 +6271,12 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .dot{width:8px;height:8px;border-radius:50%;background:var(--blue-400);animation:bounce .8s ease-in-out infinite}
 .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
 @keyframes bounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1);opacity:1}}
-.auto-lbl{font-size:10px;color:var(--text-muted);padding:2px 6px}
 </style>
 </head>
 <body>
 <div class="topbar">
   <div class="topbar-brand"><span>⚡</span>URPE Events</div>
   <div class="topbar-right">
-    <span class="auto-lbl" id="autoLbl"></span>
     <button class="refresh-btn" id="refreshBtn" onclick="loadData(true)">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
       Actualizar
@@ -6331,14 +6332,6 @@ function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 
 let _filterTimer=null;
 function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>loadData(true),600);}
-
-let _autoTimer=null;
-function startAuto(){
-  clearInterval(_autoTimer);
-  _autoTimer=setInterval(()=>loadData(false),30000);
-  updateAutoLbl();
-}
-function updateAutoLbl(){document.getElementById('autoLbl').textContent='auto 30s';}
 
 async function loadData(showLoader=false){
   if(!_token){window.location.href='/events';return;}
@@ -6508,6 +6501,7 @@ function cardHtml(x,i){
   <div class="card-head" onclick="toggle(\${i})">
     <div class="card-badges">\${canalBadge(x.channel)}\${statusBadge(x.status)}</div>
     <div class="card-time">\${relTime(x.started_at)}</div>
+    <svg class="card-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </div>
   <div class="card-body">
     <div class="card-contact">\${name}\${phone}</div>
@@ -6527,12 +6521,13 @@ function cardHtml(x,i){
 }
 
 function toggle(i){
+  const card=document.getElementById('card'+i);
   const d=document.getElementById('detail'+i);
-  d.classList.toggle('open');
+  const isOpen=d.classList.toggle('open');
+  card.classList.toggle('open',isOpen);
 }
 
 loadData(true);
-startAuto();
 </script>
 </body>
 </html>`);
