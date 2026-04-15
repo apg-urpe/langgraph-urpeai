@@ -6183,6 +6183,27 @@ app.get('/events/api/agentes', async (req, res) => {
   }
 });
 
+app.patch('/events/api/agentes/:id', express.json(), async (req, res) => {
+  const token = req.query.token || req.headers['x-token'] || req.headers['x-token'] || '';
+  if (!_eventsTokenValid(token)) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const base = getFastApiBaseUrl();
+    const url = `${base}/api/v1/debug/agentes/${req.params.id}`;
+    const upstream = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {}),
+      },
+      body: JSON.stringify(req.body),
+    });
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (err) {
+    res.status(500).json({ error: String(err.message) });
+  }
+});
+
 app.get('/events/app', (_req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>
@@ -6300,9 +6321,17 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .ag-detail{display:none;border-top:1px solid var(--border);background:rgba(8,12,30,.4)}
 .ag-card.open .ag-detail{display:block}
 .ag-detail-inner{padding:12px 12px 10px;display:flex;flex-direction:column;gap:10px}
-.ag-field{display:flex;flex-direction:column;gap:3px}
+.ag-field{display:flex;flex-direction:column;gap:4px}
 .ag-field-lbl{font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em}
+.ag-field-body{position:relative;display:flex;flex-direction:column;gap:5px}
 .ag-field-val{font-size:12px;color:var(--text-dim);line-height:1.55;white-space:pre-wrap;word-break:break-word;background:rgba(8,12,30,.6);border:1px solid var(--border);border-radius:7px;padding:7px 9px;max-height:160px;overflow-y:auto;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.ag-field-textarea{width:100%;background:rgba(8,12,30,.8);border:1px solid rgba(56,189,248,.4);border-radius:7px;color:var(--text);font-size:12px;line-height:1.55;padding:7px 9px;resize:vertical;min-height:80px;outline:none;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.ag-edit-actions{display:flex;gap:7px}
+.ag-edit-btn{align-self:flex-start;background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:10px;padding:3px 9px;cursor:pointer;transition:color .15s,border-color .15s;-webkit-tap-highlight-color:transparent}
+.ag-edit-btn:active{color:var(--blue-400);border-color:rgba(56,189,248,.4)}
+.ag-save-btn{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);border-radius:6px;color:var(--green);font-size:11px;font-weight:600;padding:5px 14px;cursor:pointer;transition:opacity .15s;-webkit-tap-highlight-color:transparent}
+.ag-save-btn:disabled{opacity:.5}
+.ag-cancel-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;padding:5px 10px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes pulse-soft{0%,100%{opacity:.7}50%{opacity:1}}
 .badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
 /* Bottom sheet for tools */
@@ -6452,15 +6481,13 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 <!-- Agentes screen -->
 <div class="config-screen" id="configScreen">
   <div class="ag-bar">
-    <input class="ag-input" id="agEmpresaInput" type="number" placeholder="empresa_id..." oninput="" onkeydown="if(event.key==='Enter')loadAgentes()"/>
-    <button class="ag-load-btn" onclick="loadAgentes()">Cargar</button>
+    <input class="ag-input" id="agSearchInput" placeholder="Buscar empresa o agente..." oninput="filterAgentes(this.value)"/>
+    <button class="ag-load-btn" onclick="loadAgentes()" title="Recargar">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    </button>
   </div>
   <div class="ag-list" id="agList">
-    <div class="ag-placeholder">
-      <div class="ag-ph-icon">🤖</div>
-      <div class="ag-ph-title">Agentes</div>
-      <div class="ag-ph-sub">Ingresa un empresa_id y presiona Cargar para ver los agentes configurados.</div>
-    </div>
+    <div class="loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
   </div>
 </div>
 
@@ -6896,7 +6923,7 @@ function _renderAgCard(ag){
     \${canalStats?'<span class="ag-breakdown">'+canalStats+'</span>':''}
   </div>
   <div class="ag-detail">
-    <div class="ag-detail-inner">\${_renderAgInstrucciones(ag.instrucciones)}</div>
+    <div class="ag-detail-inner">\${_renderAgInstrucciones(ag.instrucciones,ag.id)}</div>
   </div>
 </div>\`;
 }
@@ -6950,22 +6977,81 @@ function _renderEmpresas(empresas){
   }
 }
 
+let _allEmpresas=[];
+
+function filterAgentes(q){
+  if(!q.trim()){_renderEmpresas(_allEmpresas);return;}
+  const s=q.toLowerCase();
+  const filtered=_allEmpresas.map(emp=>{
+    const empMatch=emp.nombre.toLowerCase().includes(s)||emp.rubro.toLowerCase().includes(s);
+    const filteredAgs=emp.agentes.filter(ag=>ag.nombre.toLowerCase().includes(s)||ag.rol.toLowerCase().includes(s));
+    if(empMatch)return emp;
+    if(filteredAgs.length)return {...emp,agentes:filteredAgs};
+    return null;
+  }).filter(Boolean);
+  _renderEmpresas(filtered);
+}
+
 async function loadAgentes(){
-  const empresaId=document.getElementById('agEmpresaInput').value||'';
-  if(!empresaId){
-    document.getElementById('agList').innerHTML='<div class="ag-placeholder"><div class="ag-ph-icon">🤖</div><div class="ag-ph-title">Agentes</div><div class="ag-ph-sub">Ingresa un empresa_id y presiona Cargar para ver los agentes configurados.</div></div>';
-    return;
-  }
   document.getElementById('agList').innerHTML='<div class="loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>';
   try{
-    const qs=new URLSearchParams({token:_token,empresa_id:empresaId});
+    const qs=new URLSearchParams({token:_token});
     const r=await fetch('/events/api/agentes?'+qs);
     if(!r.ok)throw new Error('HTTP '+r.status);
     const data=await r.json();
-    _renderEmpresas(data.empresas||[]);
+    _allEmpresas=data.empresas||[];
+    _renderEmpresas(_allEmpresas);
   }catch(e){
     document.getElementById('agList').innerHTML='<div class="ag-placeholder"><div class="ag-ph-icon">⚠️</div><div class="ag-ph-title">Error</div><div class="ag-ph-sub">'+String(e.message)+'</div></div>';
   }
+}
+
+// ── Edición inline de instrucciones ─────────────────────────────────────────
+async function saveAgField(agenteId,field,el){
+  const val=el.querySelector('textarea').value;
+  const btn=el.querySelector('.ag-save-btn');
+  btn.textContent='Guardando…';btn.disabled=true;
+  try{
+    const r=await fetch('/events/api/agentes/'+agenteId+'?token='+encodeURIComponent(_token),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({[field]:val}),
+    });
+    const data=await r.json();
+    if(!r.ok)throw new Error(data.detail||'Error '+r.status);
+    // Replace editable with display view
+    el.innerHTML='<div class="ag-field-val ag-field-val--saved">'+val+'</div><button class="ag-edit-btn" onclick="editAgField('+agenteId+',\''+field+'\',this.parentElement)">Editar</button>';
+    btn.textContent='Guardar';btn.disabled=false;
+  }catch(e){
+    btn.textContent='Guardar';btn.disabled=false;
+    btn.style.color='var(--red)';
+    setTimeout(()=>{btn.style.color='';},2000);
+    alert('Error: '+e.message);
+  }
+}
+
+function editAgField(agenteId,field,container){
+  const current=container.querySelector('.ag-field-val')?.textContent||'';
+  container.innerHTML=\`<textarea class="ag-field-textarea" rows="5">\${current}</textarea><div class="ag-edit-actions"><button class="ag-save-btn" onclick="saveAgField(\${agenteId},'\${field}',this.closest('.ag-field-body'))">Guardar</button><button class="ag-cancel-btn" onclick="cancelAgField(this.closest('.ag-field-body'),'\${current}',\${agenteId},'\${field}')">Cancelar</button></div>\`;
+  container.querySelector('textarea').focus();
+}
+
+function cancelAgField(container,original,agenteId,field){
+  container.innerHTML='<div class="ag-field-val">'+original+'</div><button class="ag-edit-btn" onclick="editAgField('+agenteId+',\''+field+'\',this.parentElement)">Editar</button>';
+}
+
+function _renderAgInstrucciones(instr,agenteId){
+  if(!instr)return '';
+  const fields=Object.entries(_AG_INSTR_LABELS)
+    .filter(([k])=>instr[k]&&instr[k].trim())
+    .map(([k,lbl])=>\`<div class="ag-field">
+  <div class="ag-field-lbl">\${lbl}</div>
+  <div class="ag-field-body">
+    <div class="ag-field-val">\${instr[k]}</div>
+    <button class="ag-edit-btn" onclick="editAgField(\${agenteId},'\${k}',this.parentElement)">Editar</button>
+  </div>
+</div>\`);
+  if(!fields.length)return '<div class="ag-field"><div class="ag-field-lbl" style="color:var(--text-muted);font-size:12px">Sin instrucciones configuradas</div></div>';
+  return fields.join('');
 }
 
 function showTab(tab){
@@ -6976,13 +7062,9 @@ function showTab(tab){
   document.getElementById('statsbar').style.display=isDebug?'flex':'none';
   document.getElementById('bnavDebug').classList.toggle('active',isDebug);
   document.getElementById('bnavConfig').classList.toggle('active',!isDebug);
-  // Pre-fill empresa from debug filter when switching to agentes
-  if(!isDebug){
-    const debugEmpresa=document.getElementById('fEmpresa').value;
-    if(debugEmpresa){
-      document.getElementById('agEmpresaInput').value=debugEmpresa;
-      loadAgentes();
-    }
+  // Auto-load agentes on first switch to config tab
+  if(!isDebug&&!_allEmpresas.length){
+    loadAgentes();
   }
 }
 

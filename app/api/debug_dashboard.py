@@ -948,6 +948,42 @@ async def debug_agentes(
         return {"empresas": [], "error": str(exc), "empresa_id": empresa_id}
 
 
+# ─── Editable fields whitelist ────────────────────────────────────────────────
+_AG_EDITABLE_FIELDS = {
+    "instrucciones", "comportamiento", "restricciones",
+    "instrucciones_mensajes", "instrucciones_multimedia",
+    "formato_respuesta", "areas_de_expertise", "uso_de_emojis",
+    "manejo_herramientas", "prompt_personalizado", "idioma",
+    "nombre_agente", "rol", "llm",
+}
+
+
+@router.patch("/api/v1/debug/agentes/{agente_id}")
+async def patch_agente(agente_id: int, body: dict):
+    """Actualiza campos editables de un agente (solo campos permitidos)."""
+    try:
+        db = await get_supabase()
+
+        # Filtrar solo campos permitidos y no vacíos por accidente
+        payload = {k: v for k, v in body.items() if k in _AG_EDITABLE_FIELDS}
+        if not payload:
+            raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
+
+        # Verificar que el agente existe
+        existing = await db.query("wp_agentes", filters={"id": agente_id}, single=True)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agente no encontrado")
+
+        await db.update("wp_agentes", filters={"id": agente_id}, data=payload)
+        return {"ok": True, "agente_id": agente_id, "updated": list(payload.keys())}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("patch_agente %s error: %s", agente_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/debug/kapso/", response_class=HTMLResponse)
 @router.get("/debug/kapso", response_class=HTMLResponse)
 async def debug_kapso_dashboard():
