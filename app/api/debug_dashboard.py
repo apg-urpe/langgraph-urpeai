@@ -893,28 +893,28 @@ async def debug_agentes(
                     seen_canal[aid].add(canal)
                     canales_map.setdefault(aid, []).append(canal)
 
-        # ── Conversaciones por agente y canal (aggregation) ──────────────
-        # Usamos count() de PostgREST para evitar traer filas individuales y
-        # no depender de límites de paginación (que truncaban conteos globales).
-        agg_raw: dict[str, str] = {}
+        # ── Conversaciones por agente y canal ────────────────────────────
+        # Filtramos por los IDs de agentes conocidos para acotar el dataset
+        # sin depender del limit global de toda la tabla.
+        conv_raw: dict[str, str] = {}
         if empresa_id:
-            agg_raw["empresa_id"] = f"eq.{empresa_id}"
+            conv_raw["empresa_id"] = f"eq.{empresa_id}"
         if agent_ids:
-            agg_raw["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
+            conv_raw["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
         convs = await db.query(
             "wp_conversaciones",
-            select="agente_id,canal,count()",
-            raw_filters=agg_raw if agg_raw else None,
+            select="agente_id,canal",
+            raw_filters=conv_raw if conv_raw else None,
+            limit=200000,
         ) or []
 
         conv_map: dict[int, dict[str, int]] = {}
-        for row in convs:
-            aid = row.get("agente_id")
-            canal = (row.get("canal") or "desconocido").strip()
-            cnt = int(row.get("count") or 0)
+        for conv in convs:
+            aid = conv.get("agente_id")
+            canal = (conv.get("canal") or "desconocido").strip()
             if aid and aid in agent_ids:
                 conv_map.setdefault(aid, {})
-                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + cnt
+                conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
 
         # ── Agrupar agentes por empresa ───────────────────────────────────
         def _build_agent(agent: dict) -> dict:
