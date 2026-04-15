@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     KAPSO_BRIDGE_PORT: int | None = None
     KAPSO_BASE_URL: str | None = None
     KAPSO_BRIDGE_URL: str | None = None
+    # phone_number_id desconocido → usar este número de fallback para testeo
+    KAPSO_FALLBACK_PHONE_NUMBER: str | None = None
     INTERNAL_AGENT_API_URL: str | None = None
     PYTHON_SERVICE_HOST: str | None = None
     # Nylas API
