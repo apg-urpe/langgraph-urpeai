@@ -20,6 +20,7 @@ from app.api.debug_dashboard import router as debug_dashboard_router
 from app.api.funnel_routes import router as funnel_router
 from app.api.graph_routes import router as graph_router
 from app.api.scheduling_routes import router as scheduling_router
+from app.api.events_pwa import router as events_pwa_router
 from app.core.config import get_settings
 from app.core.error_webhook import send_error_to_webhook
 
@@ -136,6 +137,7 @@ app.include_router(debug_dashboard_router)
 app.include_router(funnel_router)
 app.include_router(graph_router)
 app.include_router(scheduling_router)
+app.include_router(events_pwa_router)
 
 
 @app.exception_handler(Exception)
