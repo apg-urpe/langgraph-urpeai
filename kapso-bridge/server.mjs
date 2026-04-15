@@ -6232,14 +6232,35 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .card-msg{font-size:13px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card-agent{margin-top:6px;font-size:11px;color:var(--text-muted)}
 /* Expandable detail */
-.card-detail{display:none;border-top:1px solid var(--border);padding:12px 14px;background:rgba(8,12,30,.4)}
+.card-detail{display:none;border-top:1px solid var(--border);background:rgba(8,12,30,.4)}
 .card-detail.open{display:block}
-.detail-row{display:flex;gap:8px;margin-bottom:8px;font-size:12px}
-.detail-lbl{color:var(--text-muted);flex-shrink:0;min-width:80px}
-.detail-val{color:var(--text-dim);word-break:break-all}
-.detail-pre{background:rgba(8,12,30,.7);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all;max-height:160px;overflow-y:auto;margin-top:4px;font-family:'SF Mono','Fira Code',monospace}
-.detail-stages{margin-top:4px;display:flex;flex-direction:column;gap:4px}
-.stage-pill{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--text-dim)}
+/* Stage timeline */
+.timeline{padding:14px 14px 10px;display:flex;flex-direction:column;gap:0}
+.tl-item{display:flex;gap:10px;position:relative}
+.tl-item:not(:last-child)::before{content:'';position:absolute;left:11px;top:24px;bottom:-6px;width:1px;background:var(--border)}
+.tl-dot{flex-shrink:0;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;margin-top:2px;border:1px solid var(--border)}
+.tl-dot-in{background:rgba(34,211,238,.15);border-color:rgba(34,211,238,.3)}
+.tl-dot-agent{background:rgba(56,189,248,.15);border-color:rgba(56,189,248,.3)}
+.tl-dot-ok{background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.3)}
+.tl-dot-err{background:rgba(248,113,113,.15);border-color:rgba(248,113,113,.3)}
+.tl-dot-funnel{background:rgba(167,139,250,.15);border-color:rgba(167,139,250,.3)}
+.tl-dot-send{background:rgba(251,191,36,.12);border-color:rgba(251,191,36,.25)}
+.tl-dot-generic{background:rgba(100,116,139,.12);border-color:rgba(100,116,139,.25)}
+.tl-body{flex:1;min-width:0;padding-bottom:14px}
+.tl-head{display:flex;align-items:baseline;gap:8px;margin-bottom:4px}
+.tl-name{font-size:12px;font-weight:600;color:var(--text-dim)}
+.tl-ts{font-size:10px;color:var(--text-muted)}
+.tl-content{font-size:12px;color:var(--text-dim);line-height:1.55}
+.tl-reply{background:rgba(8,12,30,.7);border:1px solid var(--border);border-radius:8px;padding:9px 11px;font-size:12px;color:var(--text);line-height:1.55;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow-y:auto;margin-top:5px}
+.tl-pre{background:rgba(8,12,30,.7);border:1px solid var(--border);border-radius:8px;padding:7px 10px;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all;max-height:140px;overflow-y:auto;margin-top:4px;font-family:'SF Mono','Fira Code',monospace}
+.tl-kv{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:4px}
+.tl-k{font-size:11px;color:var(--text-muted)}
+.tl-v{font-size:11px;color:var(--text-dim);word-break:break-all}
+.tl-tools{display:flex;flex-direction:column;gap:4px;margin-top:5px}
+.tool-chip{background:rgba(13,27,75,.7);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--blue-300)}
+.tool-chip .t-io{color:var(--text-muted);font-size:10px;margin-top:2px}
+.tl-err{color:var(--red);font-size:12px;margin-top:3px}
+.detail-msgid{padding:6px 14px 10px;font-size:10px;color:var(--text-muted);border-top:1px solid var(--border)}
 /* Empty / loading */
 .empty{text-align:center;padding:60px 24px;color:var(--text-muted)}
 .empty-icon{font-size:36px;margin-bottom:12px}
@@ -6357,13 +6378,132 @@ function renderList(items){
   list.innerHTML=items.map((x,i)=>cardHtml(x,i)).join('');
 }
 
+// ── Stage timeline helpers ──────────────────────────────────────────
+const STAGE_META = {
+  inbound_received:          {icon:'📨', cls:'tl-dot-in',      label:'Mensaje recibido'},
+  inbound_entities_resolved: {icon:'🔍', cls:'tl-dot-in',      label:'Entidades resueltas'},
+  run_agent_start:           {icon:'🤖', cls:'tl-dot-agent',   label:'Agente iniciado'},
+  run_agent_done:            {icon:'✅', cls:'tl-dot-ok',      label:'Agente respondió'},
+  run_funnel_done:           {icon:'🔀', cls:'tl-dot-funnel',  label:'Funnel actualizado'},
+  run_contact_update_done:   {icon:'📋', cls:'tl-dot-funnel',  label:'Contacto actualizado'},
+  call_fastapi_done:         {icon:'📡', cls:'tl-dot-send',    label:'Llamada FastAPI'},
+  kapso_send_done:           {icon:'📤', cls:'tl-dot-send',    label:'Enviado a Kapso'},
+  inbound_error:             {icon:'❌', cls:'tl-dot-err',     label:'Error de entrada'},
+  error:                     {icon:'❌', cls:'tl-dot-err',     label:'Error'},
+  exception:                 {icon:'💥', cls:'tl-dot-err',     label:'Excepción'},
+  http_error:                {icon:'🚫', cls:'tl-dot-err',     label:'Error HTTP'},
+};
+function stageMeta(s){return STAGE_META[s]||{icon:'⚙️',cls:'tl-dot-generic',label:s};}
+
+function stageItemHtml(s){
+  const m=stageMeta(s.stage);
+  let body='';
+  // inbound_received
+  if(s.stage==='inbound_received'){
+    if(s.text)body+=\`<div class="tl-reply">\${esc(s.text)}</div>\`;
+    body+=\`<div class="tl-kv">
+      \${s.from?'<span class="tl-k">De</span><span class="tl-v">'+esc(s.from)+'</span>':''}
+      \${s.contact?'<span class="tl-k">Contacto</span><span class="tl-v">'+esc(s.contact)+'</span>':''}
+      \${s.type?'<span class="tl-k">Tipo</span><span class="tl-v">'+esc(s.type)+'</span>':''}
+    </div>\`;
+  }
+  // inbound_entities_resolved
+  else if(s.stage==='inbound_entities_resolved'){
+    body+=\`<div class="tl-kv">
+      \${s.contact_name?'<span class="tl-k">Nombre</span><span class="tl-v">'+esc(s.contact_name)+'</span>':''}
+      \${s.contacto_id?'<span class="tl-k">contacto_id</span><span class="tl-v">'+esc(s.contacto_id)+'</span>':''}
+      \${s.empresa_id?'<span class="tl-k">empresa_id</span><span class="tl-v">'+esc(s.empresa_id)+'</span>':''}
+      \${s.asesor_id?'<span class="tl-k">asesor_id</span><span class="tl-v">'+esc(s.asesor_id)+'</span>':''}
+    </div>\`;
+  }
+  // run_agent_start
+  else if(s.stage==='run_agent_start'){
+    body+=\`<div class="tl-kv">
+      \${s.agent?'<span class="tl-k">Agente</span><span class="tl-v">'+esc(s.agent)+'</span>':''}
+      \${s.model?'<span class="tl-k">Modelo</span><span class="tl-v">'+esc(s.model)+'</span>':''}
+    </div>\`;
+  }
+  // run_agent_done
+  else if(s.stage==='run_agent_done'){
+    if(s.reply)body+=\`<div class="tl-reply">\${esc(s.reply)}</div>\`;
+    body+=\`<div class="tl-kv" style="margin-top:6px">
+      \${s.reply_type&&s.reply_type!=='text'?'<span class="tl-k">Tipo</span><span class="tl-v">'+esc(s.reply_type)+'</span>':''}
+      \${s.total_ms?'<span class="tl-k">Total</span><span class="tl-v">'+s.total_ms+'ms</span>':''}
+      \${s.llm_ms?'<span class="tl-k">LLM</span><span class="tl-v">'+s.llm_ms+'ms</span>':''}
+      \${s.tool_ms?'<span class="tl-k">Tools</span><span class="tl-v">'+s.tool_ms+'ms</span>':''}
+    </div>\`;
+    if(s.tools_used&&s.tools_used.length){
+      const chips=s.tools_used.map(t=>{
+        const nm=typeof t==='string'?t:(t.tool_name||'tool');
+        const inp=t.tool_input?JSON.stringify(t.tool_input,null,2):'';
+        const out=t.tool_output!=null?String(t.tool_output):'';
+        const dur=t.duration_ms!=null?' · '+t.duration_ms+'ms':'';
+        const st=t.status&&t.status!=='ok'?' ❌':'';
+        return \`<div class="tool-chip">⚡ \${esc(nm)}\${esc(dur)}\${esc(st)}\${inp?'<div class="t-io">Input: '+esc(inp.slice(0,120))+(inp.length>120?'…':'')+'</div>':''}\${out?'<div class="t-io">Output: '+esc(out.slice(0,200))+(out.length>200?'…':'')+'</div>':''}</div>\`;
+      }).join('');
+      body+=\`<div class="tl-tools">\${chips}</div>\`;
+    }
+  }
+  // run_funnel_done
+  else if(s.stage==='run_funnel_done'){
+    body+=\`<div class="tl-kv">
+      \${s.etapa_anterior?'<span class="tl-k">Antes</span><span class="tl-v">'+esc(s.etapa_anterior)+'</span>':''}
+      \${s.etapa_nueva?'<span class="tl-k">→ Nueva</span><span class="tl-v" style="color:var(--green)">'+esc(s.etapa_nueva)+'</span>':''}
+    </div>\`;
+    if(s.metadata_actualizada&&Object.keys(s.metadata_actualizada).length){
+      body+=\`<div class="tl-pre">\${esc(JSON.stringify(s.metadata_actualizada,null,2))}</div>\`;
+    }
+    if(s.error)body+=\`<div class="tl-err">⚠ \${esc(s.error)}</div>\`;
+  }
+  // run_contact_update_done
+  else if(s.stage==='run_contact_update_done'){
+    if(s.updated_fields){
+      body+=\`<div class="tl-pre">\${esc(JSON.stringify(s.updated_fields,null,2))}</div>\`;
+    }
+  }
+  // call_fastapi_done
+  else if(s.stage==='call_fastapi_done'){
+    body+=\`<div class="tl-kv">
+      \${s.reply_type?'<span class="tl-k">Tipo</span><span class="tl-v">'+esc(s.reply_type)+'</span>':''}
+      \${s.video_url?'<span class="tl-k">Video</span><span class="tl-v">'+esc(s.video_url.slice(0,60))+'…</span>':''}
+    </div>\`;
+    if(s.reply_text)body+=\`<div class="tl-reply">\${esc(s.reply_text)}</div>\`;
+  }
+  // kapso_send_done
+  else if(s.stage==='kapso_send_done'){
+    body+=\`<div class="tl-kv">
+      \${s.to?'<span class="tl-k">Para</span><span class="tl-v">'+esc(s.to)+'</span>':''}
+      \${s.reply_type?'<span class="tl-k">Tipo</span><span class="tl-v">'+esc(s.reply_type)+'</span>':''}
+      \${s.suppressed?'<span class="tl-v" style="color:var(--orange)">⚠ Suprimido</span>':''}
+    </div>\`;
+    if(s.result)body+=\`<div class="tl-pre">\${esc(JSON.stringify(s.result,null,2))}</div>\`;
+  }
+  // errors
+  else if(['inbound_error','error','exception','http_error'].includes(s.stage)){
+    if(s.error)body+=\`<div class="tl-err">❌ \${esc(s.error)}</div>\`;
+    if(s.traceback)body+=\`<div class="tl-pre">\${esc(s.traceback)}</div>\`;
+  }
+  // generic
+  else if(s.data&&Object.keys(s.data).length){
+    const lines=Object.entries(s.data).slice(0,8).map(([k,v])=>\`<span class="tl-k">\${esc(k)}</span><span class="tl-v">\${esc(String(v??''))}</span>\`).join('');
+    body+=\`<div class="tl-kv">\${lines}</div>\`;
+  }
+
+  const tsStr=s.ts?relTime(s.ts):'';
+  return \`<div class="tl-item">
+  <div class="tl-dot \${m.cls}">\${m.icon}</div>
+  <div class="tl-body">
+    <div class="tl-head"><span class="tl-name">\${esc(m.label)}</span><span class="tl-ts">\${tsStr}</span></div>
+    <div class="tl-content">\${body}</div>
+  </div>
+</div>\`;
+}
+
 function cardHtml(x,i){
   const name=esc(x.contact_name||x.from_phone||'Desconocido');
   const phone=x.from_phone&&x.contact_name?'<span class="phone">'+esc(x.from_phone)+'</span>':'';
   const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
-  const resp=x.response_preview?'<div class="detail-lbl">Respuesta</div><div class="detail-pre">'+esc(x.response_preview)+'</div>':'';
-  const err=x.error?'<div class="detail-lbl" style="color:var(--red);margin-top:8px">Error</div><div class="detail-pre" style="border-color:rgba(248,113,113,.3)">'+esc(x.error)+'</div>':'';
-  const stages=(x.stages||[]).map(s=>'<div class="stage-pill">'+esc(s.stage||s)+(s.ms?' · '+s.ms+'ms':'')+'</div>').join('');
+  const stages=(x.stages_detail||[]).map(s=>stageItemHtml(s)).join('');
   return \`<div class="card" id="card\${i}">
   <div class="card-head" onclick="toggle(\${i})">
     <div class="card-badges">\${canalBadge(x.channel)}\${statusBadge(x.status)}</div>
@@ -6375,15 +6515,13 @@ function cardHtml(x,i){
       \${x.empresa_id?'<span>🏢 '+esc(x.empresa_id)+'</span>':''}
       \${x.contacto_id?'<span>👤 '+esc(x.contacto_id)+'</span>':''}
       \${dur?'<span>⏱ '+dur+'</span>':''}
+      \${x.agent_name?'<span>🤖 '+esc(x.agent_name)+'</span>':''}
     </div>
     \${x.message_text?'<div class="card-msg">'+esc(x.message_text)+'</div>':''}
-    \${x.agent_name||x.model_used?'<div class="card-agent">🤖 '+esc(x.agent_name||'')+' '+esc(x.model_used||'')+'</div>':''}
   </div>
   <div class="card-detail" id="detail\${i}">
-    \${resp}\${err}
-    \${stages?'<div class="detail-lbl" style="margin-top:8px">Etapas</div><div class="detail-stages">'+stages+'</div>':''}
-    <div class="detail-row" style="margin-top:8px"><span class="detail-lbl">message_id</span><span class="detail-val">\${esc(x.message_id||'—')}</span></div>
-    \${x.message_type?'<div class="detail-row"><span class="detail-lbl">Tipo msg</span><span class="detail-val">'+esc(x.message_type)+'</span></div>':''}
+    \${stages?'<div class="timeline">'+stages+'</div>':''}
+    <div class="detail-msgid">message_id: \${esc(x.message_id||'—')}</div>
   </div>
 </div>\`;
 }

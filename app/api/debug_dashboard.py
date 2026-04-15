@@ -634,12 +634,83 @@ async def debug_interactions(
                 "response_preview": None,
                 "error": None,
                 "stages": [],
+                "stages_detail": [],
             }
 
         interaction = interactions_map[msg_id]
 
         if stage not in interaction["stages"]:
             interaction["stages"].append(stage)
+
+        # Build rich stage detail for timeline view
+        stage_detail: dict = {"stage": stage, "ts": row.get("created_at")}
+        if stage == "inbound_received":
+            stage_detail.update({
+                "from": payload.get("from_phone") or payload.get("from"),
+                "contact": payload.get("contact_name"),
+                "type": payload.get("message_type"),
+                "text": (payload.get("message_text") or payload.get("text") or "")[:500],
+            })
+        elif stage == "inbound_entities_resolved":
+            stage_detail.update({
+                "contact_name": payload.get("contact_name"),
+                "contacto_id": payload.get("contacto_id"),
+                "empresa_id": payload.get("empresa_id"),
+                "asesor_id": payload.get("asesor_id"),
+            })
+        elif stage == "run_agent_start":
+            stage_detail.update({
+                "agent": payload.get("agent_name"),
+                "model": payload.get("model"),
+            })
+        elif stage == "run_agent_done":
+            _timing = payload.get("timing") or {}
+            stage_detail.update({
+                "agent": payload.get("agent_name"),
+                "reply": (payload.get("reply_text") or payload.get("response_preview") or "")[:2000],
+                "reply_type": payload.get("reply_type"),
+                "tools_used": payload.get("tools_used") or [],
+                "total_ms": payload.get("total_ms") or _timing.get("total_ms"),
+                "llm_ms": _timing.get("llm_ms"),
+                "tool_ms": _timing.get("tool_execution_ms"),
+            })
+        elif stage == "run_funnel_done":
+            stage_detail.update({
+                "etapa_anterior": payload.get("etapa_anterior"),
+                "etapa_nueva": payload.get("etapa_nueva"),
+                "metadata_actualizada": payload.get("metadata_actualizada"),
+                "error": payload.get("error"),
+            })
+        elif stage == "run_contact_update_done":
+            stage_detail.update({
+                "updated_fields": payload.get("updated_fields"),
+            })
+        elif stage in ("call_fastapi_done",):
+            stage_detail.update({
+                "reply_type": payload.get("reply_type"),
+                "reply_text": (payload.get("reply_text") or "")[:500],
+                "video_url": payload.get("video_url"),
+            })
+        elif stage == "kapso_send_done":
+            stage_detail.update({
+                "to": payload.get("to"),
+                "reply_type": payload.get("reply_type"),
+                "result": payload.get("result"),
+                "suppressed": (payload.get("result") or {}).get("suppressed") if isinstance(payload.get("result"), dict) else None,
+            })
+        elif stage in ("inbound_error", "error", "exception", "http_error"):
+            stage_detail.update({
+                "error": payload.get("error") or payload.get("detail"),
+                "traceback": (payload.get("traceback") or "")[:800],
+            })
+        else:
+            # Generic: capture top-level scalar fields for unknown stages
+            stage_detail["data"] = {
+                k: v for k, v in payload.items()
+                if k not in ("message_id", "interaction_id", "_channel")
+                and isinstance(v, (str, int, float, bool, type(None)))
+            }
+        interaction["stages_detail"].append(stage_detail)
 
         # Always prefer earliest timestamp as started_at
         row_ts = row.get("created_at") or ""
@@ -673,6 +744,10 @@ async def debug_interactions(
             if interaction["status"] != "ok":
                 interaction["status"] = "error"
             interaction["error"] = payload.get("error") or payload.get("detail") or interaction["error"]
+
+    # Sort stages_detail chronologically within each interaction
+    for interaction in interactions_map.values():
+        interaction["stages_detail"].sort(key=lambda s: s.get("ts") or "")
 
     all_interactions = sorted(
         interactions_map.values(),
