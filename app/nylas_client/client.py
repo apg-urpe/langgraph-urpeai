@@ -83,18 +83,20 @@ class NylasClient:
         return self._parse_response(r).get("data", [])
 
     async def list_events(
-        self, grant_id: str, calendar_id: str, start_time: int, end_time: int, limit: int = 50
+        self, grant_id: str, calendar_id: str | None, start_time: int, end_time: int, limit: int = 50
     ) -> list[dict[str, Any]]:
-        """Lista eventos de un calendario en un rango."""
+        """Lista eventos en un rango. Si calendar_id es None, trae de TODOS los calendarios."""
+        params: dict[str, str] = {
+            "start": str(start_time),
+            "end": str(end_time),
+            "limit": str(limit),
+        }
+        if calendar_id:
+            params["calendar_id"] = calendar_id
         r = await self._request_with_retry(
             "get",
             f"/grants/{grant_id}/events",
-            params={
-                "calendar_id": calendar_id,
-                "start": str(start_time),
-                "end": str(end_time),
-                "limit": str(limit),
-            },
+            params=params,
         )
         r.raise_for_status()
         return self._parse_response(r).get("data", [])

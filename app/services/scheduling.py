@@ -698,7 +698,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             return {"asesor": asesor, "events": [], "ok": False}
         try:
             events = await asyncio.wait_for(
-                nylas.list_events(asesor["grant_id"], asesor["email"], ahora_unix, fin_unix, limit=200),
+                nylas.list_events(asesor["grant_id"], None, ahora_unix, fin_unix, limit=200),
                 timeout=12.0,
             )
             logger.info("Calendario asesor %s (%s): %d eventos en próximos 7d",
