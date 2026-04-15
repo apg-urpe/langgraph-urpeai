@@ -19,7 +19,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from html import escape
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from app.core.config import get_settings
@@ -959,9 +959,10 @@ _AG_EDITABLE_FIELDS = {
 
 
 @router.patch("/api/v1/debug/agentes/{agente_id}")
-async def patch_agente(agente_id: int, body: dict):
+async def patch_agente(agente_id: int, request: Request):
     """Actualiza campos editables de un agente (solo campos permitidos)."""
     try:
+        body = await request.json()
         db = await get_supabase()
 
         # Filtrar solo campos permitidos y no vacíos por accidente

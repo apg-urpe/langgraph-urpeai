@@ -6880,15 +6880,6 @@ function _agChClass(c){
   return '';
 }
 
-function _renderAgInstrucciones(instr){
-  if(!instr)return '';
-  const fields=Object.entries(_AG_INSTR_LABELS)
-    .filter(([k])=>instr[k]&&instr[k].trim())
-    .map(([k,lbl])=>\`<div class="ag-field"><div class="ag-field-lbl">\${lbl}</div><div class="ag-field-val">\${instr[k]}</div></div>\`);
-  if(!fields.length)return '<div class="ag-field"><div class="ag-field-lbl" style="color:var(--text-muted);font-size:12px">Sin instrucciones configuradas</div></div>';
-  return fields.join('');
-}
-
 let _agCardIdx=0;
 function _renderAgCard(ag){
   const idx=_agCardIdx++;
@@ -7019,8 +7010,12 @@ async function saveAgField(agenteId,field,el){
     const data=await r.json();
     if(!r.ok)throw new Error(data.detail||'Error '+r.status);
     // Replace editable with display view
-    el.innerHTML='<div class="ag-field-val ag-field-val--saved">'+val+'</div><button class="ag-edit-btn" onclick="editAgField('+agenteId+',\''+field+'\',this.parentElement)">Editar</button>';
-    btn.textContent='Guardar';btn.disabled=false;
+    const saved=document.createElement('div');
+    saved.className='ag-field-val';saved.textContent=val;
+    const editBtn=document.createElement('button');
+    editBtn.className='ag-edit-btn';editBtn.textContent='Editar';
+    editBtn.onclick=()=>editAgField(agenteId,field,el);
+    el.innerHTML='';el.appendChild(saved);el.appendChild(editBtn);
   }catch(e){
     btn.textContent='Guardar';btn.disabled=false;
     btn.style.color='var(--red)';
@@ -7031,12 +7026,30 @@ async function saveAgField(agenteId,field,el){
 
 function editAgField(agenteId,field,container){
   const current=container.querySelector('.ag-field-val')?.textContent||'';
-  container.innerHTML=\`<textarea class="ag-field-textarea" rows="5">\${current}</textarea><div class="ag-edit-actions"><button class="ag-save-btn" onclick="saveAgField(\${agenteId},'\${field}',this.closest('.ag-field-body'))">Guardar</button><button class="ag-cancel-btn" onclick="cancelAgField(this.closest('.ag-field-body'),'\${current}',\${agenteId},'\${field}')">Cancelar</button></div>\`;
-  container.querySelector('textarea').focus();
+  const ta=document.createElement('textarea');
+  ta.className='ag-field-textarea';ta.rows=5;ta.value=current;
+  const actions=document.createElement('div');
+  actions.className='ag-edit-actions';
+  const saveBtn=document.createElement('button');
+  saveBtn.className='ag-save-btn';saveBtn.textContent='Guardar';
+  saveBtn.onclick=()=>saveAgField(agenteId,field,container);
+  const cancelBtn=document.createElement('button');
+  cancelBtn.className='ag-cancel-btn';cancelBtn.textContent='Cancelar';
+  cancelBtn.onclick=()=>cancelAgField(container,current,agenteId,field);
+  actions.appendChild(saveBtn);actions.appendChild(cancelBtn);
+  container.innerHTML='';
+  container.appendChild(ta);container.appendChild(actions);
+  ta.focus();
 }
 
 function cancelAgField(container,original,agenteId,field){
-  container.innerHTML='<div class="ag-field-val">'+original+'</div><button class="ag-edit-btn" onclick="editAgField('+agenteId+',\''+field+'\',this.parentElement)">Editar</button>';
+  const val=document.createElement('div');
+  val.className='ag-field-val';val.textContent=original;
+  const btn=document.createElement('button');
+  btn.className='ag-edit-btn';btn.textContent='Editar';
+  btn.onclick=()=>editAgField(agenteId,field,container);
+  container.innerHTML='';
+  container.appendChild(val);container.appendChild(btn);
 }
 
 function _renderAgInstrucciones(instr,agenteId){
