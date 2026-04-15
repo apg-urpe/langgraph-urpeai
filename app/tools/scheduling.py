@@ -69,6 +69,11 @@ def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
         - Antes de agendar una cita, para ofrecer opciones
         - Cuando quiere saber si hay disponibilidad en una fecha
 
+        IMPORTANTE — Al presentar opciones al contacto:
+        - SIEMPRE ofrece primero el horario más cercano a la hora actual.
+        - Si hay disponibilidad HOY, ofrécela antes que días futuros.
+        - Presenta máximo 2-3 opciones, empezando por la más próxima.
+
         Args:
             time_zone: Zona horaria del contacto (ej: America/Bogota, America/New_York). Dejar vacío para usar la zona del perfil.
         """
