@@ -6951,6 +6951,7 @@ function _renderEmpresaGroup(emp){
   const activos=emp.agentes.filter(a=>a.activo!==false).sort(byConv);
   const inactivos=emp.agentes.filter(a=>a.activo===false).sort(byConv);
   const count=activos.length;
+  const totalConvs=emp.agentes.reduce((s,a)=>s+(a.conversaciones_total||0),0);
   const sub=[emp.rubro,emp.ubicacion].filter(Boolean).join(' · ');
   let cards=activos.map(ag=>_renderAgCard(ag)).join('');
   if(inactivos.length){
@@ -6964,7 +6965,7 @@ function _renderEmpresaGroup(emp){
       <div class="ag-emp-name">\${emp.nombre}</div>
       \${sub?'<div class="ag-emp-sub">'+sub+'</div>':''}
     </div>
-    <span class="ag-emp-count">\${count} activo\${count!==1?'s':''}\${inactivos.length?' · '+inactivos.length+' inact.':''}</span>
+    <span class="ag-emp-count">\${count} activo\${count!==1?'s':''}\${inactivos.length?' · '+inactivos.length+' inact.':''}\${totalConvs?' · '+totalConvs+' convs':''}</span>
     <span class="ag-emp-chev">▼</span>
   </div>
   <div class="ag-emp-body" id="agEmpBody\${eidx}">\${cards}</div>
@@ -7016,7 +7017,12 @@ function _renderEmpresas(empresas){
     return;
   }
   _agCardIdx=0;_agEmpresaIdx=0;
-  el.innerHTML=empresas.map(e=>_renderEmpresaGroup(e)).join('');
+  const sorted=[...empresas].sort((a,b)=>{
+    const ta=a.agentes.reduce((s,x)=>s+(x.conversaciones_total||0),0);
+    const tb=b.agentes.reduce((s,x)=>s+(x.conversaciones_total||0),0);
+    return tb-ta;
+  });
+  el.innerHTML=sorted.map(e=>_renderEmpresaGroup(e)).join('');
 }
 
 let _allEmpresas=[];
