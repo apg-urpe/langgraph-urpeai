@@ -603,6 +603,7 @@ def _build_command_response(
     model_used: str,
     reply_text: str,
     started_at: float,
+    effective_phone_number_id: str | None = None,
 ) -> KapsoInboundResponse:
     total_ms = (time.perf_counter() - started_at) * 1000
     suppress_send = _should_suppress_kapso_send(reply_text)
@@ -612,7 +613,7 @@ def _build_command_response(
         suppress_send=suppress_send,
         reaction=None,
         recipient_phone=request.from_phone,
-        phone_number_id=request.phone_number_id,
+        phone_number_id=effective_phone_number_id or request.phone_number_id,
         message_id=request.message_id,
         conversation_id=conversation_id,
         agent_id=agent_id,
@@ -1315,12 +1316,19 @@ async def kapso_inbound(
                        f"no existe en wp_numeros. Registrar el número antes de recibir mensajes.",
             )
 
+        # Al usar fallback, el phone_number_id para el reply debe ser el del numero registrado
+        # (el id_kapso del fallback), no el original desconocido
+        effective_phone_number_id: str = (
+            numero.get("id_kapso") or numero.get("telefono") or request.phone_number_id
+        )
+
         if resolved_via:
             add_kapso_debug_event(
                 "fastapi",
                 f"numero_resuelto_por_{resolved_via}",
                 {
                     "phone_number_id": request.phone_number_id,
+                    "effective_phone_number_id": effective_phone_number_id,
                     "resolved_numero_id": numero.get("id"),
                     "resolved_agente_id": numero.get("agente_id"),
                     "resolved_empresa_id": numero.get("empresa_id"),
@@ -1614,6 +1622,7 @@ async def kapso_inbound(
                 model_used=agent.get("llm") or settings.DEFAULT_MODEL,
                 reply_text=reply_text,
                 started_at=started_at,
+                effective_phone_number_id=effective_phone_number_id,
             )
 
         # ── Guard: contacto inactivo ─────────────────────────────────────────
@@ -1674,6 +1683,7 @@ async def kapso_inbound(
                 model_used=agent.get("llm") or settings.DEFAULT_MODEL,
                 reply_text="❌ contacto_inactivo",  # suppress_send=True vía _should_suppress_kapso_send
                 started_at=started_at,
+                effective_phone_number_id=effective_phone_number_id,
             )
         # ────────────────────────────────────────────────────────────────────
 
@@ -2052,7 +2062,7 @@ async def kapso_inbound(
             video_url=video_url,
             video_caption=video_caption,
             recipient_phone=request.from_phone,
-            phone_number_id=request.phone_number_id,
+            phone_number_id=effective_phone_number_id,
             message_id=request.message_id,
             conversation_id=conversational_result.conversation_id,
             agent_id=int(agente_id),
