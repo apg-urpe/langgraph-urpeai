@@ -6317,6 +6317,21 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .ag-stats{border-top:1px solid var(--border);padding:7px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;background:rgba(8,12,30,.3)}
 .ag-total{font-size:12px;font-weight:700;color:var(--blue-300)}
 .ag-breakdown{font-size:11px;color:var(--text-muted);flex:1;text-align:right}
+/* Inactive agent dimming */
+.ag-card.inactive{opacity:.55;filter:grayscale(.4)}
+.ag-card.inactive:hover,.ag-card.inactive.open{opacity:.85;filter:none}
+/* Inactive group separator */
+.ag-sep{display:flex;align-items:center;gap:10px;padding:10px 4px;margin:6px 0}
+.ag-sep-line{flex:1;height:1px;background:var(--border)}
+.ag-sep-lbl{font-size:10px;font-weight:700;color:var(--text-muted);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
+/* Toggle switch */
+.ag-toggle-wrap{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
+.ag-toggle{position:relative;width:34px;height:19px;background:rgba(100,116,139,.4);border:1px solid rgba(100,116,139,.3);border-radius:10px;cursor:pointer;transition:background .2s,border-color .2s;flex-shrink:0;-webkit-tap-highlight-color:transparent}
+.ag-toggle.on{background:rgba(52,211,153,.35);border-color:rgba(52,211,153,.5)}
+.ag-toggle::after{content:'';position:absolute;top:2px;left:2px;width:13px;height:13px;background:var(--text-muted);border-radius:50%;transition:transform .2s,background .2s}
+.ag-toggle.on::after{transform:translateX(15px);background:var(--green)}
+.ag-toggle-lbl{font-size:10px;color:var(--text-muted);font-weight:600}
+.ag-toggle.on+.ag-toggle-lbl{color:var(--green)}
 /* Expandable instructions */
 .ag-detail{display:none;border-top:1px solid var(--border);background:rgba(8,12,30,.4)}
 .ag-card.open .ag-detail{display:block}
@@ -6893,7 +6908,7 @@ function _renderAgCard(ag){
   const avatarInner=ag.url_imagen
     ?\`<img src="\${ag.url_imagen}" alt="\${initial}" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none';this.parentElement.innerHTML='<span>\${initial}</span>'">\`
     :\`<span>\${initial}</span>\`;
-  return \`<div class="ag-card" id="agCard\${idx}">
+  return \`<div class="ag-card\${isOk?'':' inactive'}" id="agCard\${idx}">
   <div class="ag-card-top" onclick="toggleAgCard(\${idx})">
     <div class="ag-avatar-wrap">
       <div class="ag-avatar" style="background:\${hexBg};border-color:\${hexBd};color:\${color}">\${avatarInner}</div>
@@ -6902,11 +6917,14 @@ function _renderAgCard(ag){
     <div class="ag-info">
       <div class="ag-name-row">
         <div class="ag-name">\${ag.nombre}</div>
-        <span class="ag-status-lbl \${isOk?'ok':'off'}">\${isOk?'Activo':'Archivado'}</span>
       </div>
       <div class="ag-role">\${ag.rol||'—'}</div>
       <div class="ag-model">\${ag.llm||'—'}</div>
       \${channels?'<div class="ag-channels">'+channels+'</div>':''}
+    </div>
+    <div class="ag-toggle-wrap" onclick="event.stopPropagation()">
+      <div class="ag-toggle\${isOk?' on':''}" id="agToggle\${idx}" onclick="toggleAgenteActivo(\${ag.id},\${isOk},\${idx})"></div>
+      <span class="ag-toggle-lbl">\${isOk?'Activo':'Inactivo'}</span>
     </div>
   </div>
   <div class="ag-stats">
@@ -6927,9 +6945,15 @@ function toggleAgCard(idx){
 let _agEmpresaIdx=0;
 function _renderEmpresaGroup(emp){
   const eidx=_agEmpresaIdx++;
-  const count=emp.agentes.length;
+  const activos=emp.agentes.filter(a=>a.activo!==false);
+  const inactivos=emp.agentes.filter(a=>a.activo===false);
+  const count=activos.length;
   const sub=[emp.rubro,emp.ubicacion].filter(Boolean).join(' · ');
-  const cards=emp.agentes.map(ag=>_renderAgCard(ag)).join('');
+  let cards=activos.map(ag=>_renderAgCard(ag)).join('');
+  if(inactivos.length){
+    cards+=\`<div class="ag-sep"><div class="ag-sep-line"></div><span class="ag-sep-lbl">Inactivos (\${inactivos.length})</span><div class="ag-sep-line"></div></div>\`;
+    cards+=inactivos.map(ag=>_renderAgCard(ag)).join('');
+  }
   return \`<div class="ag-empresa">
   <div class="ag-emp-hdr" id="agEmpHdr\${eidx}" onclick="toggleEmpresa(\${eidx})">
     <span class="ag-emp-icon">🏢</span>
@@ -6937,7 +6961,7 @@ function _renderEmpresaGroup(emp){
       <div class="ag-emp-name">\${emp.nombre}</div>
       \${sub?'<div class="ag-emp-sub">'+sub+'</div>':''}
     </div>
-    <span class="ag-emp-count">\${count} agente\${count!==1?'s':''}</span>
+    <span class="ag-emp-count">\${count} activo\${count!==1?'s':''}\${inactivos.length?' · '+inactivos.length+' inact.':''}</span>
     <span class="ag-emp-chev">▼</span>
   </div>
   <div class="ag-emp-body open" id="agEmpBody\${eidx}">\${cards}</div>
@@ -7065,6 +7089,24 @@ function _renderAgInstrucciones(instr,agenteId){
 </div>\`);
   if(!fields.length)return '<div class="ag-field"><div class="ag-field-lbl" style="color:var(--text-muted);font-size:12px">Sin instrucciones configuradas</div></div>';
   return fields.join('');
+}
+
+async function toggleAgenteActivo(agenteId, currentActivo, cardIdx){
+  const toggleEl=document.getElementById('agToggle'+cardIdx);
+  if(toggleEl)toggleEl.style.opacity='0.4';
+  try{
+    const newArchivado=currentActivo; // activo=true → archivar; activo=false → reactivar
+    const r=await fetch('/events/api/agentes/'+agenteId+'?token='+encodeURIComponent(_token),{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({archivado:newArchivado}),
+    });
+    if(!r.ok){const d=await r.json();throw new Error(d.detail||'Error '+r.status);}
+    // Recargar todos para re-ordenar activos/inactivos
+    await loadAgentes();
+  }catch(e){
+    if(toggleEl)toggleEl.style.opacity='';
+    alert('Error al cambiar estado: '+e.message);
+  }
 }
 
 function showTab(tab){

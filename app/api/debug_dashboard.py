@@ -837,14 +837,17 @@ async def debug_agentes(
             "uso_de_emojis,manejo_herramientas,prompt_personalizado,idioma"
         )
 
-        ag_filters: dict = {"archivado": False}
+        ag_filters: dict = {}
         if empresa_id:
             ag_filters["empresa_id"] = empresa_id
 
-        agents = await db.query("wp_agentes", select=_AG_SELECT, filters=ag_filters) or []
+        agents = await db.query("wp_agentes", select=_AG_SELECT, filters=ag_filters or None) or []
 
         if not agents:
             return {"empresas": [], "empresa_id": empresa_id}
+
+        # Activos primero, luego archivados
+        agents.sort(key=lambda a: bool(a.get("archivado")))
 
         # ── IDs de empresa únicos → fetch nombres ─────────────────────────
         emp_ids = list({a["empresa_id"] for a in agents if a.get("empresa_id")})
@@ -954,7 +957,7 @@ _AG_EDITABLE_FIELDS = {
     "instrucciones_mensajes", "instrucciones_multimedia",
     "formato_respuesta", "areas_de_expertise", "uso_de_emojis",
     "manejo_herramientas", "prompt_personalizado", "idioma",
-    "nombre_agente", "rol", "llm",
+    "nombre_agente", "rol", "llm", "archivado",
 }
 
 
