@@ -6217,6 +6217,21 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 /* Card list */
 .list{position:fixed;top:225px;bottom:0;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
 .badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
+/* Bottom sheet for tools */
+.tools-trigger{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%;-webkit-tap-highlight-color:transparent;transition:border-color .2s}
+.tools-trigger:active{border-color:rgba(56,189,248,.5)}
+.bs-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:300;display:none;align-items:flex-end;justify-content:center}
+.bs-overlay.open{display:flex}
+.bs-sheet{width:100%;max-height:55vh;background:var(--navy-800);border-top:1px solid var(--border);border-radius:18px 18px 0 0;overflow:hidden;display:flex;flex-direction:column;animation:bs-up .25s ease-out}
+@keyframes bs-up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.bs-header{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 10px;border-bottom:1px solid var(--border);flex-shrink:0}
+.bs-title{font-size:14px;font-weight:600;color:var(--blue-300)}
+.bs-close{background:none;border:none;color:var(--text-muted);font-size:18px;cursor:pointer;padding:4px 8px;-webkit-tap-highlight-color:transparent}
+.bs-list{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:4px 0 calc(12px + env(safe-area-inset-bottom,0px))}
+.bs-item{padding:13px 18px;font-size:14px;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(56,189,248,.06);-webkit-tap-highlight-color:transparent;transition:background .1s}
+.bs-item:active{background:rgba(56,189,248,.1)}
+.bs-item.selected{color:var(--blue-400);font-weight:600}
+.bs-item .bs-icon{flex-shrink:0;font-size:15px}
 /* Interaction card */
 .card{background:var(--glass);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
 .card:active{border-color:rgba(56,189,248,.35)}
@@ -6311,11 +6326,7 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
     <option value="processing">⏳ Procesando</option>
     <option value="suprimido">⚠️ Suprimido</option>
   </select>
-  <select class="filter-select" id="fTools" onchange="applyClientFilters()">
-    <option value="">Todas las interacciones</option>
-    <option value="any">🔧 Con herramientas</option>
-    <option value="none">Sin herramientas</option>
-  </select>
+  <button class="tools-trigger" id="fToolsTrigger" onclick="openToolsSheet()">Todas las interacciones</button>
   <select class="filter-select" id="fDays" onchange="loadData(true)">
     <option value="1">Hoy</option>
     <option value="3" selected>3 días</option>
@@ -6328,6 +6339,12 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   <div class="stat"><div class="stat-val" id="sOk" style="color:var(--green)">—</div><div class="stat-lbl">OK</div></div>
   <div class="stat"><div class="stat-val" id="sErr" style="color:var(--red)">—</div><div class="stat-lbl">Errores</div></div>
   <div class="stat"><div class="stat-val" id="sMs">—</div><div class="stat-lbl">Avg ms</div></div>
+</div>
+<div class="bs-overlay" id="bsOverlay" onclick="if(event.target===this)closeToolsSheet()">
+  <div class="bs-sheet">
+    <div class="bs-header"><span class="bs-title">Filtrar por herramienta</span><button class="bs-close" onclick="closeToolsSheet()">✕</button></div>
+    <div class="bs-list" id="bsList"></div>
+  </div>
 </div>
 <div class="list" id="list"></div>
 <script>
@@ -6394,24 +6411,44 @@ function _hasSpecificTool(x,toolName){
     )
   );
 }
+let _toolsFilterVal='';
 function updateToolsFilter(){
+  // just refresh label in case data changed
+  _updateToolsTriggerLabel();
+}
+function _updateToolsTriggerLabel(){
+  const btn=document.getElementById('fToolsTrigger');
+  if(!_toolsFilterVal) btn.textContent='Todas las interacciones';
+  else if(_toolsFilterVal==='any') btn.textContent='🔧 Con herramientas';
+  else if(_toolsFilterVal==='none') btn.textContent='Sin herramientas';
+  else btn.textContent='🔧 '+_toolsFilterVal.replace('tool:','');
+}
+function openToolsSheet(){
   const names=_getToolNames(_rawInteractions);
-  const sel=document.getElementById('fTools');
-  const cur=sel.value;
-  let html='<option value="">Todas las interacciones</option>'
-    +'<option value="any">🔧 Con herramientas</option>'
-    +'<option value="none">Sin herramientas</option>';
-  if(names.length){
-    html+='<option disabled>──────────</option>';
-    html+=names.map(n=>'<option value="tool:'+esc(n)+'">🔧 '+esc(n)+'</option>').join('');
-  }
-  sel.innerHTML=html;
-  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+  const list=document.getElementById('bsList');
+  const items=[
+    {val:'',label:'Todas las interacciones',icon:'📋'},
+    {val:'any',label:'Con herramientas',icon:'🔧'},
+    {val:'none',label:'Sin herramientas',icon:'🚫'},
+  ];
+  for(const n of names) items.push({val:'tool:'+n,label:n,icon:'⚡'});
+  list.innerHTML=items.map(it=>{
+    const sel=it.val===_toolsFilterVal?'selected':'';
+    return '<div class="bs-item '+sel+'" onclick="selectTool(\\''+it.val.replace(/'/g,"\\\\'")+'\\')"><span class="bs-icon">'+it.icon+'</span>'+esc(it.label)+'</div>';
+  }).join('');
+  document.getElementById('bsOverlay').classList.add('open');
+}
+function closeToolsSheet(){document.getElementById('bsOverlay').classList.remove('open');}
+function selectTool(val){
+  _toolsFilterVal=val;
+  _updateToolsTriggerLabel();
+  closeToolsSheet();
+  applyClientFilters();
 }
 
 function applyClientFilters(){
   const status=document.getElementById('fStatus').value;
-  const tools=document.getElementById('fTools').value;
+  const tools=_toolsFilterVal;
   const contacto=document.getElementById('fContacto').value.trim();
   const empresa=document.getElementById('fEmpresa').value.trim();
   let items=_rawInteractions;
