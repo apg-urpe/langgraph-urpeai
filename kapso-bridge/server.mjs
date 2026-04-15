@@ -6199,20 +6199,19 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .logout-btn{background:none;border:none;color:var(--text-muted);font-size:12px;cursor:pointer;padding:6px 4px}
 .logout-btn:hover{color:var(--red)}
 /* Filter bar */
-.filterbar{position:fixed;top:52px;left:0;right:0;background:rgba(8,12,30,.88);border-bottom:1px solid var(--border);padding:10px 12px;z-index:99;display:flex;flex-wrap:wrap;gap:8px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-.filter-input,.filter-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none;min-width:0}
+.filterbar{position:fixed;top:52px;left:0;right:0;background:rgba(8,12,30,.88);border-bottom:1px solid var(--border);padding:9px 12px;z-index:99;display:grid;grid-template-columns:1fr 1fr;gap:7px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.filter-input,.filter-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;outline:none;transition:border-color .2s;-webkit-appearance:none;appearance:none;min-width:0;width:100%}
 .filter-input::placeholder{color:var(--text-muted)}
 .filter-input:focus,.filter-select:focus{border-color:rgba(56,189,248,.5)}
-.filter-input{flex:1;min-width:110px}
-.filter-select{flex:0 0 auto}
 /* Stats bar */
-.statsbar{position:fixed;top:120px;left:0;right:0;background:rgba(8,12,30,.7);border-bottom:1px solid var(--border);padding:8px 16px;z-index:98;display:flex;gap:16px;overflow-x:auto;scrollbar-width:none}
+.statsbar{position:fixed;top:183px;left:0;right:0;background:rgba(8,12,30,.7);border-bottom:1px solid var(--border);padding:8px 16px;z-index:98;display:flex;gap:16px;overflow-x:auto;scrollbar-width:none}
 .statsbar::-webkit-scrollbar{display:none}
 .stat{display:flex;flex-direction:column;align-items:center;flex:0 0 auto}
 .stat-val{font-size:16px;font-weight:700;color:var(--blue-300)}
 .stat-lbl{font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:1px}
 /* Card list */
-.list{position:fixed;top:162px;bottom:0;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+.list{position:fixed;top:225px;bottom:0;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+.badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
 /* Interaction card */
 .card{background:var(--glass);border:1px solid var(--border);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
 .card:active{border-color:rgba(56,189,248,.35)}
@@ -6295,6 +6294,18 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
     <option value="manychat">ManyChat</option>
     <option value="ghl">GHL</option>
   </select>
+  <select class="filter-select" id="fStatus" onchange="applyClientFilters()">
+    <option value="">Todos los estados</option>
+    <option value="ok">✅ OK</option>
+    <option value="error">❌ Error</option>
+    <option value="processing">⏳ Procesando</option>
+    <option value="suprimido">⚠️ Suprimido</option>
+  </select>
+  <select class="filter-select" id="fTools" onchange="applyClientFilters()">
+    <option value="">Todas las interacciones</option>
+    <option value="any">🔧 Con herramientas</option>
+    <option value="none">Sin herramientas</option>
+  </select>
   <select class="filter-select" id="fDays" onchange="loadData(true)">
     <option value="1">Hoy</option>
     <option value="3" selected>3 días</option>
@@ -6330,8 +6341,31 @@ function statusBadge(s){
 function canalBadge(c){return '<span class="badge badge-canal">'+(c||'?')+'</span>';}
 function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
+let _rawInteractions=[];
 let _filterTimer=null;
 function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>loadData(true),600);}
+
+function _countTools(x){
+  let n=0;
+  for(const s of (x.stages_detail||[])){
+    if(s.stage==='run_agent_done'&&s.tools_used)n+=s.tools_used.length;
+  }
+  return n;
+}
+
+function applyClientFilters(){
+  const status=document.getElementById('fStatus').value;
+  const tools=document.getElementById('fTools').value;
+  const contacto=document.getElementById('fContacto').value.trim();
+  const empresa=document.getElementById('fEmpresa').value.trim();
+  let items=_rawInteractions;
+  if(status) items=items.filter(x=>x.status===status);
+  if(tools==='any') items=items.filter(x=>_countTools(x)>0);
+  if(tools==='none') items=items.filter(x=>_countTools(x)===0);
+  if(contacto) items=items.filter(x=>String(x.contacto_id??'')===contacto);
+  if(empresa) items=items.filter(x=>String(x.empresa_id??'')===empresa);
+  renderList(items);
+}
 
 async function loadData(showLoader=false){
   if(!_token){window.location.href='/events';return;}
@@ -6340,19 +6374,16 @@ async function loadData(showLoader=false){
   const btn=document.getElementById('refreshBtn');
   btn.classList.add('spinning');
   const canal=document.getElementById('fCanal').value;
-  const empresa=document.getElementById('fEmpresa').value.trim();
-  const contacto=document.getElementById('fContacto').value.trim();
   const days=document.getElementById('fDays').value;
-  const qs=new URLSearchParams({token:_token,days,limit:'50'});
+  const qs=new URLSearchParams({token:_token,days,limit:'100'});
   if(canal)qs.set('channel',canal);
-  if(empresa)qs.set('empresa_id',empresa);
-  if(contacto)qs.set('contacto_id',contacto);
   try{
     const r=await fetch('/events/api/interactions?'+qs);
     if(r.status===401){logout();return;}
     const data=await r.json();
+    _rawInteractions=data.interactions||[];
     renderStats(data.stats||{});
-    renderList(data.interactions||[]);
+    applyClientFilters();
   }catch(e){
     list.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>Error cargando datos</p></div>';
   }finally{btn.classList.remove('spinning');}
@@ -6497,9 +6528,11 @@ function cardHtml(x,i){
   const phone=x.from_phone&&x.contact_name?'<span class="phone">'+esc(x.from_phone)+'</span>':'';
   const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
   const stages=(x.stages_detail||[]).map(s=>stageItemHtml(s)).join('');
+  const nTools=_countTools(x);
+  const toolsBadge=nTools>0?'<span class="badge badge-tools">🔧 '+nTools+(nTools===1?' tool':' tools')+'</span>':'';
   return \`<div class="card" id="card\${i}">
   <div class="card-head" onclick="toggle(\${i})">
-    <div class="card-badges">\${canalBadge(x.channel)}\${statusBadge(x.status)}</div>
+    <div class="card-badges">\${canalBadge(x.channel)}\${statusBadge(x.status)}\${toolsBadge}</div>
     <div class="card-time">\${relTime(x.started_at)}</div>
     <svg class="card-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
   </div>
