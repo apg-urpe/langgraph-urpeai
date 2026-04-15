@@ -5878,27 +5878,42 @@ async function dispatchKapsoResponse(reply) {
 
   if (replyType === 'video' && reply.video_url) {
 
-    return withKapsoRetry(
+    try {
 
-      () => client.messages.videoSender.send({
+      await withKapsoRetry(
 
-        phoneNumberId,
+        () => client.messages.videoSender.send({
 
-        to: recipientPhone,
+          phoneNumberId,
 
-        video: {
+          to: recipientPhone,
 
-          link: reply.video_url,
+          video: {
 
-          caption: reply.video_caption ? normalizeWhatsAppText(reply.video_caption) : undefined,
+            link: reply.video_url,
 
-        },
+            caption: reply.video_caption ? normalizeWhatsAppText(reply.video_caption) : undefined,
 
-      }),
+          },
 
-      `sendVideo(${recipientPhone})`,
+        }),
 
-    );
+        `sendVideo(${recipientPhone})`,
+
+      );
+
+    } catch (videoError) {
+
+      // El video falló, pero no bloqueamos el envío del texto de confirmación
+      console.warn('[KapsoBridge] Video falló (no bloquea texto):', videoError?.message || videoError);
+
+    }
+
+    // Siempre enviar también el reply_text (confirmación de cita, etc.) como texto
+    if (reply.reply_text) {
+      return sendKapsoText(recipientPhone, phoneNumberId, reply.reply_text);
+    }
+    return null;
 
   }
 
