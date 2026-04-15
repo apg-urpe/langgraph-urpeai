@@ -587,11 +587,30 @@ function buildKapsoInteractions(bridgeEvents = [], fastapiEvents = []) {
 
 
 
+      if (event.stage === 'kapso_send_done') {
+
+        interaction.send_result = payload.result ?? null;
+
+        if (payload.result?.error) {
+          interaction.status = 'error';
+          interaction.error = String(payload.result.error);
+        }
+
+      }
+
+
+
       if (event.stage === 'message_processing_done') {
 
         interaction.finished_at = event.timestamp;
 
-        interaction.status = (payload.error || payload.send_result?.error) ? 'error' : 'ok';
+        if (payload.error || payload.send_result?.error) {
+          interaction.status = 'error';
+        } else if (payload.send_result?.suppressed) {
+          interaction.status = 'suprimido';
+        } else {
+          interaction.status = 'ok';
+        }
 
         if (payload.send_result) interaction.send_result = payload.send_result;
 
@@ -1734,6 +1753,10 @@ function renderKapsoBasicHtml(debugData, debugToken = '') {
           <div style="margin:12px 0 6px"><strong>Respuesta preview</strong></div>
 
           <pre>${escapeHtml(item.response_preview || '—')}</pre>
+
+          <div style="margin:12px 0 6px"><strong>Resultado envío Kapso</strong></div>
+
+          <pre>${escapeHtml(JSON.stringify(item.send_result ?? null, null, 2))}</pre>
 
           <div style="margin:12px 0 6px"><strong>Embudo en metadata</strong></div>
 
@@ -5967,7 +5990,21 @@ async function dispatchKapsoResponse(reply) {
 
 
 
-  return sendKapsoText(recipientPhone, phoneNumberId, reply.reply_text || '');
+  const textResult = await sendKapsoText(recipientPhone, phoneNumberId, reply.reply_text || '');
+
+  addBridgeDebugEvent('kapso_send_done', {
+    to: recipientPhone,
+    phone_number_id: phoneNumberId,
+    message_id: reply.message_id,
+    reply_type: replyType,
+    result: textResult ?? null,
+  });
+
+  console.log(
+    `[KapsoBridge] kapso_send_done to=${recipientPhone} phone_number_id=${phoneNumberId} result=${JSON.stringify(textResult ?? null)}`,
+  );
+
+  return textResult;
 
 }
 
