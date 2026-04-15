@@ -6373,6 +6373,41 @@ function _countTools(x){
   }
   return n;
 }
+function _getToolNames(items){
+  const names=new Set();
+  for(const x of items){
+    for(const s of (x.stages_detail||[])){
+      if(s.stage==='run_agent_done'&&s.tools_used){
+        for(const t of s.tools_used){
+          const nm=typeof t==='string'?t:(t.tool_name||'');
+          if(nm)names.add(nm);
+        }
+      }
+    }
+  }
+  return [...names].sort();
+}
+function _hasSpecificTool(x,toolName){
+  return (x.stages_detail||[]).some(s=>
+    s.stage==='run_agent_done'&&(s.tools_used||[]).some(t=>
+      (typeof t==='string'?t:(t.tool_name||''))===toolName
+    )
+  );
+}
+function updateToolsFilter(){
+  const names=_getToolNames(_rawInteractions);
+  const sel=document.getElementById('fTools');
+  const cur=sel.value;
+  let html='<option value="">Todas las interacciones</option>'
+    +'<option value="any">🔧 Con herramientas</option>'
+    +'<option value="none">Sin herramientas</option>';
+  if(names.length){
+    html+='<option disabled>──────────</option>';
+    html+=names.map(n=>'<option value="tool:'+esc(n)+'">🔧 '+esc(n)+'</option>').join('');
+  }
+  sel.innerHTML=html;
+  if([...sel.options].some(o=>o.value===cur))sel.value=cur;
+}
 
 function applyClientFilters(){
   const status=document.getElementById('fStatus').value;
@@ -6382,7 +6417,8 @@ function applyClientFilters(){
   let items=_rawInteractions;
   if(status) items=items.filter(x=>x.status===status);
   if(tools==='any') items=items.filter(x=>_countTools(x)>0);
-  if(tools==='none') items=items.filter(x=>_countTools(x)===0);
+  else if(tools==='none') items=items.filter(x=>_countTools(x)===0);
+  else if(tools.startsWith('tool:')) items=items.filter(x=>_hasSpecificTool(x,tools.slice(5)));
   if(contacto){
     const matchC=x=>String(x.contacto_id??'')===contacto||String(x.from_phone??'').replace(/\D/g,'').includes(contacto.replace(/\D/g,''));
     if(_excludeContacto) items=items.filter(x=>!matchC(x));
@@ -6407,6 +6443,7 @@ async function loadData(showLoader=false){
     if(r.status===401){logout();return;}
     const data=await r.json();
     _rawInteractions=data.interactions||[];
+    updateToolsFilter();
     renderStats(data.stats||{});
     applyClientFilters();
   }catch(e){
