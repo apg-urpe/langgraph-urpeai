@@ -6838,10 +6838,13 @@ function _renderAgCard(ag){
   const channels=(ag.canales||[]).map(c=>\`<span class="ag-ch \${_agChClass(c)}">\${_AG_CH_NAMES[c]||c}</span>\`).join('');
   const canalStats=Object.entries(ag.por_canal||{}).map(([c,n])=>\`\${_AG_CH_NAMES[c]||c}: \${n}\`).join(' · ');
   const isOk=ag.activo!==false;
+  const avatarInner=ag.url_imagen
+    ? \`<img src="\${ag.url_imagen}" alt="\${initial}" style="width:100%;height:100%;object-fit:cover;border-radius:13px;" onerror="this.parentElement.innerHTML='<span>\${initial}</span>'">\`
+    : \`<span>\${initial}</span>\`;
   return \`<div class="ag-card">
   <div class="ag-card-top">
     <div class="ag-avatar-wrap">
-      <div class="ag-avatar" style="background:\${hexBg};border-color:\${hexBd};color:\${color}">\${initial}</div>
+      <div class="ag-avatar" style="background:\${hexBg};border-color:\${hexBd};color:\${color}">\${avatarInner}</div>
       <div class="ag-status-dot \${isOk?'status-ok':'status-off'}"></div>
     </div>
     <div class="ag-info">

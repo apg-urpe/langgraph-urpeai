@@ -836,7 +836,7 @@ async def debug_agentes(
 
         agents = await db.query(
             "wp_agentes",
-            select="id,nombre_agente,rol,llm,empresa_id,archivado",
+            select="id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente",
             filters=ag_filters,
         ) or []
 
@@ -898,6 +898,7 @@ async def debug_agentes(
                 "llm": agent.get("llm") or "",
                 "empresa_id": agent.get("empresa_id"),
                 "activo": not agent.get("archivado", False),
+                "url_imagen": agent.get("url_imagen_agente") or "",
                 "canales": canales_map.get(aid, []),
                 "conversaciones_total": sum(por_canal.values()),
                 "por_canal": por_canal,
