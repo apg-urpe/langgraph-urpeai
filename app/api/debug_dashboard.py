@@ -826,34 +826,47 @@ async def debug_interactions(
 async def debug_agentes(
     empresa_id: int = Query(0),
 ):
-    """Agentes de una empresa con canales y conteo de conversaciones."""
+    """Agentes agrupados por empresa con canales, conversaciones e instrucciones completas."""
     try:
         db = await get_supabase()
+
+        _AG_SELECT = (
+            "id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente,"
+            "instrucciones,comportamiento,restricciones,instrucciones_mensajes,"
+            "instrucciones_multimedia,formato_respuesta,areas_de_expertise,"
+            "uso_de_emojis,manejo_herramientas,prompt_personalizado,idioma"
+        )
 
         ag_filters: dict = {"archivado": False}
         if empresa_id:
             ag_filters["empresa_id"] = empresa_id
 
-        agents = await db.query(
-            "wp_agentes",
-            select="id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente",
-            filters=ag_filters,
-        ) or []
+        agents = await db.query("wp_agentes", select=_AG_SELECT, filters=ag_filters) or []
 
         if not agents:
-            return {"agentes": [], "empresa_id": empresa_id}
+            return {"empresas": [], "empresa_id": empresa_id}
+
+        # ── IDs de empresa únicos → fetch nombres ─────────────────────────
+        emp_ids = list({a["empresa_id"] for a in agents if a.get("empresa_id")})
+        empresas_raw = []
+        for eid in emp_ids:
+            row = await db.query(
+                "wp_empresa_perfil",
+                select="id,nombre,rubro,ciudad,pais",
+                filters={"id": eid},
+                single=True,
+            )
+            if row:
+                empresas_raw.append(row)
+        emp_map = {e["id"]: e for e in empresas_raw}
 
         agent_ids = {a["id"] for a in agents}
 
-        # ── Canales por agente (wp_numeros) ────────────────────────────────
+        # ── Canales por agente (wp_numeros) ───────────────────────────────
         num_filters: dict = {"activo": True}
         if empresa_id:
             num_filters["empresa_id"] = empresa_id
-        numeros = await db.query(
-            "wp_numeros",
-            select="agente_id,canal",
-            filters=num_filters,
-        ) or []
+        numeros = await db.query("wp_numeros", select="agente_id,canal", filters=num_filters) or []
 
         canales_map: dict[int, list[str]] = {}
         seen_canal: dict[int, set] = {}
@@ -861,21 +874,18 @@ async def debug_agentes(
             aid = num.get("agente_id")
             canal = (num.get("canal") or "").strip()
             if aid and canal and aid in agent_ids:
-                if aid not in seen_canal:
-                    seen_canal[aid] = set()
+                seen_canal.setdefault(aid, set())
                 if canal not in seen_canal[aid]:
                     seen_canal[aid].add(canal)
                     canales_map.setdefault(aid, []).append(canal)
 
-        # ── Conversaciones por agente y canal (wp_conversaciones) ──────────
+        # ── Conversaciones por agente y canal ─────────────────────────────
         conv_filters: dict = {}
         if empresa_id:
             conv_filters["empresa_id"] = empresa_id
         convs = await db.query(
-            "wp_conversaciones",
-            select="agente_id,canal",
-            filters=conv_filters if conv_filters else None,
-            limit=10000,
+            "wp_conversaciones", select="agente_id,canal",
+            filters=conv_filters if conv_filters else None, limit=10000,
         ) or []
 
         conv_map: dict[int, dict[str, int]] = {}
@@ -886,12 +896,11 @@ async def debug_agentes(
                 conv_map.setdefault(aid, {})
                 conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
 
-        # ── Resultado ──────────────────────────────────────────────────────
-        result = []
-        for agent in agents:
+        # ── Agrupar agentes por empresa ───────────────────────────────────
+        def _build_agent(agent: dict) -> dict:
             aid = agent["id"]
             por_canal = conv_map.get(aid, {})
-            result.append({
+            return {
                 "id": aid,
                 "nombre": agent.get("nombre_agente") or "Sin nombre",
                 "rol": agent.get("rol") or "",
@@ -902,13 +911,41 @@ async def debug_agentes(
                 "canales": canales_map.get(aid, []),
                 "conversaciones_total": sum(por_canal.values()),
                 "por_canal": por_canal,
-            })
+                # Instrucciones para el panel expandible
+                "instrucciones": {
+                    "instrucciones": agent.get("instrucciones") or "",
+                    "comportamiento": agent.get("comportamiento") or "",
+                    "restricciones": agent.get("restricciones") or "",
+                    "instrucciones_mensajes": agent.get("instrucciones_mensajes") or "",
+                    "instrucciones_multimedia": agent.get("instrucciones_multimedia") or "",
+                    "formato_respuesta": agent.get("formato_respuesta") or "",
+                    "areas_de_expertise": agent.get("areas_de_expertise") or "",
+                    "uso_de_emojis": agent.get("uso_de_emojis") or "",
+                    "manejo_herramientas": agent.get("manejo_herramientas") or "",
+                    "prompt_personalizado": agent.get("prompt_personalizado") or "",
+                    "idioma": agent.get("idioma") or "",
+                },
+            }
 
-        return {"agentes": result, "empresa_id": empresa_id}
+        grupos: dict[int, dict] = {}
+        for agent in agents:
+            eid = agent.get("empresa_id") or 0
+            if eid not in grupos:
+                emp = emp_map.get(eid, {})
+                grupos[eid] = {
+                    "empresa_id": eid,
+                    "nombre": emp.get("nombre") or f"Empresa {eid}",
+                    "rubro": emp.get("rubro") or "",
+                    "ubicacion": f"{emp.get('ciudad') or ''}, {emp.get('pais') or ''}".strip(", "),
+                    "agentes": [],
+                }
+            grupos[eid]["agentes"].append(_build_agent(agent))
+
+        return {"empresas": list(grupos.values()), "empresa_id": empresa_id}
 
     except Exception as exc:
         logger.error("debug_agentes error: %s", exc)
-        return {"agentes": [], "error": str(exc), "empresa_id": empresa_id}
+        return {"empresas": [], "error": str(exc), "empresa_id": empresa_id}
 
 
 @router.get("/debug/kapso/", response_class=HTMLResponse)
