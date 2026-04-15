@@ -126,7 +126,7 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
         IMPORTANTE: Primero usa consultar_disponibilidad para verificar horarios libres.
 
         Args:
-            start: Fecha y hora en formato ISO (ej: 2026-04-15T14:00:00)
+            start: Fecha y hora en HORA LOCAL del contacto, formato ISO sin timezone (ej: 2026-04-15T14:00:00). NO convertir a UTC — el sistema maneja la conversión internamente. Si el contacto dice "a las 10", enviar T10:00:00.
             email_contacto: Email del contacto para la invitación al calendario
             titulo: Título del evento (ej: "Consulta | Juan Pérez")
             modalidad: "Virtual" (genera link de Google Meet) o "Presencial"
@@ -196,7 +196,7 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
 
         Args:
             event_id: ID del evento a reagendar (obtenido de consultar_disponibilidad o agendar_cita)
-            nuevo_inicio: Nueva fecha/hora en formato ISO (ej: 2026-04-16T10:00:00)
+            nuevo_inicio: Nueva fecha/hora en HORA LOCAL del contacto, formato ISO sin timezone (ej: 2026-04-16T10:00:00). NO convertir a UTC — el sistema maneja la conversión internamente. Si el contacto dice "a las 10", enviar T10:00:00.
             duracion_minutos: Duración en minutos (0 = mantener duración original)
             modalidad: "Virtual" o "Presencial"
         """

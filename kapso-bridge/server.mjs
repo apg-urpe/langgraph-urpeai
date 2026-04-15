@@ -6281,8 +6281,19 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .tl-k{font-size:11px;color:var(--text-muted)}
 .tl-v{font-size:11px;color:var(--text-dim);word-break:break-all}
 .tl-tools{display:flex;flex-direction:column;gap:4px;margin-top:5px}
-.tool-chip{background:rgba(13,27,75,.7);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:11px;color:var(--blue-300)}
-.tool-chip .t-io{color:var(--text-muted);font-size:10px;margin-top:2px}
+.tool-chip{background:rgba(13,27,75,.7);border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:11px;color:var(--blue-300);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:border-color .15s}
+.tool-chip:active{border-color:rgba(56,189,248,.35)}
+.tool-chip .t-head{display:flex;align-items:center;gap:6px;justify-content:space-between}
+.tool-chip .t-name{font-weight:600}
+.tool-chip .t-chev{color:var(--text-muted);font-size:9px;transition:transform .2s}
+.tool-chip.open .t-chev{transform:rotate(180deg);color:var(--blue-400)}
+.tool-chip .t-summary{color:var(--text-muted);font-size:10px;margin-top:3px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.tool-chip.open .t-summary{display:none}
+.tool-detail{display:none;margin-top:8px}
+.tool-chip.open .tool-detail{display:block}
+.tool-detail .td-lbl{font-size:10px;color:var(--text-muted);margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.tool-detail .td-pre{background:rgba(8,12,30,.7);border:1px solid var(--border);border-radius:6px;padding:8px;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-word;max-height:220px;overflow-y:auto;font-family:'SF Mono','Fira Code',monospace;margin-bottom:8px}
+.tool-detail .td-err{color:var(--red);font-size:11px;margin-top:4px}
 .tl-err{color:var(--red);font-size:12px;margin-top:3px}
 .detail-msgid{padding:6px 14px 10px;font-size:10px;color:var(--text-muted);border-top:1px solid var(--border)}
 /* Empty / loading */
@@ -6572,7 +6583,17 @@ function stageItemHtml(s){
         const out=t.tool_output!=null?String(t.tool_output):'';
         const dur=t.duration_ms!=null?' · '+t.duration_ms+'ms':'';
         const st=t.status&&t.status!=='ok'?' ❌':'';
-        return \`<div class="tool-chip">⚡ \${esc(nm)}\${esc(dur)}\${esc(st)}\${inp?'<div class="t-io">Input: '+esc(inp.slice(0,120))+(inp.length>120?'…':'')+'</div>':''}\${out?'<div class="t-io">Output: '+esc(out.slice(0,200))+(out.length>200?'…':'')+'</div>':''}</div>\`;
+        const summary=out?out.slice(0,100)+(out.length>100?'…':''):'';
+        const errHtml=t.error?'<div class="td-err">❌ '+esc(t.error)+'</div>':'';
+        return \`<div class="tool-chip" onclick="event.stopPropagation();this.classList.toggle('open')">
+  <div class="t-head"><span class="t-name">⚡ \${esc(nm)}\${esc(dur)}\${esc(st)}</span><span class="t-chev">▼</span></div>
+  \${summary?'<div class="t-summary">'+esc(summary)+'</div>':''}
+  <div class="tool-detail">
+    \${inp?'<div class="td-lbl">Input</div><div class="td-pre">'+esc(inp)+'</div>':''}
+    \${out?'<div class="td-lbl">Output</div><div class="td-pre">'+esc(out)+'</div>':''}
+    \${errHtml}
+  </div>
+</div>\`;
       }).join('');
       body+=\`<div class="tl-tools">\${chips}</div>\`;
     }
