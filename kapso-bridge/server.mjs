@@ -6233,8 +6233,10 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .badge-suprimido{background:rgba(251,146,60,.1);color:var(--orange);border:1px solid rgba(251,146,60,.18)}
 .card-time{font-size:11px;color:var(--text-muted);white-space:nowrap;flex-shrink:0}
 .card-body{padding:0 14px 12px}
-.card-contact{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.card-contact{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .card-contact .phone{font-size:11px;color:var(--text-muted);font-weight:400}
+.copy-btn{background:none;border:1px solid var(--border);border-radius:5px;color:var(--text-muted);font-size:12px;padding:1px 5px;cursor:pointer;line-height:1.4;transition:color .15s,border-color .15s;-webkit-tap-highlight-color:transparent}
+.copy-btn:active{color:var(--green);border-color:var(--green)}
 .card-meta{font-size:11px;color:var(--text-dim);margin-bottom:6px;display:flex;flex-wrap:wrap;gap:8px}
 .card-msg{font-size:13px;color:var(--text-dim);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .card-agent{margin-top:6px;font-size:11px;color:var(--text-muted)}
@@ -6548,7 +6550,11 @@ function stageItemHtml(s){
 
 function cardHtml(x,i){
   const name=esc(x.contact_name||x.from_phone||'Desconocido');
-  const phone=x.contacto_id?'<span class="phone">'+esc(x.contacto_id)+'</span>':'';
+  const copyVal=x.contacto_id||x.from_phone||'';
+  const copyLabel=x.contacto_id?esc(x.contacto_id):esc(x.from_phone||'');
+  const phone=copyVal
+    ?'<span class="phone">'+copyLabel+'</span><button class="copy-btn" onclick="event.stopPropagation();copyId(\''+copyVal.replace(/'/g,"\\'")+'\')" title="Copiar">⎘</button>'
+    :'';
   const dur=x.duration_ms!=null?Math.round(x.duration_ms)+'ms':'';
   const stages=(x.stages_detail||[]).map(s=>stageItemHtml(s)).join('');
   const nTools=_countTools(x);
@@ -6574,6 +6580,16 @@ function cardHtml(x,i){
     <div class="detail-msgid">message_id: \${esc(x.message_id||'—')}</div>
   </div>
 </div>\`;
+}
+
+function copyId(val){
+  navigator.clipboard.writeText(val).then(()=>{
+    const t=document.createElement('div');
+    t.textContent='✓ Copiado';
+    t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(52,211,153,.15);border:1px solid rgba(52,211,153,.4);color:#34d399;padding:8px 18px;border-radius:10px;font-size:13px;z-index:9999;pointer-events:none';
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(),1500);
+  }).catch(()=>{});
 }
 
 function toggle(i){
