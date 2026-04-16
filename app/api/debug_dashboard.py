@@ -940,6 +940,391 @@ async def debug_interactions(
     }
 
 
+# ── Sender classification for metrics ─────────────────────────────────────────
+_SENDER_INBOUND = frozenset({"usuario"})
+_SENDER_AI = frozenset({
+    "agente", "agente_link", "agente_recontacto", "agente_seguimiento", "asistente",
+})
+_SENDER_HUMAN = frozenset({
+    "asesor", "asesor / human in the loop", "human in the loop", "humano",
+})
+_SENDER_SYSTEM = frozenset({
+    "sistema", "/comando",
+    "follow_up_5m", "follow_up_correo_1", "follow_up_correo_10m",
+    "follow_up_correo_2", "follow_up_pre_correo_1",
+})
+
+
+def _sender_group(remitente: str) -> str:
+    r = (remitente or "").lower().strip()
+    if r in _SENDER_INBOUND:
+        return "inbound"
+    if r in _SENDER_AI:
+        return "ia"
+    if r in _SENDER_HUMAN:
+        return "humano"
+    if r in _SENDER_SYSTEM:
+        return "sistema"
+    return "otro"
+
+
+def _norm_cita_estado(estado: str) -> str:
+    e = (estado or "").lower().strip()
+    if e in ("cancelada", "canceled"):
+        return "cancelada"
+    if e in ("realizada", "completada"):
+        return "realizada"
+    if e in ("reagendada", "reprogramada"):
+        return "reagendada"
+    if e in ("no_asistio", "no realizada"):
+        return "no_asistio"
+    return e
+
+
+def _percentile(arr: list[int | float], p: int) -> int | None:
+    if not arr:
+        return None
+    s = sorted(arr)
+    idx = int(len(s) * p / 100)
+    return round(s[min(idx, len(s) - 1)])
+
+
+@router.get("/api/v1/debug/metrics")
+async def debug_metrics(
+    days: int = Query(default=30, ge=1, le=365),
+    empresa_id: int = Query(default=0),
+):
+    """Aggregated metrics for the benchmark dashboard."""
+    try:
+        db = await get_supabase()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        _PAGE = 1000
+
+        async def _fetch_all(
+            table: str,
+            select: str,
+            filters: dict | None = None,
+            raw_filters: dict | None = None,
+            max_pages: int = 10,
+            order_col: str = "created_at",
+        ) -> list[dict]:
+            rows: list[dict] = []
+            for p in range(max_pages):
+                rf = {**(raw_filters or {}), "offset": str(p * _PAGE)}
+                batch = await db.query(
+                    table,
+                    select=select,
+                    filters=filters if filters else None,
+                    raw_filters=rf,
+                    order=order_col,
+                    order_desc=True,
+                    limit=_PAGE,
+                ) or []
+                rows.extend(batch)
+                if len(batch) < _PAGE:
+                    break
+            return rows
+
+        # ── Build filters ─────────────────────────────────────────────────────
+        emp_f: dict | None = {"empresa_id": empresa_id} if empresa_id else None
+        msg_raw = {"created_at": f"gte.{cutoff}"}
+        cita_raw = {"created_at": f"gte.{cutoff}"}
+        contact_raw = {"created_at": f"gte.{cutoff}"}
+        debug_done_raw = {
+            "created_at": f"gte.{cutoff}",
+            "source": "neq.funnel",
+            "stage": "eq.run_agent_done",
+        }
+        debug_err_raw = {
+            "created_at": f"gte.{cutoff}",
+            "source": "neq.funnel",
+            "stage": "in.(inbound_error,error,exception,http_error)",
+        }
+
+        # ── Parallel fetch all data ───────────────────────────────────────────
+        results = await asyncio.gather(
+            _fetch_all("wp_mensajes", "created_at,remitente,modelo_llm", emp_f, msg_raw, max_pages=20),
+            _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=5),
+            _fetch_all("debug_events", "created_at,payload", emp_f, debug_done_raw, max_pages=5),
+            _fetch_all("debug_events", "created_at,payload", emp_f, debug_err_raw, max_pages=2),
+            _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=5),
+            return_exceptions=True,
+        )
+
+        msg_rows = results[0] if isinstance(results[0], list) else []
+        cita_rows = results[1] if isinstance(results[1], list) else []
+        agent_done_rows = results[2] if isinstance(results[2], list) else []
+        error_rows = results[3] if isinstance(results[3], list) else []
+        contact_rows = results[4] if isinstance(results[4], list) else []
+
+        # ══════════════════════════════════════════════════════════════════════
+        # AGGREGATE: Messages
+        # ══════════════════════════════════════════════════════════════════════
+        msg_total = len(msg_rows)
+        msg_by_group: dict[str, int] = {"inbound": 0, "ia": 0, "humano": 0, "sistema": 0, "otro": 0}
+        msg_by_day: dict[str, dict] = {}
+        msg_by_model: dict[str, int] = {}
+        msg_by_hour = [0] * 24
+
+        for row in msg_rows:
+            grp = _sender_group(row.get("remitente", ""))
+            msg_by_group[grp] = msg_by_group.get(grp, 0) + 1
+
+            ts = row.get("created_at") or ""
+            date_key = ts[:10]
+            if date_key:
+                day = msg_by_day.setdefault(date_key, {
+                    "total": 0, "inbound": 0, "ia": 0, "humano": 0, "sistema": 0,
+                })
+                day["total"] += 1
+                if grp in day:
+                    day[grp] += 1
+
+            if len(ts) >= 13:
+                try:
+                    msg_by_hour[int(ts[11:13])] += 1
+                except (ValueError, IndexError):
+                    pass
+
+            model = row.get("modelo_llm") or ""
+            if model:
+                msg_by_model[model] = msg_by_model.get(model, 0) + 1
+
+        msg_by_day_sorted = [{"date": k, **v} for k, v in sorted(msg_by_day.items())]
+        msg_by_model_sorted = sorted(
+            [{"model": k, "count": v} for k, v in msg_by_model.items()],
+            key=lambda x: x["count"], reverse=True,
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # AGGREGATE: Appointments
+        # ══════════════════════════════════════════════════════════════════════
+        cita_total = len(cita_rows)
+        cita_by_status: dict[str, int] = {}
+        cita_by_day: dict[str, dict] = {}
+
+        for row in cita_rows:
+            estado = _norm_cita_estado(row.get("estado", ""))
+            cita_by_status[estado] = cita_by_status.get(estado, 0) + 1
+
+            ts = row.get("created_at") or ""
+            date_key = ts[:10]
+            if date_key:
+                day = cita_by_day.setdefault(date_key, {"total": 0})
+                day["total"] += 1
+                day[estado] = day.get(estado, 0) + 1
+
+        cita_by_day_sorted = [{"date": k, **v} for k, v in sorted(cita_by_day.items())]
+
+        # ══════════════════════════════════════════════════════════════════════
+        # AGGREGATE: Performance + Tools
+        # ══════════════════════════════════════════════════════════════════════
+        timings: list[int] = []
+        perf_by_agent: dict[str, dict] = {}
+        perf_by_model: dict[str, dict] = {}
+        perf_by_hour = [0] * 24
+        tools_count: dict[str, int] = {}
+        tools_duration: dict[str, list] = {}
+        tools_errors: dict[str, int] = {}
+        tools_by_hour = [0] * 24
+        tools_by_agent: dict[str, dict[str, int]] = {}
+
+        for row in agent_done_rows:
+            payload = row.get("payload") or {}
+            timing = payload.get("timing") or {}
+            total_ms = payload.get("total_ms") or timing.get("total_ms")
+            agent_name = payload.get("agent_name") or "desconocido"
+            model_used = payload.get("model_used") or ""
+
+            if total_ms is not None:
+                try:
+                    total_ms = int(total_ms)
+                except (ValueError, TypeError):
+                    total_ms = None
+
+            if total_ms is not None:
+                timings.append(total_ms)
+                ag = perf_by_agent.setdefault(agent_name, {"count": 0, "total_ms": 0, "durations": []})
+                ag["count"] += 1
+                ag["total_ms"] += total_ms
+                ag["durations"].append(total_ms)
+
+                if model_used:
+                    md = perf_by_model.setdefault(model_used, {"count": 0, "total_ms": 0, "durations": []})
+                    md["count"] += 1
+                    md["total_ms"] += total_ms
+                    md["durations"].append(total_ms)
+
+            ts = row.get("created_at") or ""
+            if len(ts) >= 13:
+                try:
+                    perf_by_hour[int(ts[11:13])] += 1
+                except (ValueError, IndexError):
+                    pass
+
+            for tool in (payload.get("tools_used") or []):
+                if not isinstance(tool, dict):
+                    continue
+                tname = tool.get("tool_name") or "unknown"
+                tdur = tool.get("duration_ms")
+                tstatus = tool.get("status") or "ok"
+
+                tools_count[tname] = tools_count.get(tname, 0) + 1
+                if tdur is not None:
+                    tools_duration.setdefault(tname, []).append(tdur)
+                if tstatus == "error":
+                    tools_errors[tname] = tools_errors.get(tname, 0) + 1
+
+                if len(ts) >= 13:
+                    try:
+                        tools_by_hour[int(ts[11:13])] += 1
+                    except (ValueError, IndexError):
+                        pass
+
+                ta = tools_by_agent.setdefault(agent_name, {})
+                ta[tname] = ta.get(tname, 0) + 1
+
+        avg_ms = round(sum(timings) / len(timings)) if timings else None
+        p50_ms = _percentile(timings, 50)
+        p95_ms = _percentile(timings, 95)
+
+        perf_agents = sorted(
+            [
+                {
+                    "agent": name,
+                    "count": data["count"],
+                    "avg_ms": round(data["total_ms"] / data["count"]) if data["count"] else None,
+                    "p50_ms": _percentile(data["durations"], 50),
+                    "p95_ms": _percentile(data["durations"], 95),
+                }
+                for name, data in perf_by_agent.items()
+            ],
+            key=lambda x: x["count"], reverse=True,
+        )
+
+        perf_models = sorted(
+            [
+                {
+                    "model": name,
+                    "count": data["count"],
+                    "avg_ms": round(data["total_ms"] / data["count"]) if data["count"] else None,
+                }
+                for name, data in perf_by_model.items()
+            ],
+            key=lambda x: x["count"], reverse=True,
+        )
+
+        tools_stats = sorted(
+            [
+                {
+                    "tool": tname,
+                    "count": cnt,
+                    "avg_ms": round(sum(tools_duration.get(tname, [])) / len(tools_duration[tname]))
+                    if tools_duration.get(tname)
+                    else None,
+                    "errors": tools_errors.get(tname, 0),
+                }
+                for tname, cnt in tools_count.items()
+            ],
+            key=lambda x: x["count"], reverse=True,
+        )
+
+        tools_agent_stats = sorted(
+            [
+                {
+                    "agent": agent,
+                    "tools": sorted(
+                        [{"tool": t, "count": c} for t, c in tmap.items()],
+                        key=lambda x: x["count"], reverse=True,
+                    ),
+                    "total": sum(tmap.values()),
+                }
+                for agent, tmap in tools_by_agent.items()
+            ],
+            key=lambda x: x["total"], reverse=True,
+        )
+
+        # ══════════════════════════════════════════════════════════════════════
+        # AGGREGATE: Errors
+        # ══════════════════════════════════════════════════════════════════════
+        error_ids: set = set()
+        for row in error_rows:
+            p = row.get("payload") or {}
+            mid = p.get("message_id") or p.get("interaction_id")
+            if mid:
+                error_ids.add(mid)
+        error_count = len(error_ids)
+        total_interactions = len(agent_done_rows)
+        denom = total_interactions + error_count
+        error_rate = round(error_count / denom * 100, 1) if denom > 0 else 0
+
+        # ══════════════════════════════════════════════════════════════════════
+        # AGGREGATE: Contacts
+        # ══════════════════════════════════════════════════════════════════════
+        contact_total = len(contact_rows)
+        contact_by_day: dict[str, int] = {}
+        for row in contact_rows:
+            ts = row.get("created_at") or ""
+            date_key = ts[:10]
+            if date_key:
+                contact_by_day[date_key] = contact_by_day.get(date_key, 0) + 1
+        contact_by_day_sorted = [{"date": k, "count": v} for k, v in sorted(contact_by_day.items())]
+
+        # ── Empresas list for filter dropdown ─────────────────────────────────
+        empresas = await db.query("wp_empresa_perfil", select="id,nombre", limit=100) or []
+        empresas_list = [
+            {"id": e["id"], "nombre": e.get("nombre") or f"Empresa {e['id']}"}
+            for e in empresas
+        ]
+
+        return {
+            "period_days": days,
+            "empresa_id": empresa_id,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "empresas": empresas_list,
+            "messages": {
+                "total": msg_total,
+                **msg_by_group,
+                "by_day": msg_by_day_sorted,
+                "by_model": msg_by_model_sorted,
+                "by_hour": msg_by_hour,
+            },
+            "appointments": {
+                "total": cita_total,
+                "by_status": cita_by_status,
+                "by_day": cita_by_day_sorted,
+            },
+            "performance": {
+                "total_interactions": total_interactions,
+                "avg_ms": avg_ms,
+                "p50_ms": p50_ms,
+                "p95_ms": p95_ms,
+                "min_ms": min(timings) if timings else None,
+                "max_ms": max(timings) if timings else None,
+                "errors": error_count,
+                "error_rate": error_rate,
+                "by_agent": perf_agents,
+                "by_model": perf_models,
+                "by_hour": perf_by_hour,
+            },
+            "tools": {
+                "total_executions": sum(tools_count.values()),
+                "unique_tools": len(tools_count),
+                "by_tool": tools_stats,
+                "by_hour": tools_by_hour,
+                "by_agent": tools_agent_stats,
+            },
+            "contacts": {
+                "new_total": contact_total,
+                "by_day": contact_by_day_sorted,
+            },
+        }
+
+    except Exception as exc:
+        logger.error("debug_metrics error: %s", exc)
+        return {"error": str(exc), "period_days": days, "empresa_id": empresa_id}
+
+
 @router.get("/api/v1/debug/agentes")
 async def debug_agentes(
     empresa_id: int = Query(0),
