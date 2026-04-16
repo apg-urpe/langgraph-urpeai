@@ -568,15 +568,28 @@ async def debug_interactions(
         if empresa_id:
             filters["empresa_id"] = empresa_id
 
-        rows = await db.query(
-            "debug_events",
-            select="*",
-            filters=filters if filters else None,
-            raw_filters=raw_filters,
-            order="created_at",
-            order_desc=True,
-            limit=2000,
-        )
+        # Supabase PostgREST caps responses at max-rows=1000 regardless of ?limit=N.
+        # Paginate with offset until we exhaust all matching rows.
+        _PAGE = 1000
+        rows: list[dict] = []
+        offset = 0
+        while True:
+            page_raw = {**raw_filters, "offset": str(offset)}
+            batch = await db.query(
+                "debug_events",
+                select="*",
+                filters=filters if filters else None,
+                raw_filters=page_raw,
+                order="created_at",
+                order_desc=True,
+                limit=_PAGE,
+            ) or []
+            rows.extend(batch)
+            if len(batch) < _PAGE:
+                break  # last page
+            offset += _PAGE
+            if offset >= 100_000:  # safety cap
+                break
     except Exception as exc:
         logger.error("debug_interactions: error querying Supabase: %s", exc)
         return {
@@ -588,8 +601,6 @@ async def debug_interactions(
             "stats": {"total": 0, "ok": 0, "errors": 0, "avg_ms": None, "by_channel": {}},
             "error": str(exc),
         }
-
-    rows = rows or []
 
     # ── Group by message_id ────────────────────────────────────────────────────
     interactions_map: dict[str, dict] = {}
