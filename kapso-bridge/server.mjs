@@ -6189,12 +6189,23 @@ app.get('/events/api/metrics', async (req, res) => {
     if (req.query.days) qs.set('days', req.query.days);
     if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
     const url = `${base}/api/v1/debug/metrics?${qs}`;
-    const upstream = await fetch(url, {
-      headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
-    });
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000); // 20s max
+    let upstream;
+    try {
+      upstream = await fetch(url, {
+        headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     const data = await upstream.json();
     res.json(data);
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return res.json({ error: null, truncated: true, period_days: Number(req.query.days||30), empresa_id: Number(req.query.empresa_id||0) });
+    }
     res.status(500).json({ error: String(err.message) });
   }
 });

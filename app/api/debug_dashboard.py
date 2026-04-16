@@ -1011,13 +1011,20 @@ async def debug_metrics(
             """Fetch rows with parallel page fetching: page 0 first, then remaining in parallel."""
             async def _one_page(p: int) -> list[dict]:
                 rf = {**(raw_filters or {}), "offset": str(p * _PAGE)}
-                return await db.query(
-                    table, select=select,
-                    filters=filters if filters else None,
-                    raw_filters=rf,
-                    order=order_col, order_desc=True,
-                    limit=_PAGE,
-                ) or []
+                try:
+                    return await asyncio.wait_for(
+                        db.query(
+                            table, select=select,
+                            filters=filters if filters else None,
+                            raw_filters=rf,
+                            order=order_col, order_desc=True,
+                            limit=_PAGE,
+                        ),
+                        timeout=5,  # 5s per page — fast-fail if Supabase is slow
+                    ) or []
+                except asyncio.TimeoutError:
+                    logger.warning("debug_metrics: page timeout %s p=%d", table, p)
+                    return []
 
             # Fetch page 0 first to check if there's more data
             first = await _one_page(0)
@@ -1045,19 +1052,19 @@ async def debug_metrics(
         # debug_events also has empresa_id column, so apply the same emp_f filter
         debug_raw = {"created_at": f"gte.{cutoff}"}
 
-        # ── Parallel fetch all data (with 28s overall timeout) ───────────────
+        # ── Parallel fetch all data (with 14s overall timeout) ───────────────
         async def _fetch_all_tables():
             return await asyncio.gather(
-                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=8, order_col="timestamp"),
-                _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=3),
-                _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=5),
-                _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=3),
+                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=5, order_col="timestamp"),
+                _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=2),
+                _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=3),
+                _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=2),
                 return_exceptions=True,
             )
 
         _timed_out = False
         try:
-            results = await asyncio.wait_for(_fetch_all_tables(), timeout=28)
+            results = await asyncio.wait_for(_fetch_all_tables(), timeout=14)
         except asyncio.TimeoutError:
             logger.warning("debug_metrics: timeout fetching tables (days=%d, empresa=%d)", days, empresa_id)
             results = [[], [], [], []]
