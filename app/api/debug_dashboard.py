@@ -1027,27 +1027,26 @@ async def debug_metrics(
 
         # ── Build filters ─────────────────────────────────────────────────────
         emp_f: dict | None = {"empresa_id": empresa_id} if empresa_id else None
-        msg_raw = {"created_at": f"gte.{cutoff}"}
+        # wp_mensajes uses "timestamp" column, not "created_at"
+        msg_raw = {"timestamp": f"gte.{cutoff}"}
         cita_raw = {"created_at": f"gte.{cutoff}"}
         contact_raw = {"created_at": f"gte.{cutoff}"}
         # Include all agent-done stages that carry timing data
         debug_done_raw = {
             "created_at": f"gte.{cutoff}",
-            "source": "neq.funnel",
             "stage": "in.(run_agent_done,run_contact_update_done)",
         }
         debug_err_raw = {
             "created_at": f"gte.{cutoff}",
-            "source": "neq.funnel",
             "stage": "in.(inbound_error,error,exception,http_error)",
         }
 
         # ── Parallel fetch all data ───────────────────────────────────────────
         results = await asyncio.gather(
-            _fetch_all("wp_mensajes", "created_at,remitente,modelo_llm", emp_f, msg_raw, max_pages=20),
+            _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=20, order_col="timestamp"),
             _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=5),
-            _fetch_all("debug_events", "created_at,payload", emp_f, debug_done_raw, max_pages=5),
-            _fetch_all("debug_events", "created_at,payload", emp_f, debug_err_raw, max_pages=2),
+            _fetch_all("debug_events", "created_at,payload", None, debug_done_raw, max_pages=10),
+            _fetch_all("debug_events", "created_at,payload", None, debug_err_raw, max_pages=2),
             _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=5),
             return_exceptions=True,
         )
@@ -1055,7 +1054,7 @@ async def debug_metrics(
         def _safe_result(r, label: str) -> list[dict]:
             if isinstance(r, list):
                 return r
-            logger.warning("debug_metrics: %s fetch failed: %s", label, r)
+            logger.warning("debug_metrics: %s fetch FAILED — %s: %s", label, type(r).__name__, r)
             return []
 
         msg_rows = _safe_result(results[0], "mensajes")
@@ -1064,9 +1063,12 @@ async def debug_metrics(
         error_rows = _safe_result(results[3], "errors")
         contact_rows = _safe_result(results[4], "contacts")
         logger.info(
-            "debug_metrics: msgs=%d citas=%d agent_done=%d errors=%d contacts=%d",
+            "debug_metrics: msgs=%d citas=%d agent_done=%d errors=%d contacts=%d (days=%d, empresa=%d)",
             len(msg_rows), len(cita_rows), len(agent_done_rows), len(error_rows), len(contact_rows),
+            days, empresa_id,
         )
+        if not agent_done_rows:
+            logger.warning("debug_metrics: agent_done_rows=0, check if run_agent_done events exist in debug_events")
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Messages
@@ -1081,7 +1083,7 @@ async def debug_metrics(
             grp = _sender_group(row.get("remitente", ""))
             msg_by_group[grp] = msg_by_group.get(grp, 0) + 1
 
-            ts = row.get("created_at") or ""
+            ts = row.get("timestamp") or ""
             date_key = ts[:10]
             if date_key:
                 day = msg_by_day.setdefault(date_key, {
@@ -1278,9 +1280,11 @@ async def debug_metrics(
                 error_ids.add(mid)
         error_count = len(error_ids)
         total_interactions = len(agent_done_rows)
-        # Use inbound messages as denominator for a meaningful error rate
-        inbound_count = msg_by_group.get("inbound", 0) or total_interactions or 1
-        error_rate = round(error_count / inbound_count * 100, 1) if inbound_count > 0 else 0
+        # Use inbound messages as primary denominator; fall back to total interactions
+        # If both are 0, error_rate = 0 (no data to measure against)
+        inbound_count = msg_by_group.get("inbound", 0)
+        denom = inbound_count or total_interactions
+        error_rate = round(error_count / denom * 100, 1) if denom > 0 else 0
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Contacts
