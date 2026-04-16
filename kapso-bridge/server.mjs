@@ -7520,6 +7520,17 @@ function renderMetrics(d){
     h+='</div></div>';
   }
 
+  // Diagnostic footer (small, dim) — shows what succeeded/failed
+  if(d.diag){
+    const entries=Object.entries(d.diag);
+    if(entries.length){
+      const badges=entries.map(([k,v])=>{
+        const ok=String(v).startsWith('ok');
+        return '<span style="margin-right:8px;color:'+(ok?'var(--green,#4ade80)':'var(--red,#ef4444)')+'">'+esc(k)+':'+esc(String(v))+'</span>';
+      }).join('');
+      h+='<div style="font-size:10px;color:var(--text-muted);padding:12px 0 4px;opacity:.6">'+badges+'</div>';
+    }
+  }
   el.innerHTML=h;
 }
 

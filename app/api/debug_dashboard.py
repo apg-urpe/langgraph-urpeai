@@ -1016,16 +1016,24 @@ async def debug_metrics(
                     logger.warning("debug_metrics: query failed %s: %s", args[0] if args else "?", exc)
                     return None
 
-        async def _count(table, filters=None, raw_filters=None) -> int:
-            """Get exact row count without fetching much data (uses count=exact header)."""
+        # Track query status for diagnostics (returned in response)
+        _diag: dict[str, str] = {}
+
+        async def _count(table, filters=None, raw_filters=None, diag_key: str | None = None) -> int:
+            """Get exact row count without fetching much data (uses count=exact header).
+            Uses select=id which exists in all our tables (unlike created_at which isn't in wp_mensajes)."""
             r = await _guarded(
-                table, select="created_at",
+                table, select="id",
                 filters=filters if filters else None,
                 raw_filters={**(raw_filters or {}), "limit": "1"},
                 count=True,
             )
             if isinstance(r, dict):
+                if diag_key:
+                    _diag[diag_key] = "ok"
                 return int(r.get("count") or 0)
+            if diag_key:
+                _diag[diag_key] = "failed"
             return 0
 
         async def _fetch_all(
@@ -1035,6 +1043,7 @@ async def debug_metrics(
             raw_filters: dict | None = None,
             max_pages: int = 2,
             order_col: str = "created_at",
+            diag_key: str | None = None,
         ) -> list[dict]:
             """Fetch rows with parallel page fetching: page 0 first, then remaining in parallel."""
             async def _one_page(p: int) -> list[dict]:
@@ -1046,9 +1055,17 @@ async def debug_metrics(
                     order=order_col, order_desc=True,
                     limit=_PAGE,
                 )
+                if r is None:
+                    return None  # sentinel for failure
                 return r if isinstance(r, list) else []
 
             first = await _one_page(0)
+            if first is None:
+                if diag_key:
+                    _diag[diag_key] = "failed_page0"
+                return []
+            if diag_key:
+                _diag[diag_key] = f"ok_p1_{len(first)}"
             if len(first) < _PAGE or max_pages <= 1:
                 return first
 
@@ -1060,6 +1077,8 @@ async def debug_metrics(
             for r in rest:
                 if isinstance(r, list):
                     rows.extend(r)
+            if diag_key:
+                _diag[diag_key] = f"ok_{len(rows)}"
             return rows
 
         # ── Build filters ─────────────────────────────────────────────────────
@@ -1078,15 +1097,19 @@ async def debug_metrics(
         async def _fetch_all_tables():
             return await asyncio.gather(
                 # Accurate totals via count=exact (fast, minimal transfer)
-                _count("wp_mensajes", emp_f, msg_raw),
-                _count("wp_citas", emp_f, cita_raw),
-                _count("wp_contactos", emp_f, contact_raw),
+                _count("wp_mensajes", emp_f, msg_raw, diag_key="cnt_msgs"),
+                _count("wp_citas", emp_f, cita_raw, diag_key="cnt_citas"),
+                _count("wp_contactos", emp_f, contact_raw, diag_key="cnt_contacts"),
                 # Sample fetches for aggregations (by_day, by_hour, by_model, etc.)
-                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=2, order_col="timestamp"),
-                _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=2),
-                _fetch_all("debug_events", "created_at,payload,empresa_id", None, timing_raw, max_pages=2),
-                _fetch_all("debug_events", "created_at,payload,empresa_id", None, err_raw, max_pages=1),
-                _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=2),
+                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw,
+                           max_pages=2, order_col="timestamp", diag_key="msgs"),
+                _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=2, diag_key="citas"),
+                # Timing: only 1 page, slimmer select (payload->timing only, not whole payload)
+                _fetch_all("debug_events", "created_at,empresa_id,payload", None, timing_raw,
+                           max_pages=1, diag_key="timing"),
+                _fetch_all("debug_events", "created_at,empresa_id,payload", None, err_raw,
+                           max_pages=1, diag_key="errors"),
+                _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=2, diag_key="contacts"),
                 return_exceptions=True,
             )
 
@@ -1381,6 +1404,7 @@ async def debug_metrics(
             "empresa_id": empresa_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "truncated": _timed_out,
+            "diag": _diag,
             "empresas": empresas_list,
             "messages": {
                 "total": msg_total,
