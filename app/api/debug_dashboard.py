@@ -549,6 +549,7 @@ async def debug_interactions(
     limit: int = Query(default=20, ge=1, le=500),
     channel: str = Query(default=""),
     empresa_id: int = Query(default=0),
+    contacto_id: str = Query(default=""),  # numeric id string — triggers full DB scan
     days: int = Query(default=30, ge=1, le=365),
     since: str = Query(default=""),  # ISO timestamp — incremental load from SSE
 ):
@@ -567,14 +568,14 @@ async def debug_interactions(
             raw_filters["payload->>'_channel'"] = f"eq.{channel}"
         if empresa_id:
             filters["empresa_id"] = empresa_id
+        if contacto_id:
+            # contacto_id IS a real column — filter at DB level
+            try:
+                filters["contacto_id"] = int(contacto_id)
+            except ValueError:
+                pass  # non-numeric value: skip DB filter, client handles it
 
-        # Supabase PostgREST caps at max-rows=1000 regardless of ?limit=N.
-        # Strategy: fetch first batch, then up to 2 more in parallel → max 3000 rows,
-        # ~2 round-trips total. Each interaction has ~3-8 events, so 3000 rows ≈ 400-1000
-        # interactions — enough for any practical period.
         _PAGE = 1000
-        _MAX_EXTRA = 2  # extra parallel batches after the first (total = 3000 rows max)
-
         # Note: 'channel' is NOT a column — it lives inside payload as _channel
         _select = "source,stage,payload,created_at,empresa_id,contacto_id,message_id"
 
@@ -590,19 +591,31 @@ async def debug_interactions(
                 limit=_PAGE,
             ) or []
 
-        # Round-trip 1: first batch
-        batch0 = await _fetch_batch(0)
-        rows: list[dict] = list(batch0)
-
-        # Round-trip 2: remaining batches in parallel (only if first was full)
-        if len(batch0) == _PAGE:
-            extra = await asyncio.gather(
-                *[_fetch_batch(_PAGE * i) for i in range(1, _MAX_EXTRA + 1)]
-            )
-            for batch in extra:
+        if contacto_id:
+            # Full scan: DB filter by contact → result set is small, fetch all pages
+            rows: list[dict] = []
+            offset = 0
+            while True:
+                batch = await _fetch_batch(offset)
                 rows.extend(batch)
                 if len(batch) < _PAGE:
-                    break  # last page reached, no need to keep extending
+                    break
+                offset += _PAGE
+                if offset >= 50_000:  # safety cap
+                    break
+        else:
+            # Normal path: 3-batch parallel fetch (max 3000 rows, ~2 round-trips)
+            _MAX_EXTRA = 2
+            batch0 = await _fetch_batch(0)
+            rows = list(batch0)
+            if len(batch0) == _PAGE:
+                extra = await asyncio.gather(
+                    *[_fetch_batch(_PAGE * i) for i in range(1, _MAX_EXTRA + 1)]
+                )
+                for batch in extra:
+                    rows.extend(batch)
+                    if len(batch) < _PAGE:
+                        break
     except Exception as exc:
         logger.error("debug_interactions: error querying Supabase: %s", exc)
         return {

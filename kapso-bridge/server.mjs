@@ -6143,10 +6143,12 @@ app.get('/events/api/interactions', async (req, res) => {
   try {
     const base = getFastApiBaseUrl();
     const qs = new URLSearchParams();
-    if (req.query.channel)    qs.set('channel',    req.query.channel);
-    if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
-    if (req.query.days)       qs.set('days',        req.query.days);
-    if (req.query.since)      qs.set('since',       req.query.since);
+    if (req.query.channel)     qs.set('channel',     req.query.channel);
+    if (req.query.empresa_id)  qs.set('empresa_id',  req.query.empresa_id);
+    if (req.query.days)        qs.set('days',         req.query.days);
+    if (req.query.since)       qs.set('since',        req.query.since);
+    // contacto_id → forwarded to FastAPI for DB-level filtering + full scan
+    if (req.query.contacto_id) qs.set('contacto_id', req.query.contacto_id);
     qs.set('limit', String(Math.min(Number(req.query.limit) || 200, 500)));
     qs.set('page',  req.query.page || '1');
     const url = `${base}/api/v1/debug/interactions?${qs}`;
@@ -6154,11 +6156,6 @@ app.get('/events/api/interactions', async (req, res) => {
       headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
     });
     const data = await upstream.json();
-    if (req.query.contacto_id && data.interactions) {
-      const cid = String(req.query.contacto_id);
-      data.interactions = data.interactions.filter(i => String(i.contacto_id ?? '') === cid);
-      data.total = data.interactions.length;
-    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: String(err.message), interactions: [], total: 0 });
@@ -6560,7 +6557,15 @@ let _curPage=1;
 let _totPages=1;
 const PAGE_SIZE=10;
 let _filterTimer=null;
-function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>applyClientFilters(),600);}
+function scheduleFilter(){
+  clearTimeout(_filterTimer);
+  _filterTimer=setTimeout(()=>{
+    const contacto=document.getElementById('fContacto').value.trim();
+    // contacto include-mode → full server reload to search entire DB
+    if(contacto && !_excludeContacto){_curPage=1;loadData(true);}
+    else applyClientFilters();
+  },600);
+}
 
 function toggleExcludeContacto(){
   _excludeContacto=!_excludeContacto;
@@ -6674,8 +6679,11 @@ async function loadData(showLoader=false){
   btn.classList.add('spinning');
   const canal=document.getElementById('fCanal').value;
   const days=document.getElementById('fDays').value;
+  const contacto=document.getElementById('fContacto').value.trim();
   const qs=new URLSearchParams({token:_token,days,limit:String(PAGE_SIZE),page:String(_curPage)});
   if(canal)qs.set('channel',canal);
+  // Send contacto_id to server for full DB scan (include mode only)
+  if(contacto && !_excludeContacto) qs.set('contacto_id',contacto);
   try{
     const r=await fetch('/events/api/interactions?'+qs);
     if(r.status===401){logout();return;}
