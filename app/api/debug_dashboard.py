@@ -1048,16 +1048,19 @@ async def debug_metrics(
         msg_raw = {"timestamp": f"gte.{cutoff}"}
         cita_raw = {"created_at": f"gte.{cutoff}"}
         contact_raw = {"created_at": f"gte.{cutoff}"}
-        # Fetch ALL recent debug_events (filter stage in Python to avoid PostgREST in.() issues)
-        # debug_events also has empresa_id column, so apply the same emp_f filter
-        debug_raw = {"created_at": f"gte.{cutoff}"}
+        # Targeted debug_events queries: fetch only the stages we need.
+        # No empresa_id filter at DB level — empresa_id column can be NULL for some events.
+        # We filter by empresa in Python using both the column and payload.empresa_id.
+        timing_raw = {"created_at": f"gte.{cutoff}", "stage": "eq.run_agent_done"}
+        err_raw = {"created_at": f"gte.{cutoff}", "stage": "eq.inbound_error"}
 
         # ── Parallel fetch all data (with 14s overall timeout) ───────────────
         async def _fetch_all_tables():
             return await asyncio.gather(
                 _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=5, order_col="timestamp"),
                 _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=2),
-                _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=3),
+                _fetch_all("debug_events", "created_at,payload,empresa_id", None, timing_raw, max_pages=5),
+                _fetch_all("debug_events", "created_at,payload,empresa_id", None, err_raw, max_pages=2),
                 _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=2),
                 return_exceptions=True,
             )
@@ -1067,7 +1070,7 @@ async def debug_metrics(
             results = await asyncio.wait_for(_fetch_all_tables(), timeout=14)
         except asyncio.TimeoutError:
             logger.warning("debug_metrics: timeout fetching tables (days=%d, empresa=%d)", days, empresa_id)
-            results = [[], [], [], []]
+            results = [[], [], [], [], []]
             _timed_out = True
 
         def _safe_result(r, label: str) -> list[dict]:
@@ -1076,26 +1079,31 @@ async def debug_metrics(
             logger.warning("debug_metrics: %s fetch FAILED — %s: %s", label, type(r).__name__, r)
             return []
 
-        msg_rows = _safe_result(results[0], "mensajes")
-        cita_rows = _safe_result(results[1], "citas")
-        all_debug_rows = _safe_result(results[2], "debug_events")
-        contact_rows = _safe_result(results[3], "contacts")
+        msg_rows    = _safe_result(results[0], "mensajes")
+        cita_rows   = _safe_result(results[1], "citas")
+        _done_raw   = _safe_result(results[2], "agent_done")
+        _err_raw    = _safe_result(results[3], "errors")
+        contact_rows = _safe_result(results[4], "contacts")
 
-        # Split debug_events by stage in Python
-        _DONE_STAGES = {"run_agent_done", "run_contact_update_done"}
-        _ERR_STAGES = {"inbound_error", "error", "exception", "http_error"}
-        agent_done_rows = [r for r in all_debug_rows if r.get("stage") in _DONE_STAGES]
-        error_rows = [r for r in all_debug_rows if r.get("stage") in _ERR_STAGES]
+        # Filter by empresa in Python (robust: checks column AND payload.empresa_id)
+        def _matches_empresa(row: dict) -> bool:
+            if not empresa_id:
+                return True
+            if row.get("empresa_id") == empresa_id:
+                return True
+            p = _parse_payload(row.get("payload"))
+            return p.get("empresa_id") == empresa_id
+
+        agent_done_rows = [r for r in _done_raw if _matches_empresa(r)]
+        error_rows      = [r for r in _err_raw  if _matches_empresa(r)]
 
         logger.info(
-            "debug_metrics: msgs=%d citas=%d debug_total=%d agent_done=%d errors=%d contacts=%d (days=%d, empresa=%d)",
-            len(msg_rows), len(cita_rows), len(all_debug_rows), len(agent_done_rows), len(error_rows), len(contact_rows),
-            days, empresa_id,
+            "debug_metrics: msgs=%d citas=%d agent_done=%d/%d errors=%d/%d contacts=%d (days=%d, empresa=%d)",
+            len(msg_rows), len(cita_rows),
+            len(agent_done_rows), len(_done_raw),
+            len(error_rows), len(_err_raw),
+            len(contact_rows), days, empresa_id,
         )
-        if all_debug_rows and not agent_done_rows:
-            # Log sample stages for diagnosis
-            sample_stages = list({r.get("stage") for r in all_debug_rows[:200]})
-            logger.warning("debug_metrics: agent_done=0 but %d total debug rows. Sample stages: %s", len(all_debug_rows), sample_stages[:20])
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Messages
@@ -1130,6 +1138,12 @@ async def debug_metrics(
             if model:
                 msg_by_model[model] = msg_by_model.get(model, 0) + 1
 
+        # Fill every day in the period with 0s so the chart always shows the full range
+        _empty_day = {"total": 0, "inbound": 0, "ia": 0, "humano": 0, "sistema": 0}
+        for _d in range(days):
+            _dk = (datetime.now(timezone.utc) - timedelta(days=_d)).strftime("%Y-%m-%d")
+            if _dk not in msg_by_day:
+                msg_by_day[_dk] = dict(_empty_day)
         msg_by_day_sorted = [{"date": k, **v} for k, v in sorted(msg_by_day.items())]
         msg_by_model_sorted = sorted(
             [{"model": k, "count": v} for k, v in msg_by_model.items()],
