@@ -6711,18 +6711,13 @@ function goPage(p){
   document.getElementById('list').scrollTop=0;
 }
 
-function renderFilteredStats(items){
-  const total=items.length;
-  const rawTotal=_rawInteractions.length;
-  const ok=items.filter(x=>x.status==='ok').length;
-  const errors=items.filter(x=>x.status==='error').length;
-  const durs=items.filter(x=>x.duration_ms!=null).map(x=>x.duration_ms);
-  const avg=durs.length?Math.round(durs.reduce((a,b)=>a+b,0)/durs.length):null;
-  const isFiltered=total!==rawTotal;
-  document.getElementById('sTot').textContent=isFiltered?total+'/'+rawTotal:total;
-  document.getElementById('sOk').textContent=ok;
-  document.getElementById('sErr').textContent=errors;
-  document.getElementById('sMs').textContent=avg!=null?avg+'ms':'—';
+function renderFilteredStats(_items){
+  // Always use server-side stats (calculated from ALL rows, all pages)
+  document.getElementById('sTot').textContent = _apiStats.total  ?? '—';
+  document.getElementById('sOk').textContent  = _apiStats.ok     ?? '—';
+  document.getElementById('sErr').textContent = _apiStats.errors ?? '—';
+  const avg = _apiStats.avg_ms;
+  document.getElementById('sMs').textContent  = avg != null ? avg + 'ms' : '—';
 }
 
 function renderList(items){
