@@ -780,6 +780,19 @@ async def debug_interactions(
             interaction["empresa_id"] = interaction["empresa_id"] or row.get("empresa_id")
             interaction["contacto_id"] = interaction["contacto_id"] or row.get("contacto_id")
 
+        # Fallbacks for interactions that lack inbound_received
+        if stage == "inbound_entities_resolved":
+            interaction["contact_name"] = interaction["contact_name"] or payload.get("contact_name")
+            interaction["from_phone"] = interaction["from_phone"] or payload.get("normalized_from_phone") or payload.get("from_phone")
+            interaction["empresa_id"] = interaction["empresa_id"] or payload.get("empresa_id") or row.get("empresa_id")
+            interaction["contacto_id"] = interaction["contacto_id"] or payload.get("contacto_id") or row.get("contacto_id")
+
+        if stage == "memory_session_resolved":
+            # payload.from is the raw WhatsApp phone number
+            interaction["from_phone"] = interaction["from_phone"] or payload.get("from") or payload.get("from_phone")
+            interaction["contact_name"] = interaction["contact_name"] or payload.get("contact_name")
+            interaction["contacto_id"] = interaction["contacto_id"] or payload.get("contacto_id") or row.get("contacto_id")
+
         if stage == "run_agent_done":
             interaction["status"] = "ok"
             interaction["agent_name"] = payload.get("agent_name") or interaction["agent_name"]
