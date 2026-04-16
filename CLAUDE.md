@@ -36,6 +36,12 @@ Todos los links nav: mismo color `#93c5fd`. No hay "Ver JSON".
 - Canal guardado en `payload['_channel']` (no en columna separada)
 - `app/api/debug_dashboard.py` — endpoint `/api/v1/debug/interactions` con paginación + `?since=` incremental
 - `app/core/error_webhook.py` — notifica errores 500 a webhook; excluye rutas `/debug/*`
+- **No hay dashboard de métricas agregadas.** Intentamos construir uno (tab "Metricas") y fracasó por saturar Supabase y tumbar producción. Si necesitas stats agregadas, léete `docs/LESSONS_METRICS_DASHBOARD.md` antes de intentarlo de nuevo — la conclusión fue que agregar millones de filas vía PostgREST desde el proceso principal es la arquitectura equivocada.
+
+## Gotchas de schema (para cualquier query futura)
+- `wp_mensajes` usa columna `timestamp`, no `created_at` (el resto de tablas sí usan `created_at`).
+- `debug_events.empresa_id` (la columna) puede ser NULL aunque el `payload.empresa_id` tenga valor — no confíes solo en la columna.
+- El timing en `debug_events` vive en `payload->timing->total_ms` (sub-objeto), no en `payload->total_ms`.
 
 ## Supabase Client
 - `app/db/client.py` — httpx pooled, reintentos automáticos en 502/503/504 + HTML responses

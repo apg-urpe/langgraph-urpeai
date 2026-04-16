@@ -6180,36 +6180,6 @@ app.get('/events/api/agentes', async (req, res) => {
   }
 });
 
-app.get('/events/api/metrics', async (req, res) => {
-  const token = req.query.token || req.headers['x-token'] || '';
-  if (!_eventsTokenValid(token)) return res.status(401).json({ error: 'Unauthorized' });
-  try {
-    const base = getFastApiBaseUrl();
-    const qs = new URLSearchParams();
-    if (req.query.days) qs.set('days', req.query.days);
-    if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
-    const url = `${base}/api/v1/debug/metrics?${qs}`;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 28000); // 28s max (RPC aggregation can take time on large data)
-    let upstream;
-    try {
-      upstream = await fetch(url, {
-        headers: KAPSO_INTERNAL_TOKEN ? { 'x-kapso-internal-token': KAPSO_INTERNAL_TOKEN } : {},
-        signal: ctrl.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
-    const data = await upstream.json();
-    res.json(data);
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      return res.json({ error: null, truncated: true, period_days: Number(req.query.days||30), empresa_id: Number(req.query.empresa_id||0) });
-    }
-    res.status(500).json({ error: String(err.message) });
-  }
-});
-
 app.patch('/events/api/agentes/:id', express.json(), async (req, res) => {
   const token = req.query.token || req.headers['x-token'] || req.headers['x-token'] || '';
   if (!_eventsTokenValid(token)) return res.status(401).json({ error: 'Unauthorized' });
@@ -6385,64 +6355,6 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .ag-cancel-btn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--text-muted);font-size:11px;padding:5px 10px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 @keyframes pulse-soft{0%,100%{opacity:.7}50%{opacity:1}}
 .badge-tools{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
-/* ── Metrics tab ─────────────────────────────────────────────── */
-.metrics-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;display:none;flex-direction:column;overflow:hidden}
-.metrics-screen.active{display:flex}
-.m-bar-top{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;align-items:center;backdrop-filter:blur(8px);flex-wrap:nowrap}
-.m-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;-webkit-appearance:none;min-width:0;flex:1 1 0;overflow:hidden;text-overflow:ellipsis}
-.m-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 16px 24px}
-/* KPI row */
-.m-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
-.m-kpi{background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:16px 14px;text-align:center}
-.m-kpi-val{font-size:26px;font-weight:800;line-height:1.15}
-.m-kpi-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-top:6px}
-/* Section cards */
-.m-section{background:var(--glass);border:1px solid var(--border);border-radius:12px;margin-bottom:20px;overflow:hidden}
-.m-sec-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;gap:8px;flex-wrap:wrap}
-.m-sec-hdr h3{font-size:14px;font-weight:700;color:var(--blue-300);margin:0}
-.m-sec-sub{font-size:11px;color:var(--text-muted)}
-.m-sec-body{padding:0 16px 16px}
-/* Bar chart */
-.m-chart{display:flex;align-items:flex-end;gap:2px;height:160px;border-bottom:1px solid var(--border);padding-bottom:0;position:relative;margin-bottom:4px}
-.m-cbar{flex:1;min-width:3px;border-radius:3px 3px 0 0;position:relative;transition:height .3s;cursor:pointer}
-.m-cbar:hover{filter:brightness(1.35)}
-.m-cbar .m-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(8,12,30,.96);padding:5px 10px;border-radius:6px;font-size:11px;white-space:nowrap;border:1px solid var(--border);z-index:10;color:var(--text);pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.4)}
-.m-cbar:hover .m-tip{display:block}
-.m-chart-labels{display:flex;justify-content:space-between;padding-top:6px}
-.m-chart-labels span{font-size:10px;color:var(--text-muted)}
-/* Horizontal bars */
-.m-hbar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.m-hbar-label{font-size:12px;color:var(--text-dim);width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;text-align:right}
-.m-hbar-track{flex:1;height:22px;background:rgba(13,27,75,.4);border-radius:6px;overflow:hidden;position:relative}
-.m-hbar-fill{height:100%;border-radius:6px;transition:width .4s}
-.m-hbar-val{font-size:11px;color:var(--text-muted);width:80px;flex-shrink:0;text-align:left;padding-left:8px}
-/* Status pills */
-.m-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
-.m-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:10px}
-.m-pill-confirmada{background:rgba(52,211,153,.12);color:var(--green);border:1px solid rgba(52,211,153,.2)}
-.m-pill-pendiente{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
-.m-pill-realizada{background:rgba(56,189,248,.1);color:var(--blue-300);border:1px solid rgba(56,189,248,.2)}
-.m-pill-cancelada{background:rgba(248,113,113,.1);color:var(--red);border:1px solid rgba(248,113,113,.2)}
-.m-pill-reagendada{background:rgba(167,139,250,.1);color:#a78bfa;border:1px solid rgba(167,139,250,.2)}
-.m-pill-no_asistio{background:rgba(248,113,113,.08);color:#fca5a5;border:1px solid rgba(248,113,113,.15)}
-.m-pill-default{background:rgba(100,116,139,.1);color:var(--text-muted);border:1px solid rgba(100,116,139,.2)}
-/* Table in metrics */
-.m-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
-.m-table th{text-align:left;padding:8px 10px;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-.m-table td{padding:7px 10px;border-bottom:1px solid rgba(51,65,85,.3);color:var(--text-dim)}
-.m-table tr:hover td{background:rgba(56,189,248,.04)}
-/* Hour chart mini */
-.m-hour-wrap{margin-top:14px;padding:10px 12px;background:rgba(13,27,75,.25);border:1px solid var(--border);border-radius:10px}
-.m-hour-lbl{font-size:10px;color:var(--text-muted);margin-bottom:6px;font-weight:600}
-.m-hour-chart{display:flex;align-items:flex-end;gap:2px;height:60px}
-.m-hour-bar{flex:1;min-width:0;border-radius:2px 2px 0 0;opacity:.75;transition:height .3s;cursor:pointer}
-.m-hour-bar:hover{opacity:1;filter:brightness(1.2)}
-.m-hour-row{display:flex;justify-content:space-between;margin-top:2px}
-.m-hour-row span{font-size:8px;color:var(--text-muted)}
-.m-empty{text-align:center;padding:32px;color:var(--text-muted);font-size:13px}
-.m-divider{height:1px;background:var(--border);margin:14px 0}
-/* Subsection heading */
-.m-sub-title{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px}
 /* Bottom sheet for tools */
 .tools-trigger{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%;-webkit-tap-highlight-color:transparent;transition:border-color .2s}
 .tools-trigger:active{border-color:rgba(56,189,248,.5)}
@@ -6607,28 +6519,6 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   </div>
 </div>
 
-<!-- Metrics screen -->
-<div class="metrics-screen" id="metricsScreen">
-  <div class="m-bar-top">
-    <select class="m-select" id="mDays" onchange="loadMetrics()">
-      <option value="7">7 dias</option>
-      <option value="30" selected>30 dias</option>
-      <option value="90">90 dias</option>
-      <option value="180">180 dias</option>
-      <option value="365">1 year</option>
-    </select>
-    <select class="m-select" id="mEmpresa" onchange="loadMetrics()">
-      <option value="">Todas las empresas</option>
-    </select>
-    <button class="ag-load-btn" onclick="loadMetrics()" title="Recargar" style="flex-shrink:0">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-    </button>
-  </div>
-  <div class="m-scroll" id="metricsContent">
-    <div class="ag-placeholder"><div class="ag-ph-icon">📊</div><div class="ag-ph-title">Metricas</div><div class="ag-ph-sub">Selecciona un periodo para cargar</div></div>
-  </div>
-</div>
-
 <!-- Bottom nav bar -->
 <nav class="bottom-nav">
   <button class="bnav-item active" id="bnavDebug" onclick="showTab('debug')">
@@ -6638,10 +6528,6 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   <button class="bnav-item" id="bnavConfig" onclick="showTab('config')">
     <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     Agentes
-  </button>
-  <button class="bnav-item" id="bnavMetrics" onclick="showTab('metrics')">
-    <svg viewBox="0 0 24 24"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>
-    Metricas
   </button>
 </nav>
 <script>
@@ -7316,243 +7202,14 @@ async function toggleAgenteActivo(agenteId, currentActivo, cardIdx){
 function showTab(tab){
   const isDebug=tab==='debug';
   const isConfig=tab==='config';
-  const isMetrics=tab==='metrics';
   document.getElementById('list').style.display=isDebug?'block':'none';
   document.getElementById('pgbar').style.display=isDebug?'flex':'none';
   document.getElementById('configScreen').classList.toggle('active',isConfig);
-  document.getElementById('metricsScreen').classList.toggle('active',isMetrics);
   document.querySelector('.filterbar').style.display=isDebug?'grid':'none';
   document.getElementById('statsbar').style.display=isDebug?'flex':'none';
   document.getElementById('bnavDebug').classList.toggle('active',isDebug);
   document.getElementById('bnavConfig').classList.toggle('active',isConfig);
-  document.getElementById('bnavMetrics').classList.toggle('active',isMetrics);
   if(isConfig&&!_allEmpresas.length) loadAgentes();
-  if(isMetrics&&!_metricsLoaded) loadMetrics();
-}
-
-// ── Metrics tab ─────────────────────────────────────────────────────────────
-let _metricsLoaded=false;
-let _metricsData=null;
-
-function fmtNum(n){if(n==null)return'—';if(n>=1e6)return(n/1e6).toFixed(1)+'M';if(n>=1e3)return(n/1e3).toFixed(1)+'K';return String(n);}
-function fmtMs(ms){if(ms==null)return'—';if(ms>=60000)return(ms/60000).toFixed(1)+'m';if(ms>=1000)return(ms/1000).toFixed(1)+'s';return ms+'ms';}
-function fmtPct(p){return p!=null?p+'%':'—';}
-
-function mBarChart(data,valKey,labelKey,color,maxH){
-  if(!data||!data.length)return'<div class="m-empty">Sin datos</div>';
-  maxH=maxH||120;
-  const vals=data.map(d=>d[valKey]||0);
-  const mx=Math.max(...vals,1);
-  let html='<div class="m-chart">';
-  for(let i=0;i<data.length;i++){
-    const v=vals[i];
-    const h=Math.max(Math.round(v/mx*maxH),v>0?2:0);
-    const lbl=data[i][labelKey]||'';
-    html+='<div class="m-cbar" style="height:'+h+'px;background:'+(color||'var(--blue-400)')+'"><span class="m-tip">'+esc(lbl)+': '+fmtNum(v)+'</span></div>';
-  }
-  html+='</div>';
-  if(data.length>1){
-    html+='<div class="m-chart-labels"><span>'+esc(data[0][labelKey]||'')+'</span><span>'+esc(data[data.length-1][labelKey]||'')+'</span></div>';
-  }
-  return html;
-}
-
-function mHourChart(arr,color,label){
-  if(!arr||arr.length!==24||!arr.some(v=>v>0))return'';
-  const mx=Math.max(...arr,1);
-  let html='<div class="m-hour-wrap">';
-  html+='<div class="m-hour-lbl">'+(label||'Distribucion por hora')+'</div>';
-  html+='<div class="m-hour-chart">';
-  for(let h=0;h<24;h++){
-    const pct=Math.max(Math.round(arr[h]/mx*100),arr[h]>0?3:0);
-    html+='<div class="m-hour-bar" style="height:'+pct+'%;background:'+(color||'var(--blue-400)')+'" title="'+h+':00 — '+arr[h]+'"></div>';
-  }
-  html+='</div>';
-  html+='<div class="m-hour-row"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>';
-  html+='</div>';
-  return html;
-}
-
-function mHBarRows(items,labelKey,valKey,maxVal,color){
-  if(!items||!items.length)return'<div class="m-empty">Sin datos</div>';
-  const mx=maxVal||Math.max(...items.map(i=>i[valKey]||0),1);
-  return items.map(item=>{
-    const v=item[valKey]||0;
-    const pct=Math.round(v/mx*100);
-    return '<div class="m-hbar-row">'+
-      '<span class="m-hbar-label" title="'+esc(item[labelKey]||'')+'">'+esc(item[labelKey]||'—')+'</span>'+
-      '<div class="m-hbar-track"><div class="m-hbar-fill" style="width:'+pct+'%;background:'+(color||'var(--blue-400)')+'"></div></div>'+
-      '<span class="m-hbar-val">'+fmtNum(v)+'</span>'+
-    '</div>';
-  }).join('');
-}
-
-function citaPill(estado,count){
-  const cls='m-pill m-pill-'+(estado||'default');
-  return '<span class="'+cls+'">'+esc(estado)+' '+count+'</span>';
-}
-
-function renderMetrics(d){
-  const el=document.getElementById('metricsContent');
-  if(d.error){el.innerHTML='<div class="m-empty">Error: '+esc(d.error)+'</div>';return;}
-  if(d.truncated){el.innerHTML='<div class="m-empty" style="color:var(--yellow);padding:20px 16px">⚠️ Timeout: demasiados datos para el período. Prueba un rango menor (7 o 14 días) o filtra por empresa.</div>';return;}
-
-  const m=d.messages||{};
-  const a=d.appointments||{};
-  const p=d.performance||{};
-  const t=d.tools||{};
-  const c=d.contacts||{};
-
-  // Populate empresa dropdown
-  if(d.empresas&&d.empresas.length){
-    const sel=document.getElementById('mEmpresa');
-    const curVal=sel.value;
-    sel.innerHTML='<option value="">Todas las empresas</option>'+d.empresas.map(e=>'<option value="'+e.id+'"'+(String(e.id)===curVal?' selected':'')+'>'+esc(e.nombre)+'</option>').join('');
-  }
-
-  let h='';
-
-  // ── KPI row ───────────────────────────────────────────────
-  h+='<div class="m-kpis">';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--blue-300)">'+fmtNum(m.total)+'</div><div class="m-kpi-lbl">Mensajes</div></div>';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--green)">'+fmtNum(a.total)+'</div><div class="m-kpi-lbl">Citas</div></div>';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--cyan-400)">'+fmtMs(p.avg_ms)+'</div><div class="m-kpi-lbl">Tiempo avg</div></div>';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:'+(p.error_rate>5?'var(--red)':'var(--yellow)')+'">'+fmtPct(p.error_rate)+'</div><div class="m-kpi-lbl">Tasa error</div></div>';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:#a78bfa">'+fmtNum(c.new_total)+'</div><div class="m-kpi-lbl">Contactos nuevos</div></div>';
-  h+='</div>';
-
-  // ── Messages ──────────────────────────────────────────────
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Mensajes</h3><div class="m-sec-sub">'+
-    '<span style="color:var(--blue-300)">Inbound '+fmtNum(m.inbound)+'</span> · '+
-    '<span style="color:var(--green)">IA '+fmtNum(m.ia)+'</span> · '+
-    '<span style="color:var(--yellow)">Humano '+fmtNum(m.humano)+'</span> · '+
-    '<span style="color:var(--text-muted)">Sistema '+fmtNum(m.sistema)+'</span>'+
-  '</div></div><div class="m-sec-body">';
-  h+=mBarChart(m.by_day||[],'total','date','var(--blue-400)');
-  h+=mHourChart(m.by_hour,'var(--blue-400)','Mensajes por hora');
-  h+='</div></div>';
-
-  // ── Models ────────────────────────────────────────────────
-  if(m.by_model&&m.by_model.length){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Modelos LLM</h3><div class="m-sec-sub">'+m.by_model.length+' modelos</div></div><div class="m-sec-body">';
-    h+=mHBarRows(m.by_model.slice(0,15),'model','count',null,'linear-gradient(90deg,#3b82f6,#60a5fa)');
-    h+='</div></div>';
-  }
-
-  // ── Appointments ──────────────────────────────────────────
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Citas</h3><div class="m-sec-sub">'+fmtNum(a.total)+' total</div></div><div class="m-sec-body">';
-  if(a.by_status){
-    const statOrder=['confirmada','pendiente','realizada','cancelada','reagendada','no_asistio','rechazada','processing'];
-    h+='<div class="m-pills">';
-    for(const st of statOrder){if(a.by_status[st])h+=citaPill(st,a.by_status[st]);}
-    for(const[st,cnt]of Object.entries(a.by_status)){if(!statOrder.includes(st))h+=citaPill(st,cnt);}
-    h+='</div>';
-  }
-  if(a.by_day&&a.by_day.length>1){
-    h+=mBarChart(a.by_day,'total','date','var(--green)');
-  }
-  h+='</div></div>';
-
-  // ── Performance ───────────────────────────────────────────
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Rendimiento</h3><div class="m-sec-sub">'+
-    fmtNum(p.total_interactions)+' interacciones · p50 '+fmtMs(p.p50_ms)+' · p95 '+fmtMs(p.p95_ms)+
-  '</div></div><div class="m-sec-body">';
-
-  if(p.by_agent&&p.by_agent.length){
-    h+='<div class="m-sub-title">Por agente</div>';
-    h+='<table class="m-table"><thead><tr><th>Agente</th><th>Interacciones</th><th>Avg</th><th>p50</th><th>p95</th></tr></thead><tbody>';
-    for(const ag of p.by_agent){
-      h+='<tr><td style="font-weight:600;color:var(--text)">'+esc(ag.agent)+'</td><td>'+fmtNum(ag.count)+'</td><td>'+fmtMs(ag.avg_ms)+'</td><td>'+fmtMs(ag.p50_ms)+'</td><td>'+fmtMs(ag.p95_ms)+'</td></tr>';
-    }
-    h+='</tbody></table>';
-  }
-
-  if(p.by_model&&p.by_model.length){
-    h+='<div class="m-sub-title">Por modelo</div>';
-    h+='<table class="m-table"><thead><tr><th>Modelo</th><th>Interacciones</th><th>Avg</th></tr></thead><tbody>';
-    for(const md of p.by_model){
-      h+='<tr><td style="font-family:monospace;font-size:11px">'+esc(md.model)+'</td><td>'+fmtNum(md.count)+'</td><td>'+fmtMs(md.avg_ms)+'</td></tr>';
-    }
-    h+='</tbody></table>';
-  }
-
-  h+=mHourChart(p.by_hour,'var(--cyan-400)','Interacciones por hora');
-  h+='</div></div>';
-
-  // ── Tools ─────────────────────────────────────────────────
-  if(t.total_executions>0){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Herramientas</h3><div class="m-sec-sub">'+
-      fmtNum(t.total_executions)+' ejecuciones · '+t.unique_tools+' unicas</div></div><div class="m-sec-body">';
-
-    if(t.by_tool&&t.by_tool.length){
-      h+='<table class="m-table"><thead><tr><th>Herramienta</th><th>Usos</th><th>Tiempo avg</th><th>Errores</th></tr></thead><tbody>';
-      for(const tl of t.by_tool.slice(0,25)){
-        const errStyle=tl.errors>0?'color:var(--red);font-weight:600':'';
-        h+='<tr><td style="font-family:monospace;font-size:11px;color:var(--text)">'+esc(tl.tool)+'</td><td>'+fmtNum(tl.count)+'</td><td>'+fmtMs(tl.avg_ms)+'</td><td style="'+errStyle+'">'+tl.errors+'</td></tr>';
-      }
-      h+='</tbody></table>';
-    }
-
-    if(t.by_agent&&t.by_agent.length){
-      h+='<div class="m-sub-title">Por agente</div>';
-      for(const ag of t.by_agent.slice(0,10)){
-        h+='<div style="margin-bottom:12px"><span style="font-size:13px;font-weight:700;color:var(--blue-300)">'+esc(ag.agent)+'</span> <span style="font-size:11px;color:var(--text-muted)">('+ag.total+' ejecuciones)</span>';
-        h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">';
-        for(const tl of ag.tools.slice(0,12)){
-          h+='<span style="font-size:11px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.15);padding:4px 8px;border-radius:8px;color:var(--text-dim)">'+esc(tl.tool)+' <strong style="color:var(--blue-300)">'+tl.count+'</strong></span>';
-        }
-        h+='</div></div>';
-      }
-    }
-
-    h+=mHourChart(t.by_hour,'var(--yellow)','Ejecuciones por hora');
-    h+='</div></div>';
-  }
-
-  // ── Contacts ──────────────────────────────────────────────
-  if(c.new_total>0){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Contactos nuevos</h3><div class="m-sec-sub">'+fmtNum(c.new_total)+' en el periodo</div></div><div class="m-sec-body">';
-    if(c.by_day&&c.by_day.length>1){
-      h+=mBarChart(c.by_day,'count','date','#a78bfa');
-    } else {
-      h+='<div class="m-empty">'+fmtNum(c.new_total)+' contactos nuevos</div>';
-    }
-    h+='</div></div>';
-  }
-
-  // Diagnostic footer (small, dim) — shows what succeeded/failed + cache status
-  if(d.diag){
-    const entries=Object.entries(d.diag);
-    if(entries.length){
-      const badges=entries.map(([k,v])=>{
-        const sv=String(v);
-        const isBad=sv.startsWith('failed')||sv==='error'||sv==='timeout';
-        const isGood=sv.startsWith('ok')||v===true||sv==='rpc';
-        const col=isBad?'#ef4444':(isGood?'#4ade80':'#93c5fd');
-        return '<span style="margin-right:10px;color:'+col+'">'+esc(k)+':'+esc(sv)+'</span>';
-      }).join('');
-      h+='<div style="font-size:10px;color:var(--text-muted);padding:12px 0 4px;opacity:.7">'+badges+'</div>';
-    }
-  }
-  el.innerHTML=h;
-}
-
-async function loadMetrics(){
-  const el=document.getElementById('metricsContent');
-  el.innerHTML='<div class="ag-placeholder"><div class="loader"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>';
-  const days=document.getElementById('mDays').value||30;
-  const empId=document.getElementById('mEmpresa').value||'';
-  try{
-    const qs=new URLSearchParams({token:_token,days:days});
-    if(empId)qs.set('empresa_id',empId);
-    const r=await fetch('/events/api/metrics?'+qs);
-    const data=await r.json();
-    _metricsData=data;
-    _metricsLoaded=true;
-    renderMetrics(data);
-  }catch(e){
-    el.innerHTML='<div class="m-empty">Error: '+esc(e.message)+'</div>';
-  }
 }
 
 loadData(true);
