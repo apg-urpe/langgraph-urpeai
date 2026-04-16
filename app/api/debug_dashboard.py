@@ -1031,15 +1031,15 @@ async def debug_metrics(
         msg_raw = {"timestamp": f"gte.{cutoff}"}
         cita_raw = {"created_at": f"gte.{cutoff}"}
         contact_raw = {"created_at": f"gte.{cutoff}"}
-        # Fetch ALL recent debug_events and filter by stage in Python
-        # (avoids PostgREST in.() filter issues that caused 0 results)
+        # Fetch ALL recent debug_events (filter stage in Python to avoid PostgREST in.() issues)
+        # debug_events also has empresa_id column, so apply the same emp_f filter
         debug_raw = {"created_at": f"gte.{cutoff}"}
 
         # ── Parallel fetch all data ───────────────────────────────────────────
         results = await asyncio.gather(
             _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=20, order_col="timestamp"),
             _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=5),
-            _fetch_all("debug_events", "created_at,stage,payload", None, debug_raw, max_pages=10),
+            _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=10),
             _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=5),
             return_exceptions=True,
         )
