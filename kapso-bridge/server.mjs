@@ -6190,7 +6190,7 @@ app.get('/events/api/metrics', async (req, res) => {
     if (req.query.empresa_id) qs.set('empresa_id', req.query.empresa_id);
     const url = `${base}/api/v1/debug/metrics?${qs}`;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000); // 20s max
+    const timer = setTimeout(() => ctrl.abort(), 22000); // 22s max (backend timeout 18s + buffer)
     let upstream;
     try {
       upstream = await fetch(url, {

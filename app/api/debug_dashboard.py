@@ -1000,38 +1000,58 @@ async def debug_metrics(
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         _PAGE = 1000
 
+        # Throttle concurrent Supabase requests so metrics endpoint doesn't
+        # overwhelm the database and cause 503s for production message processing.
+        _sem = asyncio.Semaphore(3)
+
+        async def _guarded(*args, **kwargs):
+            """Run db.query under a concurrency limit with per-call timeout."""
+            async with _sem:
+                try:
+                    return await asyncio.wait_for(db.query(*args, **kwargs), timeout=8)
+                except asyncio.TimeoutError:
+                    logger.warning("debug_metrics: page timeout %s", args[0] if args else "?")
+                    return None
+                except Exception as exc:
+                    logger.warning("debug_metrics: query failed %s: %s", args[0] if args else "?", exc)
+                    return None
+
+        async def _count(table, filters=None, raw_filters=None) -> int:
+            """Get exact row count without fetching much data (uses count=exact header)."""
+            r = await _guarded(
+                table, select="created_at",
+                filters=filters if filters else None,
+                raw_filters={**(raw_filters or {}), "limit": "1"},
+                count=True,
+            )
+            if isinstance(r, dict):
+                return int(r.get("count") or 0)
+            return 0
+
         async def _fetch_all(
             table: str,
             select: str,
             filters: dict | None = None,
             raw_filters: dict | None = None,
-            max_pages: int = 5,
+            max_pages: int = 2,
             order_col: str = "created_at",
         ) -> list[dict]:
             """Fetch rows with parallel page fetching: page 0 first, then remaining in parallel."""
             async def _one_page(p: int) -> list[dict]:
                 rf = {**(raw_filters or {}), "offset": str(p * _PAGE)}
-                try:
-                    return await asyncio.wait_for(
-                        db.query(
-                            table, select=select,
-                            filters=filters if filters else None,
-                            raw_filters=rf,
-                            order=order_col, order_desc=True,
-                            limit=_PAGE,
-                        ),
-                        timeout=5,  # 5s per page — fast-fail if Supabase is slow
-                    ) or []
-                except asyncio.TimeoutError:
-                    logger.warning("debug_metrics: page timeout %s p=%d", table, p)
-                    return []
+                r = await _guarded(
+                    table, select=select,
+                    filters=filters if filters else None,
+                    raw_filters=rf,
+                    order=order_col, order_desc=True,
+                    limit=_PAGE,
+                )
+                return r if isinstance(r, list) else []
 
-            # Fetch page 0 first to check if there's more data
             first = await _one_page(0)
             if len(first) < _PAGE or max_pages <= 1:
                 return first
 
-            # More data exists — fetch all remaining pages in parallel
             rest = await asyncio.gather(
                 *[_one_page(p) for p in range(1, max_pages)],
                 return_exceptions=True,
@@ -1054,36 +1074,44 @@ async def debug_metrics(
         timing_raw = {"created_at": f"gte.{cutoff}", "stage": "eq.run_agent_done"}
         err_raw = {"created_at": f"gte.{cutoff}", "stage": "eq.inbound_error"}
 
-        # ── Parallel fetch all data (with 14s overall timeout) ───────────────
+        # ── Fetch data (with 18s overall timeout; semaphore limits concurrency) ──
         async def _fetch_all_tables():
             return await asyncio.gather(
-                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=5, order_col="timestamp"),
+                # Accurate totals via count=exact (fast, minimal transfer)
+                _count("wp_mensajes", emp_f, msg_raw),
+                _count("wp_citas", emp_f, cita_raw),
+                _count("wp_contactos", emp_f, contact_raw),
+                # Sample fetches for aggregations (by_day, by_hour, by_model, etc.)
+                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=2, order_col="timestamp"),
                 _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=2),
-                _fetch_all("debug_events", "created_at,payload,empresa_id", None, timing_raw, max_pages=5),
-                _fetch_all("debug_events", "created_at,payload,empresa_id", None, err_raw, max_pages=2),
+                _fetch_all("debug_events", "created_at,payload,empresa_id", None, timing_raw, max_pages=2),
+                _fetch_all("debug_events", "created_at,payload,empresa_id", None, err_raw, max_pages=1),
                 _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=2),
                 return_exceptions=True,
             )
 
         _timed_out = False
         try:
-            results = await asyncio.wait_for(_fetch_all_tables(), timeout=14)
+            results = await asyncio.wait_for(_fetch_all_tables(), timeout=18)
         except asyncio.TimeoutError:
             logger.warning("debug_metrics: timeout fetching tables (days=%d, empresa=%d)", days, empresa_id)
-            results = [[], [], [], [], []]
+            results = [0, 0, 0, [], [], [], [], []]
             _timed_out = True
 
-        def _safe_result(r, label: str) -> list[dict]:
-            if isinstance(r, list):
+        def _safe(r, default):
+            if isinstance(r, (list, int)):
                 return r
-            logger.warning("debug_metrics: %s fetch FAILED — %s: %s", label, type(r).__name__, r)
-            return []
+            logger.warning("debug_metrics: unexpected result type %s: %s", type(r).__name__, r)
+            return default
 
-        msg_rows    = _safe_result(results[0], "mensajes")
-        cita_rows   = _safe_result(results[1], "citas")
-        _done_raw   = _safe_result(results[2], "agent_done")
-        _err_raw    = _safe_result(results[3], "errors")
-        contact_rows = _safe_result(results[4], "contacts")
+        msg_total_count  = _safe(results[0], 0)
+        cita_total_count = _safe(results[1], 0)
+        contact_total_count = _safe(results[2], 0)
+        msg_rows    = _safe(results[3], [])
+        cita_rows   = _safe(results[4], [])
+        _done_raw   = _safe(results[5], [])
+        _err_raw    = _safe(results[6], [])
+        contact_rows = _safe(results[7], [])
 
         # Filter by empresa in Python (robust: checks column AND payload.empresa_id)
         def _matches_empresa(row: dict) -> bool:
@@ -1108,7 +1136,9 @@ async def debug_metrics(
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Messages
         # ══════════════════════════════════════════════════════════════════════
-        msg_total = len(msg_rows)
+        # Use accurate count from count=exact query; fall back to sample len if count failed
+        msg_total = msg_total_count or len(msg_rows)
+        _msg_sampled = len(msg_rows) < msg_total_count  # true = aggregations are from a sample
         msg_by_group: dict[str, int] = {"inbound": 0, "ia": 0, "humano": 0, "sistema": 0, "otro": 0}
         msg_by_day: dict[str, dict] = {}
         msg_by_model: dict[str, int] = {}
@@ -1153,7 +1183,7 @@ async def debug_metrics(
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Appointments
         # ══════════════════════════════════════════════════════════════════════
-        cita_total = len(cita_rows)
+        cita_total = cita_total_count or len(cita_rows)
         cita_by_status: dict[str, int] = {}
         cita_by_day: dict[str, dict] = {}
 
@@ -1330,7 +1360,7 @@ async def debug_metrics(
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Contacts
         # ══════════════════════════════════════════════════════════════════════
-        contact_total = len(contact_rows)
+        contact_total = contact_total_count or len(contact_rows)
         contact_by_day: dict[str, int] = {}
         for row in contact_rows:
             ts = row.get("created_at") or ""
