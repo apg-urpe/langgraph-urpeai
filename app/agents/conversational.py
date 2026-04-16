@@ -119,7 +119,17 @@ def _should_use_tools(state: AgentState) -> str:
 def _should_continue_after_tools(state: AgentState) -> str:
     if state.get("short_circuit_after_tools"):
         return END
-    if int(state.get("llm_iterations", 0)) >= MAX_CONVERSATIONAL_LLM_ITERATIONS:
+    iters = int(state.get("llm_iterations", 0))
+    # Hard cap: never exceed MAX + 1 iterations
+    if iters > MAX_CONVERSATIONAL_LLM_ITERATIONS:
+        return END
+    # At the limit: allow one extra iteration ONLY so the LLM can
+    # generate a text response after tool results (otherwise reply is empty)
+    if iters == MAX_CONVERSATIONAL_LLM_ITERATIONS:
+        from langchain_core.messages import ToolMessage
+        last_msg = state["messages"][-1] if state.get("messages") else None
+        if isinstance(last_msg, ToolMessage):
+            return "agent"
         return END
     return "agent"
 

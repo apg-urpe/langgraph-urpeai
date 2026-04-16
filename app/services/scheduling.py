@@ -945,6 +945,12 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             "mensaje": "Este contacto tiene una cita Realizada. Solo se muestra disponibilidad de su asesor asignado.",
         }
 
+    # Instrucción al agente: priorizar horario más cercano
+    lines.append("─── INSTRUCCIÓN PARA EL AGENTE ───")
+    lines.append("SIEMPRE ofrece primero el horario disponible más cercano a la hora actual.")
+    lines.append("Si hay disponibilidad HOY, ofrécela antes que días futuros.")
+    lines.append("Presenta máximo 2-3 opciones empezando por la más próxima.")
+
     cal_texto = "\n".join(lines)
 
     return DisponibilidadResponse(

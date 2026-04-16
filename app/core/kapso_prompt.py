@@ -779,7 +779,14 @@ def build_kapso_system_prompt(
             "- Mantén fluidez usando el historial completo disponible.\n"
             "- Si ya confirmaste una cita, no reagendes sin verificar estado.\n"
             "- Antes de cualquier accion de agenda, valida si ya existe una cita activa.\n"
-            "- Si la consulta sigue abierta, responde para avanzar el flujo."
+            "- Si la consulta sigue abierta, responde para avanzar el flujo.\n"
+            "\n"
+            "## 📅 POLÍTICA DE AGENDAMIENTO\n"
+            "- SIEMPRE ofrece primero el horario disponible más cercano a la hora actual.\n"
+            "- Si hay disponibilidad HOY, ofrécela antes que días futuros.\n"
+            "- Presenta máximo 2-3 opciones, empezando por la más próxima.\n"
+            "- Ejemplo: si son las 10:00 y hay hueco a las 11:00 y a las 14:00, ofrece primero las 11:00.\n"
+            "- Solo ofrece horarios de días futuros si hoy ya no hay disponibilidad."
         ),
         (
             "## ⏱️ CONTEXTO TEMPORAL OPERATIVO\n"

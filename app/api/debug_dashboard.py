@@ -19,7 +19,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from html import escape
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from app.core.config import get_settings
@@ -546,7 +546,7 @@ def _render_dashboard_html(config: dict) -> str:
 @router.get("/api/v1/debug/interactions")
 async def debug_interactions(
     page: int = Query(default=1, ge=1),
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=500),
     channel: str = Query(default=""),
     empresa_id: int = Query(default=0),
     days: int = Query(default=30, ge=1, le=365),
@@ -634,12 +634,96 @@ async def debug_interactions(
                 "response_preview": None,
                 "error": None,
                 "stages": [],
+                "stages_detail": [],
             }
 
         interaction = interactions_map[msg_id]
 
         if stage not in interaction["stages"]:
             interaction["stages"].append(stage)
+
+        # Build rich stage detail for timeline view
+        stage_detail: dict = {"stage": stage, "ts": row.get("created_at")}
+        if stage == "inbound_received":
+            stage_detail.update({
+                "from": payload.get("from_phone") or payload.get("from"),
+                "contact": payload.get("contact_name"),
+                "type": payload.get("message_type"),
+                "text": (payload.get("message_text") or payload.get("text") or "")[:500],
+            })
+        elif stage == "inbound_entities_resolved":
+            stage_detail.update({
+                "contact_name": payload.get("contact_name"),
+                "contacto_id": payload.get("contacto_id"),
+                "empresa_id": payload.get("empresa_id"),
+                "asesor_id": payload.get("asesor_id"),
+            })
+        elif stage == "run_agent_start":
+            stage_detail.update({
+                "agent": payload.get("agent_name"),
+                "model": payload.get("model"),
+            })
+        elif stage == "run_agent_done":
+            _timing = payload.get("timing") or {}
+            stage_detail.update({
+                "agent": payload.get("agent_name"),
+                "reply": (payload.get("reply_text") or payload.get("response_preview") or "")[:2000],
+                "reply_type": payload.get("reply_type"),
+                "tools_used": payload.get("tools_used") or [],
+                "total_ms": payload.get("total_ms") or _timing.get("total_ms"),
+                "llm_ms": _timing.get("llm_ms"),
+                "tool_ms": _timing.get("tool_execution_ms"),
+                "bubbles_sent": payload.get("bubbles_sent"),
+                "send_ok": payload.get("ghl_send_ok") if payload.get("ghl_send_ok") is not None else payload.get("send_ok"),
+                "send_error": payload.get("ghl_send_error") or payload.get("send_error"),
+            })
+        elif stage == "run_funnel_done":
+            stage_detail.update({
+                "etapa_anterior": payload.get("etapa_anterior"),
+                "etapa_nueva": payload.get("etapa_nueva"),
+                "metadata_actualizada": payload.get("metadata_actualizada"),
+                "error": payload.get("error"),
+            })
+        elif stage == "run_contact_update_done":
+            stage_detail.update({
+                "updated_fields": payload.get("updated_fields"),
+            })
+        elif stage in ("call_fastapi_done",):
+            stage_detail.update({
+                "reply_type": payload.get("reply_type"),
+                "reply_text": (payload.get("reply_text") or "")[:500],
+                "video_url": payload.get("video_url"),
+            })
+        elif stage == "kapso_send_done":
+            stage_detail.update({
+                "to": payload.get("to"),
+                "reply_type": payload.get("reply_type"),
+                "result": payload.get("result"),
+                "suppressed": (payload.get("result") or {}).get("suppressed") if isinstance(payload.get("result"), dict) else None,
+            })
+        elif stage == "slash_command_done":
+            stage_detail.update({
+                "command": payload.get("command"),
+                "result": payload.get("result") or payload.get("response"),
+            })
+        elif stage == "slash_command_detected":
+            stage_detail.update({
+                "command": payload.get("command"),
+                "text": payload.get("message_text") or payload.get("text"),
+            })
+        elif stage in ("inbound_error", "error", "exception", "http_error"):
+            stage_detail.update({
+                "error": payload.get("error") or payload.get("detail"),
+                "traceback": (payload.get("traceback") or "")[:800],
+            })
+        else:
+            # Generic: capture top-level scalar fields for unknown stages
+            stage_detail["data"] = {
+                k: v for k, v in payload.items()
+                if k not in ("message_id", "interaction_id", "_channel")
+                and isinstance(v, (str, int, float, bool, type(None)))
+            }
+        interaction["stages_detail"].append(stage_detail)
 
         # Always prefer earliest timestamp as started_at
         row_ts = row.get("created_at") or ""
@@ -669,10 +753,25 @@ async def debug_interactions(
             interaction["response_preview"] = preview[:200] if preview else interaction["response_preview"]
             interaction["channel"] = interaction["channel"] or _infer_channel(payload, row)
 
+        # Slash commands and successful send/call also mark interaction as ok
+        if stage in ("slash_command_done", "kapso_send_done", "call_fastapi_done"):
+            if interaction["status"] == "processing":
+                interaction["status"] = "ok"
+            if stage == "kapso_send_done":
+                result = payload.get("result") or {}
+                if isinstance(result, dict) and result.get("suppressed"):
+                    interaction["status"] = "suprimido"
+            if stage == "call_fastapi_done":
+                interaction["duration_ms"] = interaction["duration_ms"] or payload.get("total_ms")
+
         if stage in ("inbound_error", "error", "exception", "http_error"):
             if interaction["status"] != "ok":
                 interaction["status"] = "error"
             interaction["error"] = payload.get("error") or payload.get("detail") or interaction["error"]
+
+    # Sort stages_detail chronologically within each interaction
+    for interaction in interactions_map.values():
+        interaction["stages_detail"].sort(key=lambda s: s.get("ts") or "")
 
     all_interactions = sorted(
         interactions_map.values(),
@@ -721,6 +820,198 @@ async def debug_interactions(
         "pages": total_pages,
         "stats": stats,
     }
+
+
+@router.get("/api/v1/debug/agentes")
+async def debug_agentes(
+    empresa_id: int = Query(0),
+):
+    """Agentes agrupados por empresa con canales, conversaciones e instrucciones completas."""
+    try:
+        db = await get_supabase()
+
+        # Campos base (sin los textos largos) — se traen para todos los agentes
+        _AG_BASE = "id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente"
+        # Campos completos (con instrucciones) — solo cuando se pide un agente específico
+        _AG_FULL = (
+            "id,nombre_agente,rol,llm,empresa_id,archivado,url_imagen_agente,"
+            "instrucciones,comportamiento,restricciones,instrucciones_mensajes,"
+            "instrucciones_multimedia,formato_respuesta,areas_de_expertise,"
+            "uso_de_emojis,manejo_herramientas,prompt_personalizado,idioma"
+        )
+
+        ag_filters: dict = {}
+        if empresa_id:
+            ag_filters["empresa_id"] = empresa_id
+
+        # Dos pasadas: base rápida para todos, luego completa solo si hay empresa_id
+        use_full = bool(empresa_id)
+        agents = await db.query(
+            "wp_agentes",
+            select=_AG_FULL if use_full else _AG_BASE,
+            filters=ag_filters or None,
+            order="empresa_id",
+            limit=500,
+        ) or []
+
+        if not agents:
+            return {"empresas": [], "empresa_id": empresa_id}
+
+        # Pre-sort por empresa (agrupación) y archivado; el orden por convs se aplica al final en JS
+        agents.sort(key=lambda a: (a.get("empresa_id") or 0, bool(a.get("archivado"))))
+
+        # ── IDs de empresa únicos → fetch nombres ─────────────────────────
+        emp_ids = list({a["empresa_id"] for a in agents if a.get("empresa_id")})
+        empresas_raw = []
+        for eid in emp_ids:
+            row = await db.query(
+                "wp_empresa_perfil",
+                select="id,nombre,rubro,ciudad,pais",
+                filters={"id": eid},
+                single=True,
+            )
+            if row:
+                empresas_raw.append(row)
+        emp_map = {e["id"]: e for e in empresas_raw}
+
+        agent_ids = {a["id"] for a in agents}
+
+        # ── Canales por agente (wp_numeros) ───────────────────────────────
+        num_filters: dict = {"activo": True}
+        if empresa_id:
+            num_filters["empresa_id"] = empresa_id
+        numeros = await db.query("wp_numeros", select="agente_id,canal", filters=num_filters) or []
+
+        canales_map: dict[int, list[str]] = {}
+        seen_canal: dict[int, set] = {}
+        for num in numeros:
+            aid = num.get("agente_id")
+            canal = (num.get("canal") or "").strip()
+            if aid and canal and aid in agent_ids:
+                seen_canal.setdefault(aid, set())
+                if canal not in seen_canal[aid]:
+                    seen_canal[aid].add(canal)
+                    canales_map.setdefault(aid, []).append(canal)
+
+        # ── Conversaciones por agente y canal ────────────────────────────
+        # Supabase tiene max-rows=1000 a nivel PostgREST que ignora ?limit=N.
+        # Paginamos con offset hasta agotar todos los registros.
+        _PAGE = 1000
+        conv_base: dict[str, str] = {}
+        if empresa_id:
+            conv_base["empresa_id"] = f"eq.{empresa_id}"
+        if agent_ids:
+            conv_base["agente_id"] = f"in.({','.join(str(i) for i in agent_ids)})"
+
+        conv_map: dict[int, dict[str, int]] = {}
+        offset = 0
+        while True:
+            page_raw = {**conv_base, "offset": str(offset)}
+            page: list[dict] = await db.query(
+                "wp_conversaciones",
+                select="agente_id,canal",
+                raw_filters=page_raw,
+                limit=_PAGE,
+            ) or []
+            for conv in page:
+                aid = conv.get("agente_id")
+                canal = (conv.get("canal") or "desconocido").strip()
+                if aid and aid in agent_ids:
+                    conv_map.setdefault(aid, {})
+                    conv_map[aid][canal] = conv_map[aid].get(canal, 0) + 1
+            if len(page) < _PAGE:
+                break  # última página
+            offset += _PAGE
+            if offset >= 500_000:  # tope de seguridad
+                break
+
+        # ── Agrupar agentes por empresa ───────────────────────────────────
+        def _build_agent(agent: dict) -> dict:
+            aid = agent["id"]
+            por_canal = conv_map.get(aid, {})
+            return {
+                "id": aid,
+                "nombre": agent.get("nombre_agente") or "Sin nombre",
+                "rol": agent.get("rol") or "",
+                "llm": agent.get("llm") or "",
+                "empresa_id": agent.get("empresa_id"),
+                "activo": not agent.get("archivado", False),
+                "url_imagen": agent.get("url_imagen_agente") or "",
+                "canales": canales_map.get(aid, []),
+                "conversaciones_total": sum(por_canal.values()),
+                "por_canal": por_canal,
+                # Instrucciones — solo presentes cuando se consultó con empresa_id
+                "instrucciones": {
+                    "instrucciones": agent.get("instrucciones") or "",
+                    "comportamiento": agent.get("comportamiento") or "",
+                    "restricciones": agent.get("restricciones") or "",
+                    "instrucciones_mensajes": agent.get("instrucciones_mensajes") or "",
+                    "instrucciones_multimedia": agent.get("instrucciones_multimedia") or "",
+                    "formato_respuesta": agent.get("formato_respuesta") or "",
+                    "areas_de_expertise": agent.get("areas_de_expertise") or "",
+                    "uso_de_emojis": agent.get("uso_de_emojis") or "",
+                    "manejo_herramientas": agent.get("manejo_herramientas") or "",
+                    "prompt_personalizado": agent.get("prompt_personalizado") or "",
+                    "idioma": agent.get("idioma") or "",
+                } if use_full else None,
+            }
+
+        grupos: dict[int, dict] = {}
+        for agent in agents:
+            eid = agent.get("empresa_id") or 0
+            if eid not in grupos:
+                emp = emp_map.get(eid, {})
+                grupos[eid] = {
+                    "empresa_id": eid,
+                    "nombre": emp.get("nombre") or f"Empresa {eid}",
+                    "rubro": emp.get("rubro") or "",
+                    "ubicacion": f"{emp.get('ciudad') or ''}, {emp.get('pais') or ''}".strip(", "),
+                    "agentes": [],
+                }
+            grupos[eid]["agentes"].append(_build_agent(agent))
+
+        return {"empresas": list(grupos.values()), "empresa_id": empresa_id}
+
+    except Exception as exc:
+        logger.error("debug_agentes error: %s", exc)
+        return {"empresas": [], "error": str(exc), "empresa_id": empresa_id}
+
+
+# ─── Editable fields whitelist ────────────────────────────────────────────────
+_AG_EDITABLE_FIELDS = {
+    "instrucciones", "comportamiento", "restricciones",
+    "instrucciones_mensajes", "instrucciones_multimedia",
+    "formato_respuesta", "areas_de_expertise", "uso_de_emojis",
+    "manejo_herramientas", "prompt_personalizado", "idioma",
+    "nombre_agente", "rol", "llm", "archivado",
+}
+
+
+@router.patch("/api/v1/debug/agentes/{agente_id}")
+async def patch_agente(agente_id: int, request: Request):
+    """Actualiza campos editables de un agente (solo campos permitidos)."""
+    try:
+        body = await request.json()
+        db = await get_supabase()
+
+        # Filtrar solo campos permitidos y no vacíos por accidente
+        payload = {k: v for k, v in body.items() if k in _AG_EDITABLE_FIELDS}
+        if not payload:
+            raise HTTPException(status_code=400, detail="No hay campos válidos para actualizar")
+
+        # Verificar que el agente existe
+        existing = await db.query("wp_agentes", filters={"id": agente_id}, single=True)
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agente no encontrado")
+
+        await db.update("wp_agentes", filters={"id": agente_id}, data=payload)
+        return {"ok": True, "agente_id": agente_id, "updated": list(payload.keys())}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("patch_agente %s error: %s", agente_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/debug/kapso/", response_class=HTMLResponse)

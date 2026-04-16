@@ -527,6 +527,8 @@ async def _procesar_ghl_core(request: GHLInboundRequest, api_key: str) -> None:
                 "bubbles_sent": len(bubbles) if reply_text else 0,
                 "total_ms": round(elapsed * 1000),
                 "timing": {"total_ms": round(elapsed * 1000)},
+                "tools_used": [t.model_dump() for t in (result.tools_used or [])],
+                "agent_runs": [r.model_dump() for r in (result.agent_runs or [])],
                 "canal": canal,
                 "ghl_send_ok": send_ok,
                 "ghl_send_error": send_error,
