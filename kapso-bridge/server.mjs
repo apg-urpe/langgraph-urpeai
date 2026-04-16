@@ -7520,15 +7520,18 @@ function renderMetrics(d){
     h+='</div></div>';
   }
 
-  // Diagnostic footer (small, dim) — shows what succeeded/failed
+  // Diagnostic footer (small, dim) — shows what succeeded/failed + cache status
   if(d.diag){
     const entries=Object.entries(d.diag);
     if(entries.length){
       const badges=entries.map(([k,v])=>{
-        const ok=String(v).startsWith('ok');
-        return '<span style="margin-right:8px;color:'+(ok?'var(--green,#4ade80)':'var(--red,#ef4444)')+'">'+esc(k)+':'+esc(String(v))+'</span>';
+        const sv=String(v);
+        const isBad=sv.startsWith('failed')||sv==='error'||sv==='timeout';
+        const isGood=sv.startsWith('ok')||v===true||sv==='rpc';
+        const col=isBad?'#ef4444':(isGood?'#4ade80':'#93c5fd');
+        return '<span style="margin-right:10px;color:'+col+'">'+esc(k)+':'+esc(sv)+'</span>';
       }).join('');
-      h+='<div style="font-size:10px;color:var(--text-muted);padding:12px 0 4px;opacity:.6">'+badges+'</div>';
+      h+='<div style="font-size:10px;color:var(--text-muted);padding:12px 0 4px;opacity:.7">'+badges+'</div>';
     }
   }
   el.innerHTML=h;

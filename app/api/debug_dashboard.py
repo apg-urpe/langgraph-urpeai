@@ -30,6 +30,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["debug"])
 
+# ── Metrics response cache ────────────────────────────────────────────────────
+# Cache keyed by (days, empresa_id). TTL prevents repeated dashboard loads from
+# hammering Supabase: 100 page refreshes within TTL = 1 actual query.
+# Also deduplicates concurrent requests so a thundering herd of tabs refreshing
+# at once only fires ONE upstream query, not N.
+_METRICS_CACHE_TTL_S = 300  # 5 minutes
+_metrics_cache: dict[str, tuple[float, dict]] = {}
+_metrics_inflight: dict[str, "asyncio.Future[dict]"] = {}
+
 def _get_debug_config() -> dict:
     settings = get_settings()
 
@@ -993,14 +1002,81 @@ def _percentile(arr: list[int | float], p: int) -> int | None:
 async def debug_metrics(
     days: int = Query(default=30, ge=1, le=365),
     empresa_id: int = Query(default=0),
+    force_refresh: int = Query(default=0),
 ):
     """Aggregated metrics for the benchmark dashboard.
 
-    Strategy: try the `metrics_dashboard` RPC first (all aggregation
-    server-side in Postgres — fast, scales to millions of rows). If the
-    function isn't installed yet (404/PGRST202) fall back to the legacy
-    row-fetching path so the endpoint still works during migration.
+    Strategy:
+      1. Return cached result if younger than TTL (avoids hammering Supabase).
+      2. Deduplicate concurrent requests — if another request for the same
+         filter is already in flight, await its result instead of firing again.
+      3. Try the `metrics_dashboard` RPC (all aggregation server-side).
+      4. Fall back to legacy row-fetching if RPC isn't installed yet.
+
+    Pass force_refresh=1 to bypass the cache for this call.
     """
+    import time
+
+    cache_key = f"{days}:{empresa_id}"
+    now = time.time()
+
+    # ── Cache check ─────────────────────────────────────────────────────────
+    if not force_refresh:
+        cached = _metrics_cache.get(cache_key)
+        if cached:
+            cached_at, cached_data = cached
+            age = now - cached_at
+            if age < _METRICS_CACHE_TTL_S:
+                out = dict(cached_data)
+                diag = dict(out.get("diag") or {})
+                diag["cached"] = True
+                diag["cached_age_s"] = round(age)
+                out["diag"] = diag
+                return out
+
+    # ── In-flight dedup ─────────────────────────────────────────────────────
+    # If another request is already computing this metric, wait for it.
+    inflight = _metrics_inflight.get(cache_key)
+    if inflight is not None and not inflight.done():
+        try:
+            result = await inflight
+            out = dict(result)
+            diag = dict(out.get("diag") or {})
+            diag["dedup"] = True
+            out["diag"] = diag
+            return out
+        except Exception:
+            pass  # if the original failed, we try our own below
+
+    # Claim the in-flight slot so other concurrent requests wait
+    loop = asyncio.get_event_loop()
+    future: asyncio.Future[dict] = loop.create_future()
+    _metrics_inflight[cache_key] = future
+
+    try:
+        result = await _compute_metrics(days, empresa_id)
+        # Store successful result in cache
+        if isinstance(result, dict) and not result.get("error"):
+            _metrics_cache[cache_key] = (now, result)
+            # Bound cache size: keep at most 50 entries (plenty of filter combos)
+            if len(_metrics_cache) > 50:
+                oldest = min(_metrics_cache.items(), key=lambda kv: kv[1][0])[0]
+                _metrics_cache.pop(oldest, None)
+        if not future.done():
+            future.set_result(result)
+        return result
+    except Exception as exc:
+        if not future.done():
+            future.set_exception(exc)
+        raise
+    finally:
+        # Clean up the in-flight slot
+        if _metrics_inflight.get(cache_key) is future:
+            _metrics_inflight.pop(cache_key, None)
+
+
+async def _compute_metrics(days: int, empresa_id: int) -> dict:
+    """Actual metrics computation (RPC with legacy fallback). Called from debug_metrics."""
     db = await get_supabase()
 
     # ── Fast path: call the SQL aggregation function ────────────────────────
