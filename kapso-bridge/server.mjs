@@ -6254,7 +6254,15 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .stat-val{font-size:16px;font-weight:700;color:var(--blue-300)}
 .stat-lbl{font-size:10px;color:var(--text-muted);letter-spacing:.06em;text-transform:uppercase;margin-top:1px}
 /* Card list */
-.list{position:fixed;top:225px;bottom:60px;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+.list{position:fixed;top:225px;bottom:110px;left:0;right:0;overflow-y:auto;padding:12px 12px 24px;-webkit-overflow-scrolling:touch}
+/* Pagination bar */
+.pgbar{position:fixed;bottom:60px;left:0;right:0;height:50px;background:rgba(8,12,30,.96);border-top:1px solid var(--border);display:none;align-items:center;justify-content:space-between;padding:0 16px;gap:8px;z-index:99;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.pgbar.visible{display:flex}
+.pg-btn{background:none;border:1px solid var(--border);border-radius:8px;color:var(--blue-400);padding:7px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:border-color .2s,background .15s;-webkit-tap-highlight-color:transparent;white-space:nowrap}
+.pg-btn:hover:not(:disabled){border-color:rgba(56,189,248,.5);background:rgba(56,189,248,.08)}
+.pg-btn:active:not(:disabled){background:rgba(56,189,248,.14)}
+.pg-btn:disabled{opacity:.35;cursor:not-allowed}
+.pg-info{font-size:12px;color:var(--text-dim);text-align:center;flex:1;min-width:0}
 /* Bottom nav */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;height:60px;background:rgba(8,12,30,.96);border-top:1px solid var(--border);display:flex;align-items:stretch;justify-content:space-around;z-index:200;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);padding-bottom:env(safe-area-inset-bottom,0px)}
 .bnav-item{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;-webkit-tap-highlight-color:transparent;border:none;background:none;color:var(--text-muted);transition:color .18s;font-size:11px;font-weight:500;letter-spacing:.03em}
@@ -6455,7 +6463,7 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
     <button class="filter-excl-btn" id="fContactoMode" onclick="toggleExcludeContacto()" title="Cambiar modo: incluir / excluir">＝</button>
   </div>
   <input class="filter-input" id="fEmpresa" placeholder="empresa_id..." oninput="scheduleFilter()"/>
-  <select class="filter-select" id="fCanal" onchange="loadData(true)">
+  <select class="filter-select" id="fCanal" onchange="_curPage=1;loadData(true)">
     <option value="">Todos los canales</option>
     <option value="whatsapp">WhatsApp</option>
     <option value="instagram">Instagram</option>
@@ -6471,13 +6479,15 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
     <option value="suprimido">⚠️ Suprimido</option>
   </select>
   <button class="tools-trigger" id="fToolsTrigger" onclick="openToolsSheet()">Todas las interacciones</button>
-  <select class="filter-select" id="fDays" onchange="loadData(true)">
-    <option value="1">Hoy</option>
+  <select class="filter-select" id="fDays" onchange="_curPage=1;loadData(true)">
     <option value="1">Hoy</option>
     <option value="3">3 días</option>
     <option value="7" selected>7 días</option>
     <option value="14">14 días</option>
     <option value="30">30 días</option>
+    <option value="90">90 días</option>
+    <option value="180">180 días</option>
+    <option value="365">1 año</option>
   </select>
 </div>
 <div class="statsbar" id="statsbar">
@@ -6493,6 +6503,11 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
   </div>
 </div>
 <div class="list" id="list"></div>
+<div class="pgbar" id="pgbar">
+  <button class="pg-btn" id="pgPrev" onclick="goPage(_curPage-1)">← Anterior</button>
+  <span class="pg-info" id="pgInfo">Página 1 de 1</span>
+  <button class="pg-btn" id="pgNext" onclick="goPage(_curPage+1)">Siguiente →</button>
+</div>
 
 <!-- Agentes screen -->
 <div class="config-screen" id="configScreen">
@@ -6541,6 +6556,9 @@ function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 
 let _rawInteractions=[];
 let _excludeContacto=false;
+let _curPage=1;
+let _totPages=1;
+const PAGE_SIZE=10;
 let _filterTimer=null;
 function scheduleFilter(){clearTimeout(_filterTimer);_filterTimer=setTimeout(()=>applyClientFilters(),600);}
 
@@ -6656,19 +6674,41 @@ async function loadData(showLoader=false){
   btn.classList.add('spinning');
   const canal=document.getElementById('fCanal').value;
   const days=document.getElementById('fDays').value;
-  const qs=new URLSearchParams({token:_token,days,limit:'500'});
+  const qs=new URLSearchParams({token:_token,days,limit:String(PAGE_SIZE),page:String(_curPage)});
   if(canal)qs.set('channel',canal);
   try{
     const r=await fetch('/events/api/interactions?'+qs);
     if(r.status===401){logout();return;}
     const data=await r.json();
     _rawInteractions=data.interactions||[];
+    _totPages=data.pages||1;
     _apiStats=data.stats||{};
     updateToolsFilter();
     applyClientFilters();
+    renderPagination();
   }catch(e){
     list.innerHTML='<div class="empty"><div class="empty-icon">⚠️</div><p>Error cargando datos</p></div>';
   }finally{btn.classList.remove('spinning');}
+}
+
+function renderPagination(){
+  const bar=document.getElementById('pgbar');
+  if(_totPages<=1){bar.classList.remove('visible');return;}
+  bar.classList.add('visible');
+  document.getElementById('pgPrev').disabled=_curPage<=1;
+  document.getElementById('pgNext').disabled=_curPage>=_totPages;
+  const total=_apiStats.total||0;
+  const from=((_curPage-1)*PAGE_SIZE)+1;
+  const to=Math.min(_curPage*PAGE_SIZE,total);
+  document.getElementById('pgInfo').textContent=
+    'Pág '+_curPage+' / '+_totPages+'  ('+from+'–'+to+' de '+total+')';
+}
+
+function goPage(p){
+  if(p<1||p>_totPages)return;
+  _curPage=p;
+  loadData(true);
+  document.getElementById('list').scrollTop=0;
 }
 
 function renderFilteredStats(items){
