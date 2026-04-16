@@ -7203,6 +7203,14 @@ loadData(true);
 </html>`);
 });
 
+app.get('/favicon.ico', (_req, res) => {
+  // Inline SVG favicon — avoids 404 on every page load
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#0d1b4b"/><text x="16" y="23" font-size="18" text-anchor="middle" fill="#38bdf8">⚡</text></svg>`;
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(svg);
+});
+
 app.get('/events', (_req, res) => {
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!DOCTYPE html>

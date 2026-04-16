@@ -575,7 +575,8 @@ async def debug_interactions(
         _PAGE = 1000
         _MAX_EXTRA = 2  # extra parallel batches after the first (total = 3000 rows max)
 
-        _select = "source,stage,payload,created_at,empresa_id,contacto_id,message_id,channel"
+        # Note: 'channel' is NOT a column — it lives inside payload as _channel
+        _select = "source,stage,payload,created_at,empresa_id,contacto_id,message_id"
 
         async def _fetch_batch(offset: int) -> list[dict]:
             page_raw = {**raw_filters, "offset": str(offset)}
