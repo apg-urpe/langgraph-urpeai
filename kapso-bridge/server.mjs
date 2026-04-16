@@ -6878,11 +6878,11 @@ function stageItemHtml(s){
 }
 
 function cardHtml(x,i){
-  // Try to get a name from stages_detail if top-level fields are empty
-  let _resolvedName=x.contact_name||x.from_phone||'';
+  // Only use actual name fields — never phone numbers as name fallback
+  let _resolvedName=x.contact_name||'';
   if(!_resolvedName){
     for(const s of (x.stages_detail||[])){
-      const cn=s.contact_name||s.contact||s.from||s.from_phone||'';
+      const cn=s.contact_name||s.contact||'';
       if(cn){_resolvedName=cn;break;}
     }
   }
