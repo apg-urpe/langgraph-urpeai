@@ -654,7 +654,7 @@ async def events_login(request: Request):
 
 @router.get("/events/app", response_class=HTMLResponse)
 async def events_app(request: Request):
-    """Placeholder del app (post-login). Por ahora redirige al login si no hay token."""
+    """Panel de debug con paginación — muestra debug_events desde Supabase de 10 en 10."""
     _APP_HTML = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -662,55 +662,587 @@ async def events_app(request: Request):
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <meta name="theme-color" content="#080c1e">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="manifest" href="/events/manifest.json">
-  <title>URPE AI — Events</title>
+  <title>URPE AI — Debug</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #080c1e;
-      min-height: 100vh;
+
+    :root {
+      --navy-900: #080c1e;
+      --navy-800: #0d1535;
+      --navy-700: #0d1b4b;
+      --blue-400: #38bdf8;
+      --blue-300: #7dd3fc;
+      --blue-200: #bae6fd;
+      --cyan-400: #22d3ee;
+      --green-400: #4ade80;
+      --red-400:   #f87171;
+      --amber-400: #fbbf24;
+      --text-primary: #e2e8f0;
+      --text-muted:   #64748b;
+      --text-dim:     #94a3b8;
+      --border:       rgba(56,189,248,0.15);
+      --border-strong:rgba(56,189,248,0.32);
+      --card-bg:      rgba(13,21,53,0.7);
+      --header-h: 54px;
+    }
+
+    html, body {
+      min-height: 100%;
+      background: var(--navy-900);
+      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--header-h);
+      background: rgba(5,9,25,0.95);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(12px);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      z-index: 100;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 15px;
+      background: linear-gradient(90deg, var(--blue-300), var(--cyan-400));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header-actions { display: flex; align-items: center; gap: 8px; }
+
+    .btn-icon {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--blue-400);
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: border-color .2s, background .2s;
+    }
+    .btn-icon:hover { border-color: var(--border-strong); background: rgba(56,189,248,.08); }
+    .btn-icon:disabled { opacity: .5; cursor: default; }
+
+    /* ── Main ── */
+    .main {
+      padding-top: calc(var(--header-h) + 14px);
+      padding-bottom: 28px;
+      max-width: 880px;
+      margin: 0 auto;
+      padding-left: 12px;
+      padding-right: 12px;
+    }
+
+    /* ── Filters ── */
+    .filter-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .filter-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      white-space: nowrap;
+    }
+
+    .pill-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .pill {
+      padding: 5px 12px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: none;
+      color: var(--text-dim);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all .2s;
+      white-space: nowrap;
+    }
+    .pill:hover { border-color: var(--border-strong); color: var(--blue-300); }
+    .pill.active { border-color: var(--blue-400); background: rgba(56,189,248,.12); color: var(--blue-400); }
+
+    /* ── Stats ── */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 480px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: .1em; color: var(--text-muted); margin-bottom: 6px; }
+    .stat-value { font-size: 22px; font-weight: 700; line-height: 1; }
+
+    /* ── Interaction cards ── */
+    .interactions-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px; }
+
+    .icard {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px 16px;
+      cursor: pointer;
+      transition: border-color .2s, background .2s;
+      position: relative;
+    }
+    .icard:hover { border-color: var(--border-strong); background: rgba(13,27,75,.8); }
+    .icard.open  { border-color: var(--blue-400); }
+
+    .icard-row1 {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .icard-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+    .icard-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+    .badge {
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .04em;
+    }
+    .b-ok    { background:rgba(74,222,128,.15);  color:var(--green-400); border:1px solid rgba(74,222,128,.25); }
+    .b-err   { background:rgba(248,113,113,.15); color:var(--red-400);   border:1px solid rgba(248,113,113,.25); }
+    .b-proc  { background:rgba(251,191,36,.15);  color:var(--amber-400); border:1px solid rgba(251,191,36,.25); }
+    .b-sup   { background:rgba(148,163,184,.15); color:var(--text-dim);  border:1px solid rgba(148,163,184,.25); }
+    .b-wa    { background:rgba(34,197,94,.1);    color:#4ade80; border:1px solid rgba(34,197,94,.2); }
+    .b-mc    { background:rgba(96,165,250,.1);   color:#60a5fa; border:1px solid rgba(96,165,250,.2); }
+    .b-ig    { background:rgba(217,70,239,.1);   color:#e879f9; border:1px solid rgba(217,70,239,.2); }
+    .b-ghl   { background:rgba(251,146,60,.1);   color:#fb923c; border:1px solid rgba(251,146,60,.2); }
+
+    .icard-contact { display:flex; align-items:baseline; gap:8px; margin-bottom:6px; }
+    .contact-name  { font-size:14px; font-weight:600; }
+    .contact-phone { font-size:12px; color:var(--text-muted); font-family:'SF Mono',monospace; }
+
+    .icard-msg {
+      font-size: 13px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 8px;
+    }
+
+    .icard-meta { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .meta-item  { font-size:11px; color:var(--text-muted); }
+    .meta-item span { color:var(--text-dim); }
+
+    .chevron {
+      position: absolute;
+      top: 14px; right: 14px;
+      color: var(--text-muted);
+      font-size: 12px;
+      transition: transform .2s;
+    }
+    .icard.open .chevron { transform: rotate(180deg); }
+
+    /* ── Detail drawer ── */
+    .icard-detail {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      display: none;
+    }
+    .icard.open .icard-detail { display: block; }
+
+    .detail-sec { margin-bottom: 14px; }
+    .detail-lbl { font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--text-muted); margin-bottom:4px; }
+
+    .detail-pre {
+      font-family: 'SF Mono','Consolas',monospace;
+      font-size: 11px;
+      color: var(--blue-300);
+      background: rgba(8,12,30,.6);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .timeline { display:flex; flex-direction:column; gap:6px; }
+
+    .t-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 10px;
+      background: rgba(8,12,30,.5);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .t-dot { width:8px; height:8px; border-radius:50%; background:var(--blue-400); margin-top:3px; flex-shrink:0; }
+    .t-dot.ok  { background:var(--green-400); }
+    .t-dot.err { background:var(--red-400); }
+    .t-name { font-weight:600; color:var(--blue-300); margin-bottom:2px; }
+    .t-ts   { font-size:10px; color:var(--text-muted); margin-bottom:2px; }
+    .t-data { color:var(--text-dim); font-size:11px; word-break:break-word; }
+
+    /* ── Pagination ── */
+    .pagination {
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: 'Inter', -apple-system, sans-serif;
-      color: #e2e8f0;
+      gap: 10px;
+      padding: 16px 0;
     }
-    .center {
-      text-align: center;
-      padding: 40px 24px;
-    }
-    .icon { font-size: 48px; margin-bottom: 20px; }
-    h1 { font-size: 22px; font-weight: 700; color: #7dd3fc; margin-bottom: 10px; }
-    p { color: #64748b; font-size: 14px; line-height: 1.6; }
-    .logout {
-      margin-top: 32px;
-      display: inline-block;
-      padding: 10px 24px;
-      border: 1px solid rgba(56,189,248,0.3);
+
+    .btn-page {
+      padding: 8px 18px;
       border-radius: 8px;
-      color: #38bdf8;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--blue-400);
       font-size: 13px;
       cursor: pointer;
-      background: none;
-      letter-spacing: 0.05em;
+      transition: all .2s;
+    }
+    .btn-page:hover:not(:disabled) { border-color:var(--blue-400); background:rgba(56,189,248,.1); }
+    .btn-page:disabled { opacity:.38; cursor:not-allowed; }
+
+    .page-info { font-size:13px; color:var(--text-dim); min-width:140px; text-align:center; }
+
+    /* ── States ── */
+    .state-msg { text-align:center; padding:48px 24px; color:var(--text-muted); font-size:14px; }
+    .spin {
+      display: inline-block;
+      width: 30px; height: 30px;
+      border: 3px solid rgba(56,189,248,.2);
+      border-top-color: var(--blue-400);
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(56,189,248,.2); border-radius:2px; }
+
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      .main { padding-bottom: calc(28px + env(safe-area-inset-bottom)); }
     }
   </style>
 </head>
 <body>
-  <div class="center">
-    <div class="icon">⚡</div>
-    <h1>Conectado</h1>
-    <p>El panel de eventos está en construcción.<br>Próximamente aquí verás las notificaciones en tiempo real.</p>
-    <button class="logout" onclick="localStorage.removeItem('urpe_events_token'); window.location.href='/events'">
-      Cerrar sesión
-    </button>
-  </div>
+
+  <header class="header">
+    <div class="header-brand">⚡ URPE Debug</div>
+    <div class="header-actions">
+      <button class="btn-icon" id="refreshBtn" onclick="loadData()">⟳ Refrescar</button>
+      <button class="btn-icon" onclick="doLogout()">Salir</button>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- Filters -->
+    <div class="filter-row">
+      <span class="filter-label">Canal</span>
+      <div class="pill-group" id="chFilters">
+        <button class="pill active" data-ch="">Todos</button>
+        <button class="pill" data-ch="whatsapp">WhatsApp</button>
+        <button class="pill" data-ch="manychat">ManyChat</button>
+        <button class="pill" data-ch="ghl_instagram">GHL IG</button>
+        <button class="pill" data-ch="ghl_facebook">GHL FB</button>
+      </div>
+    </div>
+    <div class="filter-row" style="margin-bottom:16px">
+      <span class="filter-label">Período</span>
+      <div class="pill-group" id="dFilters">
+        <button class="pill" data-d="7">7d</button>
+        <button class="pill active" data-d="30">30d</button>
+        <button class="pill" data-d="90">90d</button>
+        <button class="pill" data-d="365">1 año</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat-card">
+        <div class="stat-label">Total</div>
+        <div class="stat-value" id="sTotal">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">OK</div>
+        <div class="stat-value" style="color:var(--green-400)" id="sOk">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Errores</div>
+        <div class="stat-value" style="color:var(--red-400)" id="sErr">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Avg</div>
+        <div class="stat-value" style="font-size:16px;padding-top:3px" id="sAvg">—</div>
+      </div>
+    </div>
+
+    <!-- List -->
+    <div class="interactions-list" id="iList">
+      <div class="state-msg"><div class="spin"></div><br>Cargando eventos...</div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" id="pgBar" style="display:none">
+      <button class="btn-page" id="btnPrev" onclick="goPage(curPage - 1)">← Anterior</button>
+      <span class="page-info" id="pgInfo">Página 1 de 1</span>
+      <button class="btn-page" id="btnNext" onclick="goPage(curPage + 1)">Siguiente →</button>
+    </div>
+
+  </main>
+
   <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/events/sw.js').catch(() => {});
     }
-    const token = localStorage.getItem('urpe_events_token');
-    if (!token) window.location.href = '/events';
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    const TOKEN_KEY = 'urpe_events_token';
+    if (!localStorage.getItem(TOKEN_KEY)) window.location.href = '/events';
+
+    function doLogout() {
+      localStorage.removeItem(TOKEN_KEY);
+      window.location.href = '/events';
+    }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    let curPage = 1;
+    let totPages = 1;
+    let curChannel = '';
+    let curDays = 30;
+    const LIMIT = 10;
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function esc(s) {
+      if (s == null) return '—';
+      const d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    function fmtTime(iso) {
+      if (!iso) return '—';
+      try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('es-AR', {day:'2-digit', month:'2-digit', year:'2-digit'})
+          + ' ' + d.toLocaleTimeString('es-AR', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      } catch { return iso; }
+    }
+
+    function chBadge(ch) {
+      const map = {
+        whatsapp:      ['WA',     'b-wa'],
+        manychat:      ['MC',     'b-mc'],
+        ghl_instagram: ['GHL IG', 'b-ghl'],
+        ghl_facebook:  ['GHL FB', 'b-ghl'],
+        instagram:     ['IG',     'b-ig'],
+      };
+      if (!ch) return '';
+      const [lbl, cls] = map[ch] || [ch, 'b-mc'];
+      return `<span class="badge ${cls}">${esc(lbl)}</span>`;
+    }
+
+    function stBadge(st) {
+      const map = { ok:'b-ok', error:'b-err', processing:'b-proc', suprimido:'b-sup' };
+      return `<span class="badge ${map[st]||'b-proc'}">${esc(st||'processing')}</span>`;
+    }
+
+    function dotCls(stage) {
+      if (['run_agent_done','slash_command_done','kapso_send_done'].includes(stage)) return 'ok';
+      if (['inbound_error','error','exception','http_error'].includes(stage)) return 'err';
+      return '';
+    }
+
+    function stageDataHtml(detail) {
+      const skip = new Set(['stage','ts']);
+      return Object.entries(detail)
+        .filter(([k,v]) => !skip.has(k) && v != null && v !== '')
+        .map(([k,v]) => {
+          const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
+          return `<div><strong>${esc(k)}:</strong> ${esc(val.length > 300 ? val.slice(0,300)+'…' : val)}</div>`;
+        }).join('');
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    function renderStats(stats) {
+      if (!stats) return;
+      document.getElementById('sTotal').textContent = stats.total ?? '—';
+      document.getElementById('sOk').textContent    = stats.ok    ?? '—';
+      document.getElementById('sErr').textContent   = stats.errors ?? '—';
+      document.getElementById('sAvg').textContent   = stats.avg_ms != null ? stats.avg_ms + ' ms' : '—';
+    }
+
+    function renderList(items) {
+      const list = document.getElementById('iList');
+      if (!items || !items.length) {
+        list.innerHTML = '<div class="state-msg">Sin interacciones en este período.</div>';
+        return;
+      }
+
+      list.innerHTML = items.map((item, i) => {
+        const stages = (item.stages_detail || []).map(s => `
+          <div class="t-item">
+            <div class="t-dot ${dotCls(s.stage)}"></div>
+            <div style="flex:1;min-width:0">
+              <div class="t-name">${esc(s.stage)}</div>
+              <div class="t-ts">${fmtTime(s.ts)}</div>
+              <div class="t-data">${stageDataHtml(s)}</div>
+            </div>
+          </div>`).join('');
+
+        return `
+        <div class="icard" id="ic${i}" onclick="toggleCard(${i})">
+          <span class="chevron">▼</span>
+          <div class="icard-row1">
+            <span class="icard-time">${fmtTime(item.started_at)}</span>
+            <div class="icard-badges">
+              ${chBadge(item.channel)}
+              ${stBadge(item.status)}
+            </div>
+          </div>
+          <div class="icard-contact">
+            <span class="contact-name">${esc(item.contact_name || 'Desconocido')}</span>
+            ${item.from_phone ? `<span class="contact-phone">${esc(item.from_phone)}</span>` : ''}
+          </div>
+          ${item.message_text ? `<div class="icard-msg">${esc(item.message_text)}</div>` : ''}
+          <div class="icard-meta">
+            ${item.agent_name  ? `<div class="meta-item">Agente: <span>${esc(item.agent_name)}</span></div>`  : ''}
+            ${item.model_used  ? `<div class="meta-item">Modelo: <span>${esc(item.model_used)}</span></div>`  : ''}
+            ${item.duration_ms != null ? `<div class="meta-item">⏱ <span>${item.duration_ms} ms</span></div>` : ''}
+          </div>
+
+          <div class="icard-detail">
+            ${item.message_text ? `
+            <div class="detail-sec">
+              <div class="detail-lbl">Mensaje completo</div>
+              <div class="detail-pre">${esc(item.message_text)}</div>
+            </div>` : ''}
+            ${item.response_preview ? `
+            <div class="detail-sec">
+              <div class="detail-lbl">Respuesta</div>
+              <div class="detail-pre">${esc(item.response_preview)}</div>
+            </div>` : ''}
+            ${item.error ? `
+            <div class="detail-sec">
+              <div class="detail-lbl" style="color:var(--red-400)">Error</div>
+              <div class="detail-pre" style="color:var(--red-400)">${esc(item.error)}</div>
+            </div>` : ''}
+            <div class="detail-sec">
+              <div class="detail-lbl">Timeline</div>
+              <div class="timeline">${stages || '<div style="color:var(--text-muted);font-size:12px;padding:8px">Sin detalle disponible.</div>'}</div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderPagination(page, pages, total) {
+      const bar = document.getElementById('pgBar');
+      if (!pages || pages <= 1) { bar.style.display = 'none'; return; }
+      bar.style.display = 'flex';
+      document.getElementById('pgInfo').textContent = `Página ${page} de ${pages}  ·  ${total} total`;
+      document.getElementById('btnPrev').disabled = page <= 1;
+      document.getElementById('btnNext').disabled = page >= pages;
+    }
+
+    function toggleCard(i) {
+      document.getElementById('ic' + i)?.classList.toggle('open');
+    }
+
+    // ── Data fetch ────────────────────────────────────────────────────────────
+    async function loadData() {
+      const list = document.getElementById('iList');
+      list.innerHTML = '<div class="state-msg"><div class="spin"></div><br>Cargando...</div>';
+      document.getElementById('pgBar').style.display = 'none';
+
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = true;
+      btn.textContent = '⌛';
+
+      try {
+        let url = `/api/v1/debug/interactions?page=${curPage}&limit=${LIMIT}&days=${curDays}`;
+        if (curChannel) url += `&channel=${encodeURIComponent(curChannel)}`;
+
+        const res = await fetch(url, { cache: 'no-store' });
+        if (res.status === 401) { doLogout(); return; }
+
+        const data = await res.json();
+        totPages = data.pages || 1;
+
+        renderStats(data.stats);
+        renderList(data.interactions);
+        renderPagination(data.page, data.pages, data.total);
+      } catch (err) {
+        list.innerHTML = `<div class="state-msg">Error cargando datos: ${esc(err.message)}</div>`;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⟳ Refrescar';
+      }
+    }
+
+    function goPage(p) {
+      if (p < 1 || p > totPages) return;
+      curPage = p;
+      loadData();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // ── Filter wiring ─────────────────────────────────────────────────────────
+    document.getElementById('chFilters').addEventListener('click', e => {
+      const pill = e.target.closest('.pill');
+      if (!pill) return;
+      document.querySelectorAll('#chFilters .pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      curChannel = pill.dataset.ch;
+      curPage = 1;
+      loadData();
+    });
+
+    document.getElementById('dFilters').addEventListener('click', e => {
+      const pill = e.target.closest('.pill');
+      if (!pill) return;
+      document.querySelectorAll('#dFilters .pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      curDays = parseInt(pill.dataset.d);
+      curPage = 1;
+      loadData();
+    });
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    loadData();
   </script>
 </body>
 </html>"""
