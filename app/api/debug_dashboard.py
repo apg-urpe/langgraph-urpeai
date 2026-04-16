@@ -568,28 +568,40 @@ async def debug_interactions(
         if empresa_id:
             filters["empresa_id"] = empresa_id
 
-        # Supabase PostgREST caps responses at max-rows=1000 regardless of ?limit=N.
-        # Paginate with offset until we exhaust all matching rows.
+        # Supabase PostgREST caps at max-rows=1000 regardless of ?limit=N.
+        # Strategy: fetch first batch, then up to 2 more in parallel → max 3000 rows,
+        # ~2 round-trips total. Each interaction has ~3-8 events, so 3000 rows ≈ 400-1000
+        # interactions — enough for any practical period.
         _PAGE = 1000
-        rows: list[dict] = []
-        offset = 0
-        while True:
+        _MAX_EXTRA = 2  # extra parallel batches after the first (total = 3000 rows max)
+
+        _select = "source,stage,payload,created_at,empresa_id,contacto_id,message_id,channel"
+
+        async def _fetch_batch(offset: int) -> list[dict]:
             page_raw = {**raw_filters, "offset": str(offset)}
-            batch = await db.query(
+            return await db.query(
                 "debug_events",
-                select="*",
+                select=_select,
                 filters=filters if filters else None,
                 raw_filters=page_raw,
                 order="created_at",
                 order_desc=True,
                 limit=_PAGE,
             ) or []
-            rows.extend(batch)
-            if len(batch) < _PAGE:
-                break  # last page
-            offset += _PAGE
-            if offset >= 100_000:  # safety cap
-                break
+
+        # Round-trip 1: first batch
+        batch0 = await _fetch_batch(0)
+        rows: list[dict] = list(batch0)
+
+        # Round-trip 2: remaining batches in parallel (only if first was full)
+        if len(batch0) == _PAGE:
+            extra = await asyncio.gather(
+                *[_fetch_batch(_PAGE * i) for i in range(1, _MAX_EXTRA + 1)]
+            )
+            for batch in extra:
+                rows.extend(batch)
+                if len(batch) < _PAGE:
+                    break  # last page reached, no need to keep extending
     except Exception as exc:
         logger.error("debug_interactions: error querying Supabase: %s", exc)
         return {
