@@ -558,29 +558,25 @@ async def debug_interactions(
         db = await get_supabase()
         cutoff = since if since else (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        raw_filters: dict = {
+        base_raw: dict = {
             "created_at": f"gte.{cutoff}",
             "source": "neq.funnel",
         }
         filters: dict = {}
 
         if channel:
-            raw_filters["payload->>'_channel'"] = f"eq.{channel}"
+            base_raw["payload->>'_channel'"] = f"eq.{channel}"
         if empresa_id:
             filters["empresa_id"] = empresa_id
-        if contacto_id:
-            # contacto_id IS a real column — filter at DB level
-            try:
-                filters["contacto_id"] = int(contacto_id)
-            except ValueError:
-                pass  # non-numeric value: skip DB filter, client handles it
 
         _PAGE = 1000
         # Note: 'channel' is NOT a column — it lives inside payload as _channel
         _select = "source,stage,payload,created_at,empresa_id,contacto_id,message_id"
 
-        async def _fetch_batch(offset: int) -> list[dict]:
-            page_raw = {**raw_filters, "offset": str(offset)}
+        async def _fetch_batch(offset: int, extra_raw: dict | None = None) -> list[dict]:
+            page_raw = {**base_raw, "offset": str(offset)}
+            if extra_raw:
+                page_raw.update(extra_raw)
             return await db.query(
                 "debug_events",
                 select=_select,
@@ -592,17 +588,56 @@ async def debug_interactions(
             ) or []
 
         if contacto_id:
-            # Full scan: DB filter by contact → result set is small, fetch all pages
+            # Two-step: find message_ids for this contact, then fetch ALL events for those IDs.
+            # This ensures stages like run_agent_done (which lack the contacto_id column) are included.
+            try:
+                cid_int = int(contacto_id)
+            except ValueError:
+                cid_int = None
+
             rows: list[dict] = []
-            offset = 0
-            while True:
-                batch = await _fetch_batch(offset)
-                rows.extend(batch)
-                if len(batch) < _PAGE:
-                    break
-                offset += _PAGE
-                if offset >= 50_000:  # safety cap
-                    break
+            if cid_int is not None:
+                # Step 1: collect all message_ids where contacto_id = cid_int
+                id_rows: list[dict] = []
+                offset = 0
+                while True:
+                    batch = await db.query(
+                        "debug_events",
+                        select="message_id",
+                        raw_filters={
+                            "created_at": f"gte.{cutoff}",
+                            "contacto_id": f"eq.{cid_int}",
+                            "offset": str(offset),
+                        },
+                        limit=_PAGE,
+                    ) or []
+                    id_rows.extend(batch)
+                    if len(batch) < _PAGE:
+                        break
+                    offset += _PAGE
+                    if offset >= 50_000:
+                        break
+
+                msg_ids = list({r.get("message_id") for r in id_rows if r.get("message_id")})
+
+                if msg_ids:
+                    # Step 2: fetch ALL events for those message_ids (no contacto_id restriction)
+                    # Chunk to avoid URL length limits (~100 ids per request)
+                    chunk_size = 100
+                    for chunk_start in range(0, len(msg_ids), chunk_size):
+                        chunk = msg_ids[chunk_start:chunk_start + chunk_size]
+                        chunk_rows = await db.query(
+                            "debug_events",
+                            select=_select,
+                            raw_filters={
+                                "source": "neq.funnel",
+                                "message_id": f"in.({','.join(str(m) for m in chunk)})",
+                            },
+                            order="created_at",
+                            order_desc=True,
+                            limit=len(chunk) * 30,  # up to 30 events per message
+                        ) or []
+                        rows.extend(chunk_rows)
         else:
             # Normal path: 3-batch parallel fetch (max 3000 rows, ~2 round-trips)
             _MAX_EXTRA = 2
