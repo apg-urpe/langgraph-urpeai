@@ -1031,22 +1031,15 @@ async def debug_metrics(
         msg_raw = {"timestamp": f"gte.{cutoff}"}
         cita_raw = {"created_at": f"gte.{cutoff}"}
         contact_raw = {"created_at": f"gte.{cutoff}"}
-        # Include all agent-done stages that carry timing data
-        debug_done_raw = {
-            "created_at": f"gte.{cutoff}",
-            "stage": "in.(run_agent_done,run_contact_update_done)",
-        }
-        debug_err_raw = {
-            "created_at": f"gte.{cutoff}",
-            "stage": "in.(inbound_error,error,exception,http_error)",
-        }
+        # Fetch ALL recent debug_events and filter by stage in Python
+        # (avoids PostgREST in.() filter issues that caused 0 results)
+        debug_raw = {"created_at": f"gte.{cutoff}"}
 
         # ── Parallel fetch all data ───────────────────────────────────────────
         results = await asyncio.gather(
             _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=20, order_col="timestamp"),
             _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=5),
-            _fetch_all("debug_events", "created_at,payload", None, debug_done_raw, max_pages=10),
-            _fetch_all("debug_events", "created_at,payload", None, debug_err_raw, max_pages=2),
+            _fetch_all("debug_events", "created_at,stage,payload", None, debug_raw, max_pages=10),
             _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=5),
             return_exceptions=True,
         )
@@ -1059,16 +1052,24 @@ async def debug_metrics(
 
         msg_rows = _safe_result(results[0], "mensajes")
         cita_rows = _safe_result(results[1], "citas")
-        agent_done_rows = _safe_result(results[2], "agent_done")
-        error_rows = _safe_result(results[3], "errors")
-        contact_rows = _safe_result(results[4], "contacts")
+        all_debug_rows = _safe_result(results[2], "debug_events")
+        contact_rows = _safe_result(results[3], "contacts")
+
+        # Split debug_events by stage in Python
+        _DONE_STAGES = {"run_agent_done", "run_contact_update_done"}
+        _ERR_STAGES = {"inbound_error", "error", "exception", "http_error"}
+        agent_done_rows = [r for r in all_debug_rows if r.get("stage") in _DONE_STAGES]
+        error_rows = [r for r in all_debug_rows if r.get("stage") in _ERR_STAGES]
+
         logger.info(
-            "debug_metrics: msgs=%d citas=%d agent_done=%d errors=%d contacts=%d (days=%d, empresa=%d)",
-            len(msg_rows), len(cita_rows), len(agent_done_rows), len(error_rows), len(contact_rows),
+            "debug_metrics: msgs=%d citas=%d debug_total=%d agent_done=%d errors=%d contacts=%d (days=%d, empresa=%d)",
+            len(msg_rows), len(cita_rows), len(all_debug_rows), len(agent_done_rows), len(error_rows), len(contact_rows),
             days, empresa_id,
         )
-        if not agent_done_rows:
-            logger.warning("debug_metrics: agent_done_rows=0, check if run_agent_done events exist in debug_events")
+        if all_debug_rows and not agent_done_rows:
+            # Log sample stages for diagnosis
+            sample_stages = list({r.get("stage") for r in all_debug_rows[:200]})
+            logger.warning("debug_metrics: agent_done=0 but %d total debug rows. Sample stages: %s", len(all_debug_rows), sample_stages[:20])
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Messages
