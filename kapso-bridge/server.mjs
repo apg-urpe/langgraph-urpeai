@@ -6377,8 +6377,8 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 /* ── Metrics tab ─────────────────────────────────────────────── */
 .metrics-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;display:none;flex-direction:column;overflow:hidden}
 .metrics-screen.active{display:flex}
-.m-bar-top{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:10px;align-items:center;backdrop-filter:blur(8px);flex-wrap:wrap}
-.m-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 12px;outline:none;-webkit-appearance:none;min-width:0;flex-shrink:0}
+.m-bar-top{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:10px 12px;display:flex;gap:8px;align-items:center;backdrop-filter:blur(8px);flex-wrap:nowrap}
+.m-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 10px;outline:none;-webkit-appearance:none;min-width:0;flex:1 1 0;overflow:hidden;text-overflow:ellipsis}
 .m-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 16px 24px}
 /* KPI row */
 .m-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
@@ -6609,7 +6609,7 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
     <select class="m-select" id="mEmpresa" onchange="loadMetrics()">
       <option value="">Todas las empresas</option>
     </select>
-    <button class="ag-load-btn" onclick="loadMetrics()" title="Recargar">
+    <button class="ag-load-btn" onclick="loadMetrics()" title="Recargar" style="flex-shrink:0">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
     </button>
   </div>
