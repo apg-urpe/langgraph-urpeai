@@ -47,10 +47,16 @@ class NylasClient:
                 f"content_type={r.headers.get('content-type', '?')!r}): {r.text[:200]!r}"
             ) from exc
 
-    async def _request_with_retry(self, method: str, path: str, **kwargs) -> httpx.Response:
-        """Ejecuta una petición HTTP reintentando en errores de red o respuestas no-JSON."""
+    async def _request_with_retry(self, method: str, path: str, *, idempotent: bool = True, **kwargs) -> httpx.Response:
+        """Ejecuta una petición HTTP reintentando en errores de red o respuestas no-JSON.
+
+        idempotent=False desactiva el retry para operaciones no idempotentes (POST create_event).
+        En esos casos un timeout en el primer intento podría significar que el servidor SÍ procesó
+        la operación, y reintentar crearía duplicados.
+        """
+        attempts = _RETRY_ATTEMPTS if idempotent else 1
         last_exc: Exception | None = None
-        for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        for attempt in range(1, attempts + 1):
             try:
                 r: httpx.Response = await getattr(self._http, method)(path, **kwargs)
                 return r
@@ -58,9 +64,9 @@ class NylasClient:
                 last_exc = exc
                 logger.warning(
                     "Nylas %s %s — error de red en intento %d/%d: %s",
-                    method.upper(), path, attempt, _RETRY_ATTEMPTS, exc,
+                    method.upper(), path, attempt, attempts, exc,
                 )
-            if attempt < _RETRY_ATTEMPTS:
+            if attempt < attempts:
                 await asyncio.sleep(_RETRY_DELAY_S)
         raise last_exc  # type: ignore[misc]
 
@@ -108,11 +114,15 @@ class NylasClient:
     ) -> dict[str, Any]:
         """Crea un evento en el calendario."""
         body = self._build_event_body(event_data)
+        # IMPORTANTE: idempotent=False — no reintentar POST create_event en timeout.
+        # Un timeout puede significar que Nylas SÍ creó el evento pero no respondió a tiempo;
+        # reintentar duplicaría la cita. El caller debe manejar el timeout verificando después.
         r = await self._request_with_retry(
             "post",
             f"/grants/{grant_id}/events",
             params={"calendar_id": calendar_id},
             json=body,
+            idempotent=False,
         )
         r.raise_for_status()
         parsed = self._parse_response(r)
