@@ -994,9 +994,44 @@ async def debug_metrics(
     days: int = Query(default=30, ge=1, le=365),
     empresa_id: int = Query(default=0),
 ):
-    """Aggregated metrics for the benchmark dashboard."""
+    """Aggregated metrics for the benchmark dashboard.
+
+    Strategy: try the `metrics_dashboard` RPC first (all aggregation
+    server-side in Postgres — fast, scales to millions of rows). If the
+    function isn't installed yet (404/PGRST202) fall back to the legacy
+    row-fetching path so the endpoint still works during migration.
+    """
+    db = await get_supabase()
+
+    # ── Fast path: call the SQL aggregation function ────────────────────────
     try:
-        db = await get_supabase()
+        rpc_params: dict = {"p_days": days}
+        if empresa_id:
+            rpc_params["p_empresa_id"] = empresa_id
+        rpc_result = await asyncio.wait_for(
+            db.rpc("metrics_dashboard", rpc_params),
+            timeout=25,
+        )
+        if isinstance(rpc_result, dict) and "messages" in rpc_result:
+            # Ensure fields the frontend expects are present
+            rpc_result.setdefault("truncated", False)
+            rpc_result.setdefault("diag", {"source": "rpc"})
+            return rpc_result
+        logger.warning("debug_metrics: RPC returned unexpected shape, falling back: %s", type(rpc_result).__name__)
+    except asyncio.TimeoutError:
+        logger.warning("debug_metrics: RPC timeout (days=%d empresa=%d)", days, empresa_id)
+        return {"error": None, "truncated": True, "period_days": days, "empresa_id": empresa_id,
+                "diag": {"source": "rpc", "status": "timeout"}}
+    except Exception as exc:
+        # Function not installed yet or other error — fall back to legacy path
+        msg = str(exc)
+        if "PGRST202" in msg or "function" in msg.lower() or "not found" in msg.lower() or "404" in msg:
+            logger.warning("debug_metrics: RPC not installed, using legacy fallback. Run scripts/sql/metrics_dashboard.sql in Supabase.")
+        else:
+            logger.warning("debug_metrics: RPC error, using legacy fallback: %s", exc)
+
+    # ── Legacy fallback: row-fetching (slower, capped, may timeout) ─────────
+    try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         _PAGE = 1000
 
@@ -1017,7 +1052,7 @@ async def debug_metrics(
                     return None
 
         # Track query status for diagnostics (returned in response)
-        _diag: dict[str, str] = {}
+        _diag: dict[str, str] = {"source": "legacy_fallback"}
 
         async def _count(table, filters=None, raw_filters=None, diag_key: str | None = None) -> int:
             """Get exact row count without fetching much data (uses count=exact header).
