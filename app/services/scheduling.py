@@ -689,6 +689,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     # incluyendo los que ya pasaron (importante para mostrar el calendario completo)
     inicio_hoy = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     ahora_unix = int(inicio_hoy.timestamp())
+    now_unix_real = int(ahora.timestamp())  # unix timestamp REAL (para filtrar huecos pasados)
     fin_rango = inicio_hoy + timedelta(days=7)
     fin_unix = int(fin_rango.timestamp())
     tz = ZoneInfo(tz_name)
@@ -784,11 +785,39 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     def _huecos_libres(eventos: list[dict], dia_dt: datetime) -> list[str]:
         """Devuelve huecos libres del día como rangos exactos en hora militar.
         Incluye: antes del primer evento, entre eventos y después del último.
-        Filtra huecos menores a 15 minutos."""
+        Filtra huecos menores a 15 minutos.
+        Si el día es HOY, solo muestra huecos futuros (no horas ya pasadas)."""
         MIN_HUECO_SEG = 15 * 60
 
+        # TODO: reemplazar estos límites hardcodeados por la configuración real
+        # del asesor (ej: columna disponibilidad.horarios_normales) una vez
+        # se defina dónde almacenar el horario laboral de cada asesor.
+        dia_inicio = int(dia_dt.replace(hour=8, minute=0, second=0, microsecond=0).timestamp())
+        dia_fin    = int(dia_dt.replace(hour=17, minute=0, second=0, microsecond=0).timestamp())
+
+        # Si el día es HOY, el hueco arranca desde la hora actual (redondeada a múltiplo de 15 min)
+        # para no ofrecer horarios ya pasados.
+        if dia_inicio <= now_unix_real < dia_fin:
+            # Redondear now_unix_real al próximo múltiplo de 15 min (en TZ local)
+            ahora_local = datetime.fromtimestamp(now_unix_real, tz=tz)
+            minuto_redondeado = ((ahora_local.minute // 15) + 1) * 15
+            if minuto_redondeado >= 60:
+                ahora_redondeado = ahora_local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            else:
+                ahora_redondeado = ahora_local.replace(minute=minuto_redondeado, second=0, microsecond=0)
+            dia_inicio = max(dia_inicio, int(ahora_redondeado.timestamp()))
+        elif now_unix_real >= dia_fin:
+            # Día ya terminó laboralmente — no hay huecos
+            return []
+
+        if dia_inicio >= dia_fin:
+            return []
+
         if not eventos:
-            return []  # día sin eventos → libre todo el día (se maneja fuera)
+            # Sin eventos pero con ventana válida (p.ej. "hoy de 15:00 a 17:00")
+            if dia_fin - dia_inicio >= MIN_HUECO_SEG:
+                return [f"{_fmt_hora(dia_inicio)} - {_fmt_hora(dia_fin)}"]
+            return []
 
         # Fusionar eventos solapados
         ocupados = sorted(eventos, key=lambda e: e["start"])
@@ -803,18 +832,16 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                 merged.append((s, e))
 
         if not merged:
+            if dia_fin - dia_inicio >= MIN_HUECO_SEG:
+                return [f"{_fmt_hora(dia_inicio)} - {_fmt_hora(dia_fin)}"]
             return []
-
-        # TODO: reemplazar estos límites hardcodeados por la configuración real
-        # del asesor (ej: columna disponibilidad.horarios_normales) una vez
-        # se defina dónde almacenar el horario laboral de cada asesor.
-        dia_inicio = int(dia_dt.replace(hour=8, minute=0, second=0, microsecond=0).timestamp())
-        dia_fin    = int(dia_dt.replace(hour=17, minute=0, second=0, microsecond=0).timestamp())
 
         huecos: list[str] = []
         cursor = dia_inicio
 
         for (s, e) in merged:
+            if e <= cursor:
+                continue  # evento ya pasado (antes del cursor)
             if s - cursor >= MIN_HUECO_SEG:
                 huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(s)}")
             cursor = max(cursor, e)
@@ -924,15 +951,15 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             eventos_dia = dias[dia_key]
 
             lines.append(f"\n  📅 {fecha_texto.upper()}:")
-            if not eventos_dia:
-                lines.append("    ✅ Día completamente libre")
+            huecos = _huecos_libres(eventos_dia, dia_dt)
+            if huecos:
+                for h in huecos:
+                    lines.append(f"    ✅ {h}")
+            elif not eventos_dia:
+                # día sin eventos pero sin ventana futura (ej: hoy ya pasó el horario laboral)
+                lines.append("    ❌ Fuera de horario laboral")
             else:
-                huecos = _huecos_libres(eventos_dia, dia_dt)
-                if huecos:
-                    for h in huecos:
-                        lines.append(f"    ✅ {h}")
-                else:
-                    lines.append("    ❌ Sin huecos entre eventos")
+                lines.append("    ❌ Sin huecos entre eventos")
 
         lines.append("")
 
@@ -989,6 +1016,66 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
     if not empresa_id:
         return CrearEventoResponse(error="No se pudo determinar la empresa del contacto")
 
+    # ── Idempotency guard: evitar duplicados si el contacto ya tiene cita en este horario ──
+    # Esto protege contra casos donde un timeout previo creó la cita pero la respuesta no llegó,
+    # y el agente reintenta. Buscamos wp_citas confirmadas/reagendadas del mismo contacto que
+    # solapen con el slot solicitado.
+    try:
+        start_unix_check, fecha_inicio_check = parse_iso_to_unix(req.start, tz_name)
+        # ventana de solape: ±60 min respecto al start solicitado
+        citas_existentes = await db.query(
+            "wp_citas",
+            select="id,event_id,fecha_hora,duracion,team_humano_id,titulo,ubicacion",
+            filters={"contacto_id": req.contacto_id},
+            order="fecha_hora",
+            order_desc=True,
+            limit=20,
+        )
+        if isinstance(citas_existentes, list):
+            for c in citas_existentes:
+                if (c.get("estado") or "").lower() == "cancelada":
+                    continue
+                fh = c.get("fecha_hora")
+                if not fh:
+                    continue
+                try:
+                    c_start, _ = parse_iso_to_unix(fh)
+                except Exception:
+                    continue
+                dur = c.get("duracion") or 30
+                c_end = c_start + dur * 60
+                # Si hay solape con el nuevo slot (usando duración genérica 30min para el check), asumir duplicado
+                new_end = start_unix_check + 30 * 60
+                if rangos_solapan(start_unix_check, new_end, c_start, c_end):
+                    logger.warning(
+                        "⚠️ Duplicado detectado — contacto %s ya tiene cita event_id=%s en horario solapado (%s). Retornando existente.",
+                        req.contacto_id, c.get("event_id"), fh,
+                    )
+                    ubicacion = c.get("ubicacion") or ""
+                    meet_link = ubicacion if ubicacion.startswith("http") else None
+                    asesor_existente = None
+                    if c.get("team_humano_id"):
+                        asesor_existente = await get_asesor_by_id(c["team_humano_id"])
+                    inicio_local_existente = fecha_inicio_check.astimezone(ZoneInfo(tz_name)).strftime("%d/%m/%Y %I:%M %p")
+                    return CrearEventoResponse(
+                        success=True,
+                        event_id=c.get("event_id") or "",
+                        contacto_id=req.contacto_id,
+                        asesor_id=(asesor_existente or {}).get("id"),
+                        asesor=f"{(asesor_existente or {}).get('nombre','')} {(asesor_existente or {}).get('apellido','')}".strip() or "Asesor",
+                        asesor_email=(asesor_existente or {}).get("email", ""),
+                        asesor_citas_pendientes=0,
+                        asesores_disponibles=1,
+                        participante=req.attendeeEmail,
+                        inicio=inicio_local_existente,
+                        duracion_minutos=c.get("duracion") or 30,
+                        modalidad=req.Virtual_presencial,
+                        summary=c.get("titulo") or req.summary,
+                        meet_link=meet_link,
+                    )
+    except Exception as exc:
+        logger.warning("Idempotency check falló (no bloqueante): %s", exc)
+
     seleccion = await seleccionar_mejor_asesor(empresa_id, req.start, tz_name, req.contacto_id)
     if not seleccion:
         return CrearEventoResponse(error="No hay asesores disponibles en ese horario")
@@ -1044,6 +1131,41 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
     logger.info("📤 Creando evento en Nylas...")
     try:
         evento = await nylas.create_event(asesor["grant_id"], calendar_id, event_data)
+    except httpx.TimeoutException as e:
+        # POST create_event timeout — el evento PUDO haberse creado en Nylas.
+        # Verificamos listando eventos en la ventana antes de reportar error,
+        # así evitamos duplicados si el agente reintenta.
+        logger.warning("crear_evento_core: timeout en create_event — verificando si se creó igual: %s", e)
+        evento_detectado: dict[str, Any] | None = None
+        try:
+            await asyncio.sleep(1.5)  # pequeña espera para consistencia en Nylas
+            eventos_rango = await nylas.list_events(
+                asesor["grant_id"], calendar_id, start_unix - 60, end_unix + 60, limit=50
+            )
+            for ev in eventos_rango or []:
+                if ev.get("status") == "cancelled":
+                    continue
+                when = ev.get("when") or {}
+                ev_start = when.get("start_time")
+                # Coincidencia por horario de inicio + título (o participante)
+                if ev_start == start_unix and (
+                    ev.get("title") == req.summary
+                    or any(
+                        (p.get("email") or "").lower() == req.attendeeEmail.lower()
+                        for p in (ev.get("participants") or [])
+                    )
+                ):
+                    evento_detectado = ev
+                    break
+        except Exception as verify_exc:
+            logger.warning("No se pudo verificar evento tras timeout: %s", verify_exc)
+
+        if evento_detectado:
+            logger.info("✅ Evento sí se creó a pesar del timeout: %s — usando existente", evento_detectado.get("id"))
+            evento = evento_detectado
+        else:
+            logger.error("crear_evento_core: timeout confirmado, evento no creado")
+            return CrearEventoResponse(error="Error al crear el evento en Nylas: timeout. Por favor intenta de nuevo.")
     except Exception as e:
         if should_disable_nylas_grant(e):
             disable_nylas_grant(asesor, e)
