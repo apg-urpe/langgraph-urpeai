@@ -1005,24 +1005,34 @@ async def debug_metrics(
             select: str,
             filters: dict | None = None,
             raw_filters: dict | None = None,
-            max_pages: int = 10,
+            max_pages: int = 5,
             order_col: str = "created_at",
         ) -> list[dict]:
-            rows: list[dict] = []
-            for p in range(max_pages):
+            """Fetch rows with parallel page fetching: page 0 first, then remaining in parallel."""
+            async def _one_page(p: int) -> list[dict]:
                 rf = {**(raw_filters or {}), "offset": str(p * _PAGE)}
-                batch = await db.query(
-                    table,
-                    select=select,
+                return await db.query(
+                    table, select=select,
                     filters=filters if filters else None,
                     raw_filters=rf,
-                    order=order_col,
-                    order_desc=True,
+                    order=order_col, order_desc=True,
                     limit=_PAGE,
                 ) or []
-                rows.extend(batch)
-                if len(batch) < _PAGE:
-                    break
+
+            # Fetch page 0 first to check if there's more data
+            first = await _one_page(0)
+            if len(first) < _PAGE or max_pages <= 1:
+                return first
+
+            # More data exists — fetch all remaining pages in parallel
+            rest = await asyncio.gather(
+                *[_one_page(p) for p in range(1, max_pages)],
+                return_exceptions=True,
+            )
+            rows = list(first)
+            for r in rest:
+                if isinstance(r, list):
+                    rows.extend(r)
             return rows
 
         # ── Build filters ─────────────────────────────────────────────────────
@@ -1035,14 +1045,23 @@ async def debug_metrics(
         # debug_events also has empresa_id column, so apply the same emp_f filter
         debug_raw = {"created_at": f"gte.{cutoff}"}
 
-        # ── Parallel fetch all data ───────────────────────────────────────────
-        results = await asyncio.gather(
-            _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=20, order_col="timestamp"),
-            _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=5),
-            _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=10),
-            _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=5),
-            return_exceptions=True,
-        )
+        # ── Parallel fetch all data (with 28s overall timeout) ───────────────
+        async def _fetch_all_tables():
+            return await asyncio.gather(
+                _fetch_all("wp_mensajes", "timestamp,remitente,modelo_llm", emp_f, msg_raw, max_pages=8, order_col="timestamp"),
+                _fetch_all("wp_citas", "created_at,estado", emp_f, cita_raw, max_pages=3),
+                _fetch_all("debug_events", "created_at,stage,payload", emp_f, debug_raw, max_pages=5),
+                _fetch_all("wp_contactos", "created_at", emp_f, contact_raw, max_pages=3),
+                return_exceptions=True,
+            )
+
+        _timed_out = False
+        try:
+            results = await asyncio.wait_for(_fetch_all_tables(), timeout=28)
+        except asyncio.TimeoutError:
+            logger.warning("debug_metrics: timeout fetching tables (days=%d, empresa=%d)", days, empresa_id)
+            results = [[], [], [], []]
+            _timed_out = True
 
         def _safe_result(r, label: str) -> list[dict]:
             if isinstance(r, list):
@@ -1310,6 +1329,7 @@ async def debug_metrics(
             "period_days": days,
             "empresa_id": empresa_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "truncated": _timed_out,
             "empresas": empresas_list,
             "messages": {
                 "total": msg_total,

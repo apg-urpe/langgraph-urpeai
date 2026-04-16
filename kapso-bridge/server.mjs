@@ -7384,6 +7384,7 @@ function citaPill(estado,count){
 function renderMetrics(d){
   const el=document.getElementById('metricsContent');
   if(d.error){el.innerHTML='<div class="m-empty">Error: '+esc(d.error)+'</div>';return;}
+  if(d.truncated){el.innerHTML='<div class="m-empty" style="color:var(--yellow);padding:20px 16px">⚠️ Timeout: demasiados datos para el período. Prueba un rango menor (7 o 14 días) o filtra por empresa.</div>';return;}
 
   const m=d.messages||{};
   const a=d.appointments||{};
