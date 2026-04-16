@@ -6377,35 +6377,37 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 /* ── Metrics tab ─────────────────────────────────────────────── */
 .metrics-screen{position:fixed;top:52px;bottom:60px;left:0;right:0;display:none;flex-direction:column;overflow:hidden}
 .metrics-screen.active{display:flex}
-.m-bar-top{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:9px 12px;display:flex;gap:8px;align-items:center;backdrop-filter:blur(8px);flex-wrap:wrap}
-.m-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;padding:6px 8px;outline:none;-webkit-appearance:none;min-width:0;flex-shrink:0}
-.m-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 12px 16px}
+.m-bar-top{flex-shrink:0;background:rgba(8,12,30,.92);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:10px;align-items:center;backdrop-filter:blur(8px);flex-wrap:wrap}
+.m-select{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:8px 12px;outline:none;-webkit-appearance:none;min-width:0;flex-shrink:0}
+.m-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:16px 16px 24px}
 /* KPI row */
-.m-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}
-.m-kpi{background:var(--glass);border:1px solid var(--border);border-radius:10px;padding:10px 12px;text-align:center}
-.m-kpi-val{font-size:22px;font-weight:800;line-height:1.1}
-.m-kpi-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+.m-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.m-kpi{background:var(--glass);border:1px solid var(--border);border-radius:12px;padding:16px 14px;text-align:center}
+.m-kpi-val{font-size:26px;font-weight:800;line-height:1.15}
+.m-kpi-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em;margin-top:6px}
 /* Section cards */
-.m-section{background:var(--glass);border:1px solid var(--border);border-radius:10px;margin-bottom:12px;overflow:hidden}
-.m-sec-hdr{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
-.m-sec-hdr h3{font-size:13px;font-weight:700;color:var(--blue-300);margin:0}
-.m-sec-body{padding:0 12px 12px}
+.m-section{background:var(--glass);border:1px solid var(--border);border-radius:12px;margin-bottom:20px;overflow:hidden}
+.m-sec-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;gap:8px;flex-wrap:wrap}
+.m-sec-hdr h3{font-size:14px;font-weight:700;color:var(--blue-300);margin:0}
+.m-sec-sub{font-size:11px;color:var(--text-muted)}
+.m-sec-body{padding:0 16px 16px}
 /* Bar chart */
-.m-chart{display:flex;align-items:flex-end;gap:1px;height:120px;border-bottom:1px solid var(--border);padding-bottom:0;position:relative}
-.m-cbar{flex:1;min-width:3px;border-radius:2px 2px 0 0;position:relative;transition:height .3s;cursor:pointer}
+.m-chart{display:flex;align-items:flex-end;gap:2px;height:160px;border-bottom:1px solid var(--border);padding-bottom:0;position:relative;margin-bottom:4px}
+.m-cbar{flex:1;min-width:3px;border-radius:3px 3px 0 0;position:relative;transition:height .3s;cursor:pointer}
 .m-cbar:hover{filter:brightness(1.35)}
-.m-cbar .m-tip{display:none;position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:rgba(8,12,30,.95);padding:4px 8px;border-radius:5px;font-size:10px;white-space:nowrap;border:1px solid var(--border);z-index:10;color:var(--text);pointer-events:none}
+.m-cbar .m-tip{display:none;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(8,12,30,.96);padding:5px 10px;border-radius:6px;font-size:11px;white-space:nowrap;border:1px solid var(--border);z-index:10;color:var(--text);pointer-events:none;box-shadow:0 4px 12px rgba(0,0,0,.4)}
 .m-cbar:hover .m-tip{display:block}
-.m-chart-labels{display:flex;justify-content:space-between;padding-top:3px}
-.m-chart-labels span{font-size:9px;color:var(--text-muted)}
+.m-chart-labels{display:flex;justify-content:space-between;padding-top:6px}
+.m-chart-labels span{font-size:10px;color:var(--text-muted)}
 /* Horizontal bars */
-.m-hbar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.m-hbar-label{font-size:11px;color:var(--text-dim);width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;text-align:right}
-.m-hbar-track{flex:1;height:18px;background:rgba(13,27,75,.4);border-radius:4px;overflow:hidden;position:relative}
-.m-hbar-fill{height:100%;border-radius:4px;transition:width .4s}
-.m-hbar-val{font-size:10px;color:var(--text-muted);width:70px;flex-shrink:0;text-align:left;padding-left:6px}
+.m-hbar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.m-hbar-label{font-size:12px;color:var(--text-dim);width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0;text-align:right}
+.m-hbar-track{flex:1;height:22px;background:rgba(13,27,75,.4);border-radius:6px;overflow:hidden;position:relative}
+.m-hbar-fill{height:100%;border-radius:6px;transition:width .4s}
+.m-hbar-val{font-size:11px;color:var(--text-muted);width:80px;flex-shrink:0;text-align:left;padding-left:8px}
 /* Status pills */
-.m-pill{display:inline-block;font-size:10px;font-weight:600;padding:2px 8px;border-radius:8px;margin:2px}
+.m-pills{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.m-pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:4px 10px;border-radius:10px}
 .m-pill-confirmada{background:rgba(52,211,153,.12);color:var(--green);border:1px solid rgba(52,211,153,.2)}
 .m-pill-pendiente{background:rgba(251,191,36,.1);color:var(--yellow);border:1px solid rgba(251,191,36,.2)}
 .m-pill-realizada{background:rgba(56,189,248,.1);color:var(--blue-300);border:1px solid rgba(56,189,248,.2)}
@@ -6414,15 +6416,22 @@ html,body{height:100%;background:var(--navy-900);color:var(--text);font-family:-
 .m-pill-no_asistio{background:rgba(248,113,113,.08);color:#fca5a5;border:1px solid rgba(248,113,113,.15)}
 .m-pill-default{background:rgba(100,116,139,.1);color:var(--text-muted);border:1px solid rgba(100,116,139,.2)}
 /* Table in metrics */
-.m-table{width:100%;border-collapse:collapse;font-size:11px}
-.m-table th{text-align:left;padding:6px 8px;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
-.m-table td{padding:5px 8px;border-bottom:1px solid rgba(51,65,85,.3);color:var(--text-dim)}
+.m-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.m-table th{text-align:left;padding:8px 10px;color:var(--text-muted);font-weight:600;border-bottom:1px solid var(--border);font-size:10px;text-transform:uppercase;letter-spacing:.05em}
+.m-table td{padding:7px 10px;border-bottom:1px solid rgba(51,65,85,.3);color:var(--text-dim)}
 .m-table tr:hover td{background:rgba(56,189,248,.04)}
 /* Hour chart mini */
-.m-hour-chart{display:flex;align-items:flex-end;gap:1px;height:50px}
-.m-hour-bar{flex:1;min-width:0;background:var(--blue-400);border-radius:1px 1px 0 0;opacity:.7;transition:height .3s}
-.m-hour-bar:hover{opacity:1}
-.m-empty{text-align:center;padding:24px;color:var(--text-muted);font-size:13px}
+.m-hour-wrap{margin-top:14px;padding:10px 12px;background:rgba(13,27,75,.25);border:1px solid var(--border);border-radius:10px}
+.m-hour-lbl{font-size:10px;color:var(--text-muted);margin-bottom:6px;font-weight:600}
+.m-hour-chart{display:flex;align-items:flex-end;gap:2px;height:60px}
+.m-hour-bar{flex:1;min-width:0;border-radius:2px 2px 0 0;opacity:.75;transition:height .3s;cursor:pointer}
+.m-hour-bar:hover{opacity:1;filter:brightness(1.2)}
+.m-hour-row{display:flex;justify-content:space-between;margin-top:2px}
+.m-hour-row span{font-size:8px;color:var(--text-muted)}
+.m-empty{text-align:center;padding:32px;color:var(--text-muted);font-size:13px}
+.m-divider{height:1px;background:var(--border);margin:14px 0}
+/* Subsection heading */
+.m-sub-title{font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 8px}
 /* Bottom sheet for tools */
 .tools-trigger{background:rgba(13,27,75,.6);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;padding:7px 10px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%;-webkit-tap-highlight-color:transparent;transition:border-color .2s}
 .tools-trigger:active{border-color:rgba(56,189,248,.5)}
@@ -7337,14 +7346,18 @@ function mBarChart(data,valKey,labelKey,color,maxH){
   return html;
 }
 
-function mHourChart(arr,color){
-  if(!arr||arr.length!==24)return'';
+function mHourChart(arr,color,label){
+  if(!arr||arr.length!==24||!arr.some(v=>v>0))return'';
   const mx=Math.max(...arr,1);
-  let html='<div class="m-hour-chart" title="Distribucion por hora (0-23h)">';
+  let html='<div class="m-hour-wrap">';
+  html+='<div class="m-hour-lbl">'+(label||'Distribucion por hora')+'</div>';
+  html+='<div class="m-hour-chart">';
   for(let h=0;h<24;h++){
     const pct=Math.max(Math.round(arr[h]/mx*100),arr[h]>0?3:0);
-    html+='<div class="m-hour-bar" style="height:'+pct+'%;background:'+(color||'var(--blue-400)')+'" title="'+h+'h: '+arr[h]+'"></div>';
+    html+='<div class="m-hour-bar" style="height:'+pct+'%;background:'+(color||'var(--blue-400)')+'" title="'+h+':00 — '+arr[h]+'"></div>';
   }
+  html+='</div>';
+  html+='<div class="m-hour-row"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span></div>';
   html+='</div>';
   return html;
 }
@@ -7378,7 +7391,7 @@ function renderMetrics(d){
   const t=d.tools||{};
   const c=d.contacts||{};
 
-  // Populate empresa dropdown if we have the list
+  // Populate empresa dropdown
   if(d.empresas&&d.empresas.length){
     const sel=document.getElementById('mEmpresa');
     const curVal=sel.value;
@@ -7387,42 +7400,38 @@ function renderMetrics(d){
 
   let h='';
 
-  // KPI row
+  // ── KPI row ───────────────────────────────────────────────
   h+='<div class="m-kpis">';
   h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--blue-300)">'+fmtNum(m.total)+'</div><div class="m-kpi-lbl">Mensajes</div></div>';
   h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--green)">'+fmtNum(a.total)+'</div><div class="m-kpi-lbl">Citas</div></div>';
   h+='<div class="m-kpi"><div class="m-kpi-val" style="color:var(--cyan-400)">'+fmtMs(p.avg_ms)+'</div><div class="m-kpi-lbl">Tiempo avg</div></div>';
-  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:'+(p.error_rate>5?'var(--red)':'var(--yellow)')+'">'+fmtPct(p.error_rate)+'</div><div class="m-kpi-lbl">Errores</div></div>';
+  h+='<div class="m-kpi"><div class="m-kpi-val" style="color:'+(p.error_rate>5?'var(--red)':'var(--yellow)')+'">'+fmtPct(p.error_rate)+'</div><div class="m-kpi-lbl">Tasa error</div></div>';
   h+='<div class="m-kpi"><div class="m-kpi-val" style="color:#a78bfa">'+fmtNum(c.new_total)+'</div><div class="m-kpi-lbl">Contactos nuevos</div></div>';
   h+='</div>';
 
-  // Messages section
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Mensajes ('+fmtNum(m.total)+')</h3><div style="font-size:11px;color:var(--text-muted)">'+
+  // ── Messages ──────────────────────────────────────────────
+  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Mensajes</h3><div class="m-sec-sub">'+
     '<span style="color:var(--blue-300)">Inbound '+fmtNum(m.inbound)+'</span> · '+
     '<span style="color:var(--green)">IA '+fmtNum(m.ia)+'</span> · '+
     '<span style="color:var(--yellow)">Humano '+fmtNum(m.humano)+'</span> · '+
     '<span style="color:var(--text-muted)">Sistema '+fmtNum(m.sistema)+'</span>'+
   '</div></div><div class="m-sec-body">';
   h+=mBarChart(m.by_day||[],'total','date','var(--blue-400)');
-  if((m.by_hour||[]).some(v=>v>0)){
-    h+='<div style="margin-top:10px"><div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Mensajes por hora</div>';
-    h+=mHourChart(m.by_hour,'var(--blue-400)');
-    h+='</div>';
-  }
+  h+=mHourChart(m.by_hour,'var(--blue-400)','Mensajes por hora');
   h+='</div></div>';
 
-  // Models section
+  // ── Models ────────────────────────────────────────────────
   if(m.by_model&&m.by_model.length){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Modelos LLM</h3></div><div class="m-sec-body">';
+    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Modelos LLM</h3><div class="m-sec-sub">'+m.by_model.length+' modelos</div></div><div class="m-sec-body">';
     h+=mHBarRows(m.by_model.slice(0,15),'model','count',null,'linear-gradient(90deg,#3b82f6,#60a5fa)');
     h+='</div></div>';
   }
 
-  // Appointments section
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Citas ('+fmtNum(a.total)+')</h3></div><div class="m-sec-body">';
+  // ── Appointments ──────────────────────────────────────────
+  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Citas</h3><div class="m-sec-sub">'+fmtNum(a.total)+' total</div></div><div class="m-sec-body">';
   if(a.by_status){
     const statOrder=['confirmada','pendiente','realizada','cancelada','reagendada','no_asistio','rechazada','processing'];
-    h+='<div style="margin-bottom:10px">';
+    h+='<div class="m-pills">';
     for(const st of statOrder){if(a.by_status[st])h+=citaPill(st,a.by_status[st]);}
     for(const[st,cnt]of Object.entries(a.by_status)){if(!statOrder.includes(st))h+=citaPill(st,cnt);}
     h+='</div>';
@@ -7432,67 +7441,70 @@ function renderMetrics(d){
   }
   h+='</div></div>';
 
-  // Performance section
-  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Rendimiento</h3><div style="font-size:11px;color:var(--text-muted)">'+
-    'p50 '+fmtMs(p.p50_ms)+' · p95 '+fmtMs(p.p95_ms)+' · min '+fmtMs(p.min_ms)+' · max '+fmtMs(p.max_ms)+
+  // ── Performance ───────────────────────────────────────────
+  h+='<div class="m-section"><div class="m-sec-hdr"><h3>Rendimiento</h3><div class="m-sec-sub">'+
+    fmtNum(p.total_interactions)+' interacciones · p50 '+fmtMs(p.p50_ms)+' · p95 '+fmtMs(p.p95_ms)+
   '</div></div><div class="m-sec-body">';
+
   if(p.by_agent&&p.by_agent.length){
+    h+='<div class="m-sub-title">Por agente</div>';
     h+='<table class="m-table"><thead><tr><th>Agente</th><th>Interacciones</th><th>Avg</th><th>p50</th><th>p95</th></tr></thead><tbody>';
     for(const ag of p.by_agent){
       h+='<tr><td style="font-weight:600;color:var(--text)">'+esc(ag.agent)+'</td><td>'+fmtNum(ag.count)+'</td><td>'+fmtMs(ag.avg_ms)+'</td><td>'+fmtMs(ag.p50_ms)+'</td><td>'+fmtMs(ag.p95_ms)+'</td></tr>';
     }
     h+='</tbody></table>';
   }
+
   if(p.by_model&&p.by_model.length){
-    h+='<div style="margin-top:10px"><div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Por modelo</div>';
-    h+='<table class="m-table"><thead><tr><th>Modelo</th><th>Count</th><th>Avg</th></tr></thead><tbody>';
+    h+='<div class="m-sub-title">Por modelo</div>';
+    h+='<table class="m-table"><thead><tr><th>Modelo</th><th>Interacciones</th><th>Avg</th></tr></thead><tbody>';
     for(const md of p.by_model){
-      h+='<tr><td style="font-family:monospace;font-size:10px">'+esc(md.model)+'</td><td>'+fmtNum(md.count)+'</td><td>'+fmtMs(md.avg_ms)+'</td></tr>';
+      h+='<tr><td style="font-family:monospace;font-size:11px">'+esc(md.model)+'</td><td>'+fmtNum(md.count)+'</td><td>'+fmtMs(md.avg_ms)+'</td></tr>';
     }
-    h+='</tbody></table></div>';
+    h+='</tbody></table>';
   }
-  if((p.by_hour||[]).some(v=>v>0)){
-    h+='<div style="margin-top:10px"><div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Interacciones por hora</div>';
-    h+=mHourChart(p.by_hour,'var(--cyan-400)');
-    h+='</div>';
-  }
+
+  h+=mHourChart(p.by_hour,'var(--cyan-400)','Interacciones por hora');
   h+='</div></div>';
 
-  // Tools section
+  // ── Tools ─────────────────────────────────────────────────
   if(t.total_executions>0){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Herramientas ('+fmtNum(t.total_executions)+' ejecuciones, '+t.unique_tools+' unicas)</h3></div><div class="m-sec-body">';
+    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Herramientas</h3><div class="m-sec-sub">'+
+      fmtNum(t.total_executions)+' ejecuciones · '+t.unique_tools+' unicas</div></div><div class="m-sec-body">';
+
     if(t.by_tool&&t.by_tool.length){
-      h+='<table class="m-table"><thead><tr><th>Herramienta</th><th>Usos</th><th>Avg</th><th>Errores</th></tr></thead><tbody>';
+      h+='<table class="m-table"><thead><tr><th>Herramienta</th><th>Usos</th><th>Tiempo avg</th><th>Errores</th></tr></thead><tbody>';
       for(const tl of t.by_tool.slice(0,25)){
         const errStyle=tl.errors>0?'color:var(--red);font-weight:600':'';
-        h+='<tr><td style="font-family:monospace;font-size:10px;color:var(--text)">'+esc(tl.tool)+'</td><td>'+fmtNum(tl.count)+'</td><td>'+fmtMs(tl.avg_ms)+'</td><td style="'+errStyle+'">'+tl.errors+'</td></tr>';
+        h+='<tr><td style="font-family:monospace;font-size:11px;color:var(--text)">'+esc(tl.tool)+'</td><td>'+fmtNum(tl.count)+'</td><td>'+fmtMs(tl.avg_ms)+'</td><td style="'+errStyle+'">'+tl.errors+'</td></tr>';
       }
       h+='</tbody></table>';
     }
+
     if(t.by_agent&&t.by_agent.length){
-      h+='<div style="margin-top:10px"><div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;font-weight:600">Herramientas por agente</div>';
+      h+='<div class="m-sub-title">Por agente</div>';
       for(const ag of t.by_agent.slice(0,10)){
-        h+='<div style="margin-bottom:8px"><span style="font-size:12px;font-weight:700;color:var(--blue-300)">'+esc(ag.agent)+'</span> <span style="font-size:10px;color:var(--text-muted)">('+ag.total+' total)</span>';
-        h+='<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:3px">';
-        for(const tl of ag.tools.slice(0,10)){
-          h+='<span style="font-size:10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);padding:2px 6px;border-radius:6px;color:var(--text-dim)">'+esc(tl.tool)+' <strong>'+tl.count+'</strong></span>';
+        h+='<div style="margin-bottom:12px"><span style="font-size:13px;font-weight:700;color:var(--blue-300)">'+esc(ag.agent)+'</span> <span style="font-size:11px;color:var(--text-muted)">('+ag.total+' ejecuciones)</span>';
+        h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">';
+        for(const tl of ag.tools.slice(0,12)){
+          h+='<span style="font-size:11px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.15);padding:4px 8px;border-radius:8px;color:var(--text-dim)">'+esc(tl.tool)+' <strong style="color:var(--blue-300)">'+tl.count+'</strong></span>';
         }
         h+='</div></div>';
       }
-      h+='</div>';
     }
-    if((t.by_hour||[]).some(v=>v>0)){
-      h+='<div style="margin-top:10px"><div style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Ejecuciones por hora</div>';
-      h+=mHourChart(t.by_hour,'var(--yellow)');
-      h+='</div>';
-    }
+
+    h+=mHourChart(t.by_hour,'var(--yellow)','Ejecuciones por hora');
     h+='</div></div>';
   }
 
-  // Contacts section
-  if(c.new_total>0&&c.by_day&&c.by_day.length>1){
-    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Contactos nuevos ('+fmtNum(c.new_total)+')</h3></div><div class="m-sec-body">';
-    h+=mBarChart(c.by_day,'count','date','#a78bfa');
+  // ── Contacts ──────────────────────────────────────────────
+  if(c.new_total>0){
+    h+='<div class="m-section"><div class="m-sec-hdr"><h3>Contactos nuevos</h3><div class="m-sec-sub">'+fmtNum(c.new_total)+' en el periodo</div></div><div class="m-sec-body">';
+    if(c.by_day&&c.by_day.length>1){
+      h+=mBarChart(c.by_day,'count','date','#a78bfa');
+    } else {
+      h+='<div class="m-empty">'+fmtNum(c.new_total)+' contactos nuevos</div>';
+    }
     h+='</div></div>';
   }
 

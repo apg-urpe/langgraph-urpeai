@@ -1030,10 +1030,11 @@ async def debug_metrics(
         msg_raw = {"created_at": f"gte.{cutoff}"}
         cita_raw = {"created_at": f"gte.{cutoff}"}
         contact_raw = {"created_at": f"gte.{cutoff}"}
+        # Include all agent-done stages that carry timing data
         debug_done_raw = {
             "created_at": f"gte.{cutoff}",
             "source": "neq.funnel",
-            "stage": "eq.run_agent_done",
+            "stage": "in.(run_agent_done,run_contact_update_done)",
         }
         debug_err_raw = {
             "created_at": f"gte.{cutoff}",
@@ -1051,11 +1052,21 @@ async def debug_metrics(
             return_exceptions=True,
         )
 
-        msg_rows = results[0] if isinstance(results[0], list) else []
-        cita_rows = results[1] if isinstance(results[1], list) else []
-        agent_done_rows = results[2] if isinstance(results[2], list) else []
-        error_rows = results[3] if isinstance(results[3], list) else []
-        contact_rows = results[4] if isinstance(results[4], list) else []
+        def _safe_result(r, label: str) -> list[dict]:
+            if isinstance(r, list):
+                return r
+            logger.warning("debug_metrics: %s fetch failed: %s", label, r)
+            return []
+
+        msg_rows = _safe_result(results[0], "mensajes")
+        cita_rows = _safe_result(results[1], "citas")
+        agent_done_rows = _safe_result(results[2], "agent_done")
+        error_rows = _safe_result(results[3], "errors")
+        contact_rows = _safe_result(results[4], "contacts")
+        logger.info(
+            "debug_metrics: msgs=%d citas=%d agent_done=%d errors=%d contacts=%d",
+            len(msg_rows), len(cita_rows), len(agent_done_rows), len(error_rows), len(contact_rows),
+        )
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Messages
@@ -1129,8 +1140,20 @@ async def debug_metrics(
         tools_by_hour = [0] * 24
         tools_by_agent: dict[str, dict[str, int]] = {}
 
+        def _parse_payload(raw) -> dict:
+            """Handle payload as dict (normal JSONB) or as double-encoded string."""
+            if isinstance(raw, dict):
+                return raw
+            if isinstance(raw, str):
+                try:
+                    parsed = json.loads(raw)
+                    return parsed if isinstance(parsed, dict) else {}
+                except (json.JSONDecodeError, TypeError):
+                    return {}
+            return {}
+
         for row in agent_done_rows:
-            payload = row.get("payload") or {}
+            payload = _parse_payload(row.get("payload"))
             timing = payload.get("timing") or {}
             total_ms = payload.get("total_ms") or timing.get("total_ms")
             agent_name = payload.get("agent_name") or "desconocido"
@@ -1249,14 +1272,15 @@ async def debug_metrics(
         # ══════════════════════════════════════════════════════════════════════
         error_ids: set = set()
         for row in error_rows:
-            p = row.get("payload") or {}
+            p = _parse_payload(row.get("payload"))
             mid = p.get("message_id") or p.get("interaction_id")
             if mid:
                 error_ids.add(mid)
         error_count = len(error_ids)
         total_interactions = len(agent_done_rows)
-        denom = total_interactions + error_count
-        error_rate = round(error_count / denom * 100, 1) if denom > 0 else 0
+        # Use inbound messages as denominator for a meaningful error rate
+        inbound_count = msg_by_group.get("inbound", 0) or total_interactions or 1
+        error_rate = round(error_count / inbound_count * 100, 1) if inbound_count > 0 else 0
 
         # ══════════════════════════════════════════════════════════════════════
         # AGGREGATE: Contacts
