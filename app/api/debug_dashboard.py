@@ -829,6 +829,31 @@ async def debug_interactions(
         reverse=True,
     )
 
+    # ── Enrich contact_name from wp_contactos for rows missing it ─────────────
+    missing_name_ids = list({
+        i["contacto_id"] for i in all_interactions
+        if i.get("contacto_id") and not i.get("contact_name")
+    })
+    if missing_name_ids:
+        try:
+            contactos_rows = await db.query(
+                "wp_contactos",
+                select="id,nombre",
+                raw_filters={"id": f"in.({','.join(str(x) for x in missing_name_ids)})"},
+                limit=len(missing_name_ids) + 10,
+            ) or []
+            contactos_map: dict[int, str] = {
+                c["id"]: c["nombre"]
+                for c in contactos_rows
+                if c.get("id") and c.get("nombre")
+            }
+            for interaction in all_interactions:
+                cid = interaction.get("contacto_id")
+                if cid and not interaction.get("contact_name") and cid in contactos_map:
+                    interaction["contact_name"] = contactos_map[cid]
+        except Exception as exc:
+            logger.warning("debug_interactions: failed to enrich contact names: %s", exc)
+
     # ── Stats from all interactions ────────────────────────────────────────────
     total = len(all_interactions)
     ok_count = sum(1 for i in all_interactions if i["status"] == "ok")
