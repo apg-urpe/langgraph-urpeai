@@ -853,6 +853,9 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     lines.append("Ofrece primero el horario más cercano a la hora actual.")
     lines.append("Si hay disponibilidad HOY, ofrécela antes que días futuros.")
     lines.append("Presenta máximo 2-3 opciones.")
+    lines.append("VALIDACIÓN DE HORA: Cuando el contacto proponga una hora, verifica que hora_propuesta + 30min NO rebase el fin del bloque disponible.")
+    lines.append("Si no cabe: NO intentes agendar. Ofrece exactamente 2 alternativas: (1) la última hora válida en ese bloque (fin_bloque - 30min), (2) el inicio del siguiente bloque disponible en ese día u otro.")
+    lines.append("El sistema también rechazará internamente si el horario no es elegible.")
 
     cal_texto = "\n".join(lines)
 
@@ -974,6 +977,27 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
     start_unix, fecha_inicio = parse_iso_to_unix(req.start, tz_name)
     duracion_min = asesor.get("duracion_cita_minutos") or 30
     end_unix = start_unix + (duracion_min * 60)
+
+    # Validar que la cita entra dentro de la ventana horaria del día
+    _tz_check = ZoneInfo(tz_name)
+    _w_fin_h, _w_fin_m = map(int, _SLOT_WINDOW_DEFAULT[0]["fin"].split(":"))
+    _dia_fin_ventana = int(
+        fecha_inicio.astimezone(_tz_check)
+        .replace(hour=_w_fin_h, minute=_w_fin_m, second=0, microsecond=0)
+        .timestamp()
+    )
+    if end_unix > _dia_fin_ventana:
+        _hora_max_unix = _dia_fin_ventana - (duracion_min * 60)
+        _hora_max_str = datetime.fromtimestamp(_hora_max_unix, tz=_tz_check).strftime("%H:%M")
+        _hora_fin_str = datetime.fromtimestamp(end_unix, tz=_tz_check).strftime("%H:%M")
+        return CrearEventoResponse(
+            error=(
+                f"HORARIO_FUERA_DE_BLOQUE: La cita de {duracion_min} min terminaría a las {_hora_fin_str}, "
+                f"fuera del bloque disponible. "
+                f"Última hora de inicio válida hoy: {_hora_max_str}. "
+                f"Ofrece esa hora o el inicio del siguiente bloque disponible."
+            )
+        )
 
     es_virtual = (req.Virtual_presencial == "Virtual")
     nombre_contacto = (req.summary.split("|")[1].strip() if "|" in req.summary else "Invitado")
