@@ -519,7 +519,6 @@ async def asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
                 return True
             logger.warning("Error free/busy asesor %s: %s — fallback a list_events", asesor["id"], e)
 
-    nylas_list_failed = False
     try:
         events = await nylas.list_events(grant_id, email, start_unix, end_unix)
         for ev in events:
@@ -538,36 +537,8 @@ async def asesor_ocupado(nylas, asesor: dict, start_unix: int, end_unix: int,
     except Exception as e:
         if should_disable_nylas_grant(e):
             disable_nylas_grant(asesor, e)
-        logger.warning("Error list_events asesor %s: %s", asesor["id"], e)
-        nylas_list_failed = True
-
-    # Verificación suplementaria contra wp_citas (DB propia)
-    # Cubre casos donde Nylas no refleja correctamente los eventos
-    try:
-        _db = await get_supabase()
-        citas_asesor = await _db.query(
-            "wp_citas",
-            select="fecha_hora,duracion,event_id",
-            filters={"team_humano_id": asesor["id"], "estado": "confirmada"},
-        )
-        if isinstance(citas_asesor, list):
-            for c in citas_asesor:
-                if exclude_event_id and c.get("event_id") == exclude_event_id:
-                    continue
-                fh = c.get("fecha_hora")
-                dur = c.get("duracion") or 30
-                if not fh:
-                    continue
-                c_start, _ = parse_iso_to_unix(fh)
-                c_end = c_start + (dur * 60)
-                if rangos_solapan(start_unix, end_unix, c_start, c_end):
-                    logger.info("🚫 Asesor %s ocupado (wp_citas DB): %s-%s", asesor["id"], c_start, c_end)
-                    return True
-    except Exception as exc:
-        logger.warning("asesor_ocupado: error al consultar wp_citas para asesor %s: %s", asesor["id"], exc)
-        # Si Nylas también falló, no tenemos forma de saber → asumir ocupado por seguridad
-        if nylas_list_failed:
-            return True
+        logger.warning("Error list_events asesor %s: %s — asumiendo ocupado por seguridad", asesor["id"], e)
+        return True
 
     return False
 
@@ -737,41 +708,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     resultados = await asyncio.gather(*[_get_events(a) for a in asesores])
     asesores_ok = [r for r in resultados if r["ok"]]
 
-    # ── 2. Cargar citas de wp_citas como fuente suplementaria ──
-    _db = await get_supabase()
-    asesor_ids = [r["asesor"]["id"] for r in resultados]
-    db_citas_por_asesor: dict[int, list[dict]] = {aid: [] for aid in asesor_ids}
-    try:
-        citas_db = await _db.query(
-            "wp_citas",
-            select="team_humano_id,fecha_hora,duracion,titulo,event_id",
-            filters={"estado": "confirmada"},
-        )
-        if isinstance(citas_db, list):
-            for c in citas_db:
-                aid = c.get("team_humano_id")
-                if aid not in db_citas_por_asesor:
-                    continue
-                fh = c.get("fecha_hora")
-                if not fh:
-                    continue
-                try:
-                    c_start, _ = parse_iso_to_unix(fh)
-                    dur = c.get("duracion") or 30
-                    c_end = c_start + (dur * 60)
-                    if c_end > ahora_unix and c_start < fin_unix:
-                        db_citas_por_asesor[aid].append({
-                            "start": c_start,
-                            "end": c_end,
-                            "title": c.get("titulo") or "Cita confirmada",
-                            "event_id": c.get("event_id"),
-                        })
-                except Exception:
-                    pass
-    except Exception as exc:
-        logger.warning("Error cargando wp_citas para calendario: %s", exc)
-
-    # ── 3. Formatear calendario como texto ──
+    # ── 2. Formatear calendario como texto ──
     _DIAS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     _MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio",
                  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
@@ -789,11 +726,10 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         Si el día es HOY, solo muestra huecos futuros (no horas ya pasadas)."""
         MIN_HUECO_SEG = 15 * 60
 
-        # TODO: reemplazar estos límites hardcodeados por la configuración real
-        # del asesor (ej: columna disponibilidad.horarios_normales) una vez
-        # se defina dónde almacenar el horario laboral de cada asesor.
-        dia_inicio = int(dia_dt.replace(hour=8, minute=0, second=0, microsecond=0).timestamp())
-        dia_fin    = int(dia_dt.replace(hour=17, minute=0, second=0, microsecond=0).timestamp())
+        _w_inicio_h, _w_inicio_m = map(int, _SLOT_WINDOW_DEFAULT[0]["inicio"].split(":"))
+        _w_fin_h, _w_fin_m = map(int, _SLOT_WINDOW_DEFAULT[0]["fin"].split(":"))
+        dia_inicio = int(dia_dt.replace(hour=_w_inicio_h, minute=_w_inicio_m, second=0, microsecond=0).timestamp())
+        dia_fin    = int(dia_dt.replace(hour=_w_fin_h,    minute=_w_fin_m,    second=0, microsecond=0).timestamp())
 
         # Si el día es HOY, el hueco arranca desde la hora actual (redondeada a múltiplo de 15 min)
         # para no ofrecer horarios ya pasados.
@@ -858,7 +794,8 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     hora_local = ahora.strftime("%H:%M")
     fecha_local = _fecha_es(ahora) + f" de {ahora.year}"
     lines.append(f"CALENDARIO DE ASESORES — próximos 7 días")
-    lines.append(f"Hora actual: {hora_local}, {fecha_local} (zona {tz_name})")
+    lines.append(f"Hora actual: {hora_local}, {fecha_local}")
+    lines.append(f"⚠️ TODOS LOS HORARIOS ESTÁN EN LA ZONA HORARIA DEL CONTACTO: {tz_name}")
 
     if cita_info and cita_info.get("tiene_cita"):
         lines.append("")
@@ -894,8 +831,6 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         nombre = f"{asesor['nombre']} {asesor.get('apellido', '')}".strip()
         events_nylas = result.get("events", [])
 
-        # Unificar eventos Nylas + wp_citas (evitar duplicados por event_id)
-        nylas_event_ids = {ev.get("id") for ev in events_nylas if ev.get("id")}
         eventos_unif: list[dict] = []
 
         for ev in events_nylas:
@@ -910,22 +845,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
                 "start": ev_start,
                 "end": ev_end,
                 "title": ev.get("title") or "Evento",
-                "fuente": "nylas",
             })
-
-        for c in db_citas_por_asesor.get(asesor["id"], []):
-            # Agregar solo si no está ya en Nylas
-            if c.get("event_id") and c["event_id"] in nylas_event_ids:
-                continue
-            # Verificar que no se solape exactamente con algo que ya tenemos
-            ya_existe = any(abs(e["start"] - c["start"]) < 60 for e in eventos_unif)
-            if not ya_existe:
-                eventos_unif.append({
-                    "start": c["start"],
-                    "end": c["end"],
-                    "title": c.get("title") or "Cita confirmada",
-                    "fuente": "db",
-                })
 
         eventos_unif.sort(key=lambda e: e["start"])
 
@@ -972,11 +892,12 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             "mensaje": "Este contacto tiene una cita Realizada. Solo se muestra disponibilidad de su asesor asignado.",
         }
 
-    # Instrucción al agente: priorizar horario más cercano
+    # Instrucción al agente: priorizar horario más cercano y aclarar zona horaria
     lines.append("─── INSTRUCCIÓN PARA EL AGENTE ───")
     lines.append("SIEMPRE ofrece primero el horario disponible más cercano a la hora actual.")
     lines.append("Si hay disponibilidad HOY, ofrécela antes que días futuros.")
     lines.append("Presenta máximo 2-3 opciones empezando por la más próxima.")
+    lines.append(f"OBLIGATORIO: Al presentar horarios al contacto, SIEMPRE aclara que son en su zona horaria ({tz_name}). Ejemplo: 'el lunes a las 10:00 AM (hora {tz_name})'.")
 
     cal_texto = "\n".join(lines)
 
@@ -1097,7 +1018,7 @@ async def crear_evento_core(req: CrearEventoRequest) -> CrearEventoResponse:
     hora_local = fecha_inicio.astimezone(ZoneInfo(tz_name)).strftime("%I:%M %p")
     desc_final = req.description or ""
     if "Hora:" not in desc_final:
-        desc_final += f"\n- Hora: {hora_local} hora Colombia ({tz_name})"
+        desc_final += f"\n- Hora: {hora_local} ({tz_name})"
 
     event_data: dict[str, Any] = {
         "title": req.summary,
@@ -1252,7 +1173,7 @@ async def reagendar_evento_core(req: ReagendarEventoRequest) -> ReagendarEventoR
     hora_local = fecha_inicio.astimezone(ZoneInfo(tz_name)).strftime("%I:%M %p")
     desc_final = req.description or ""
     if "Hora:" not in desc_final:
-        desc_final += f"\n- Hora: {hora_local} hora Colombia ({tz_name})"
+        desc_final += f"\n- Hora: {hora_local} ({tz_name})"
 
     calendar_id = asesor_nuevo["email"]
     modalidad = req.Virtual_presencial
