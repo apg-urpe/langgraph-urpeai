@@ -719,83 +719,17 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
     def _fecha_es(dt: datetime) -> str:
         return f"{_DIAS_ES[dt.weekday()]} {dt.day} de {_MESES_ES[dt.month - 1]}"
 
-    def _huecos_libres(eventos: list[dict], dia_dt: datetime) -> list[str]:
-        """Devuelve huecos libres del día como rangos exactos en hora militar.
-        Incluye: antes del primer evento, entre eventos y después del último.
-        Filtra huecos menores a 15 minutos.
-        Si el día es HOY, solo muestra huecos futuros (no horas ya pasadas)."""
-        MIN_HUECO_SEG = 15 * 60
-
-        _w_inicio_h, _w_inicio_m = map(int, _SLOT_WINDOW_DEFAULT[0]["inicio"].split(":"))
-        _w_fin_h, _w_fin_m = map(int, _SLOT_WINDOW_DEFAULT[0]["fin"].split(":"))
-        dia_inicio = int(dia_dt.replace(hour=_w_inicio_h, minute=_w_inicio_m, second=0, microsecond=0).timestamp())
-        dia_fin    = int(dia_dt.replace(hour=_w_fin_h,    minute=_w_fin_m,    second=0, microsecond=0).timestamp())
-
-        # Si el día es HOY, el hueco arranca desde la hora actual (redondeada a múltiplo de 15 min)
-        # para no ofrecer horarios ya pasados.
-        if dia_inicio <= now_unix_real < dia_fin:
-            # Redondear now_unix_real al próximo múltiplo de 15 min (en TZ local)
-            ahora_local = datetime.fromtimestamp(now_unix_real, tz=tz)
-            minuto_redondeado = ((ahora_local.minute // 15) + 1) * 15
-            if minuto_redondeado >= 60:
-                ahora_redondeado = ahora_local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-            else:
-                ahora_redondeado = ahora_local.replace(minute=minuto_redondeado, second=0, microsecond=0)
-            dia_inicio = max(dia_inicio, int(ahora_redondeado.timestamp()))
-        elif now_unix_real >= dia_fin:
-            # Día ya terminó laboralmente — no hay huecos
-            return []
-
-        if dia_inicio >= dia_fin:
-            return []
-
-        if not eventos:
-            # Sin eventos pero con ventana válida (p.ej. "hoy de 15:00 a 17:00")
-            if dia_fin - dia_inicio >= MIN_HUECO_SEG:
-                return [f"{_fmt_hora(dia_inicio)} - {_fmt_hora(dia_fin)}"]
-            return []
-
-        # Fusionar eventos solapados
-        ocupados = sorted(eventos, key=lambda e: e["start"])
-        merged: list[tuple[int, int]] = []
-        for ev in ocupados:
-            s, e = ev["start"], ev["end"]
-            if s >= e:
-                continue
-            if merged and s <= merged[-1][1]:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-            else:
-                merged.append((s, e))
-
-        if not merged:
-            if dia_fin - dia_inicio >= MIN_HUECO_SEG:
-                return [f"{_fmt_hora(dia_inicio)} - {_fmt_hora(dia_fin)}"]
-            return []
-
-        huecos: list[str] = []
-        cursor = dia_inicio
-
-        for (s, e) in merged:
-            if e <= cursor:
-                continue  # evento ya pasado (antes del cursor)
-            if s - cursor >= MIN_HUECO_SEG:
-                huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(s)}")
-            cursor = max(cursor, e)
-
-        # Hueco después del último evento
-        if dia_fin - cursor >= MIN_HUECO_SEG:
-            huecos.append(f"{_fmt_hora(cursor)} - {_fmt_hora(dia_fin)}")
-
-        return huecos
+    # ── Constantes de ventana horaria ──
+    MIN_HUECO_SEG = 15 * 60
+    _w_inicio_h, _w_inicio_m = map(int, _SLOT_WINDOW_DEFAULT[0]["inicio"].split(":"))
+    _w_fin_h, _w_fin_m = map(int, _SLOT_WINDOW_DEFAULT[0]["fin"].split(":"))
 
     lines = []
 
     # Encabezado
     hora_local = ahora.strftime("%H:%M")
     fecha_local = _fecha_es(ahora) + f" de {ahora.year}"
-    lines.append(f"CALENDARIO DE ASESORES — próximos 7 días")
     lines.append(f"Hora actual: {hora_local}, {fecha_local}")
-    lines.append(f"⚠️ TODOS LOS HORARIOS ESTÁN EN LA ZONA HORARIA DEL CONTACTO: {tz_name}")
 
     if cita_info and cita_info.get("tiene_cita"):
         lines.append("")
@@ -803,9 +737,6 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
         lines.append(f"  Estado: {cita_info.get('estado', '')} | Fecha: {cita_info.get('fecha', '')}")
         if cita_info.get("event_id"):
             lines.append(f"  Event ID: {cita_info['event_id']}  ← usar este ID para reagendar o cancelar")
-
-    if asesor_fijo:
-        lines.append(f"\nASESOR ASIGNADO: {asesor_fijo['nombre']} {asesor_fijo.get('apellido', '').strip()}")
 
     if not asesores_ok:
         lines.append("\nNo se pudo obtener el calendario de ningún asesor.")
@@ -824,64 +755,106 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             error="No se pudo obtener el calendario de ningún asesor",
         )
 
-    lines.append("")
+    # ── Calcular unión de huecos libres por día entre todos los asesores ──
+    # Un slot está disponible si AL MENOS UN asesor está libre en ese momento.
+    dia_keys = sorted([(ahora + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)])
+    libres_por_dia: dict[str, list[tuple[int, int]]] = {k: [] for k in dia_keys}
 
-    for result in resultados:
-        asesor = result["asesor"]
-        nombre = f"{asesor['nombre']} {asesor.get('apellido', '')}".strip()
+    for result in asesores_ok:
         events_nylas = result.get("events", [])
 
-        eventos_unif: list[dict] = []
-
+        # Parsear eventos del asesor a lista de (start, end)
+        ev_list: list[tuple[int, int]] = []
         for ev in events_nylas:
             when = ev.get("when") or {}
-            ev_start = when.get("start_time")
-            ev_end = when.get("end_time")
-            if not isinstance(ev_start, int) or not isinstance(ev_end, int):
+            s = when.get("start_time")
+            e = when.get("end_time")
+            if isinstance(s, int) and isinstance(e, int) and ev.get("status") != "cancelled":
+                ev_list.append((s, e))
+
+        for dia_key in dia_keys:
+            dia_dt = datetime.fromisoformat(dia_key).replace(tzinfo=tz)
+            dia_inicio = int(dia_dt.replace(hour=_w_inicio_h, minute=_w_inicio_m, second=0, microsecond=0).timestamp())
+            dia_fin    = int(dia_dt.replace(hour=_w_fin_h,    minute=_w_fin_m,    second=0, microsecond=0).timestamp())
+
+            # Hoy: ajustar inicio al próximo múltiplo de 15 min
+            if dia_inicio <= now_unix_real < dia_fin:
+                ahora_local = datetime.fromtimestamp(now_unix_real, tz=tz)
+                minuto_redondeado = ((ahora_local.minute // 15) + 1) * 15
+                if minuto_redondeado >= 60:
+                    ahora_redondeado = ahora_local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+                else:
+                    ahora_redondeado = ahora_local.replace(minute=minuto_redondeado, second=0, microsecond=0)
+                dia_inicio = max(dia_inicio, int(ahora_redondeado.timestamp()))
+            elif now_unix_real >= dia_fin:
+                continue  # día ya terminó
+
+            if dia_inicio >= dia_fin:
                 continue
-            if ev.get("status") == "cancelled":
-                continue
-            eventos_unif.append({
-                "start": ev_start,
-                "end": ev_end,
-                "title": ev.get("title") or "Evento",
-            })
 
-        eventos_unif.sort(key=lambda e: e["start"])
+            # Eventos del asesor que tocan este día, recortados a la ventana
+            busy_dia = sorted(
+                [(max(s, dia_inicio), min(e, dia_fin)) for s, e in ev_list
+                 if e > dia_inicio and s < dia_fin],
+                key=lambda x: x[0],
+            )
 
-        # Agrupar por día
-        dias: dict[str, list] = {}
-        for i in range(7):
-            dia_dt = ahora + timedelta(days=i)
-            dias[dia_dt.strftime("%Y-%m-%d")] = []
-        for ev in eventos_unif:
-            dia_key = datetime.fromtimestamp(ev["start"], tz=tz).strftime("%Y-%m-%d")
-            if dia_key in dias:
-                dias[dia_key].append(ev)
+            # Fusionar solapados
+            merged_busy: list[tuple[int, int]] = []
+            for s, e in busy_dia:
+                if s >= e:
+                    continue
+                if merged_busy and s <= merged_busy[-1][1]:
+                    merged_busy[-1] = (merged_busy[-1][0], max(merged_busy[-1][1], e))
+                else:
+                    merged_busy.append((s, e))
 
-        lines.append(f"━━━ {nombre.upper()} ━━━")
-        if not result["ok"]:
-            lines.append("  ⚠️  No se pudo obtener el calendario (error de conexión Nylas)")
-            lines.append("")
+            # Huecos libres del asesor en este día
+            cursor = dia_inicio
+            for s, e in merged_busy:
+                if e <= cursor:
+                    continue
+                if s > cursor:
+                    libres_por_dia[dia_key].append((cursor, s))
+                cursor = max(cursor, e)
+            if cursor < dia_fin:
+                libres_por_dia[dia_key].append((cursor, dia_fin))
+
+    # ── Formatear output unificado ──
+    lines.append("")
+    lines.append("HORARIO DISPONIBLE")
+
+    hay_disponibilidad_real = False
+    for dia_key in dia_keys:
+        # Unión: ordenar y fusionar todos los intervalos libres de todos los asesores
+        todos_libres = sorted(libres_por_dia[dia_key], key=lambda x: x[0])
+        union: list[tuple[int, int]] = []
+        for s, e in todos_libres:
+            if union and s <= union[-1][1]:
+                union[-1] = (union[-1][0], max(union[-1][1], e))
+            else:
+                union.append((s, e))
+
+        # Filtrar huecos menores a 15 min
+        union = [(s, e) for s, e in union if e - s >= MIN_HUECO_SEG]
+        if not union:
             continue
 
-        for dia_key in sorted(dias.keys()):
-            dia_dt = datetime.fromisoformat(dia_key).replace(tzinfo=tz)
-            fecha_texto = _fecha_es(dia_dt)
-            eventos_dia = dias[dia_key]
+        hay_disponibilidad_real = True
+        dia_dt = datetime.fromisoformat(dia_key).replace(tzinfo=tz)
+        lines.append(f"\n{_fecha_es(dia_dt).upper()} DE {dia_dt.year}:")
+        for s, e in union:
+            lines.append(f"  {_fmt_hora(s)} - {_fmt_hora(e)}")
 
-            lines.append(f"\n  📅 {fecha_texto.upper()}:")
-            huecos = _huecos_libres(eventos_dia, dia_dt)
-            if huecos:
-                for h in huecos:
-                    lines.append(f"    ✅ {h}")
-            elif not eventos_dia:
-                # día sin eventos pero sin ventana futura (ej: hoy ya pasó el horario laboral)
-                lines.append("    ❌ Fuera de horario laboral")
-            else:
-                lines.append("    ❌ Sin huecos entre eventos")
+    if not hay_disponibilidad_real:
+        lines.append("\nSin disponibilidad en los próximos 7 días.")
 
-        lines.append("")
+    lines.append("\n─── INSTRUCCIÓN PARA EL AGENTE ───")
+    lines.append("Ofrece primero el horario más cercano a la hora actual.")
+    lines.append("Si hay disponibilidad HOY, ofrécela antes que días futuros.")
+    lines.append("Presenta máximo 2-3 opciones.")
+
+    cal_texto = "\n".join(lines)
 
     asesor_fijo_info = None
     if asesor_fijo:
@@ -889,17 +862,7 @@ async def disponibilidad_agenda_core(req: DisponibilidadRequest) -> Disponibilid
             "id": asesor_fijo["id"],
             "nombre": f"{asesor_fijo['nombre']} {asesor_fijo.get('apellido', '')}".strip(),
             "email": asesor_fijo["email"],
-            "mensaje": "Este contacto tiene una cita Realizada. Solo se muestra disponibilidad de su asesor asignado.",
         }
-
-    # Instrucción al agente: priorizar horario más cercano y aclarar zona horaria
-    lines.append("─── INSTRUCCIÓN PARA EL AGENTE ───")
-    lines.append("SIEMPRE ofrece primero el horario disponible más cercano a la hora actual.")
-    lines.append("Si hay disponibilidad HOY, ofrécela antes que días futuros.")
-    lines.append("Presenta máximo 2-3 opciones empezando por la más próxima.")
-    lines.append(f"OBLIGATORIO: Al presentar horarios al contacto, SIEMPRE aclara que son en su zona horaria ({tz_name}). Ejemplo: 'el lunes a las 10:00 AM (hora {tz_name})'.")
-
-    cal_texto = "\n".join(lines)
 
     return DisponibilidadResponse(
         cita_actual=cita_info,
