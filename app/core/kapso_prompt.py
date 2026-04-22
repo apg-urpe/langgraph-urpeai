@@ -786,7 +786,11 @@ def build_kapso_system_prompt(
             "- Si hay disponibilidad HOY, ofrécela antes que días futuros.\n"
             "- Presenta máximo 2-3 opciones, empezando por la más próxima.\n"
             "- Ejemplo: si son las 10:00 y hay hueco a las 11:00 y a las 14:00, ofrece primero las 11:00.\n"
-            "- Solo ofrece horarios de días futuros si hoy ya no hay disponibilidad."
+            "- Solo ofrece horarios de días futuros si hoy ya no hay disponibilidad.\n"
+            "- ZONA HORARIA EN TOOLS: Cuando llames agendar_cita o reagendar_cita, pasa la hora "
+            "EXACTAMENTE como la dijo el contacto (ej: 10 AM → T10:00:00). "
+            "NUNCA conviertas a UTC — el sistema lo hace automáticamente usando la zona del contacto. "
+            "Si conviertes tú (ej: 10 AM Bogotá → T15:00:00), la cita quedará 5 horas tarde."
         ),
         (
             "## ⏱️ CONTEXTO TEMPORAL OPERATIVO\n"

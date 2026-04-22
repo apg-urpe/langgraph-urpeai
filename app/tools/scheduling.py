@@ -116,7 +116,7 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
 
     @tool
     async def agendar_cita(
-        start: str,
+        hora_local_contacto: str,
         email_contacto: str,
         titulo: str,
         modalidad: str = "Virtual",
@@ -131,7 +131,13 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
         IMPORTANTE: Primero usa consultar_disponibilidad para verificar horarios libres.
 
         Args:
-            start: Fecha y hora en HORA LOCAL del contacto, formato ISO sin timezone (ej: 2026-04-15T14:00:00). NO convertir a UTC — el sistema maneja la conversión internamente. Si el contacto dice "a las 10", enviar T10:00:00.
+            hora_local_contacto: Fecha y hora EXACTAMENTE como la dijo el contacto, en su hora local.
+                Formato ISO sin timezone: YYYY-MM-DDTHH:MM:SS
+                Ejemplo: si el contacto dice "a las 10 AM", enviar "2026-04-15T10:00:00".
+                ⚠️ NUNCA convertir a UTC. NUNCA sumar ni restar horas de offset.
+                Si envías T15:00:00 pensando que son las 10 AM en UTC, la cita quedará
+                a las 3 PM hora local del contacto — 5 horas tarde.
+                El sistema lee la zona horaria del contacto y hace la conversión a UTC internamente.
             email_contacto: Email del contacto para la invitación al calendario
             titulo: Título del evento (ej: "Consulta | Juan Pérez")
             modalidad: "Virtual" (genera link de Google Meet) o "Presencial"
@@ -144,7 +150,7 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
                 return _MSG_SIN_TIMEZONE
 
             req = CrearEventoRequest(
-                start=start,
+                start=hora_local_contacto,
                 attendeeEmail=email_contacto,
                 summary=titulo,
                 description=descripcion or None,
@@ -201,7 +207,11 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
 
         Args:
             event_id: ID del evento a reagendar (obtenido de consultar_disponibilidad o agendar_cita)
-            nuevo_inicio: Nueva fecha/hora en HORA LOCAL del contacto, formato ISO sin timezone (ej: 2026-04-16T10:00:00). NO convertir a UTC — el sistema maneja la conversión internamente. Si el contacto dice "a las 10", enviar T10:00:00.
+            nuevo_inicio: Nueva fecha/hora EXACTAMENTE como la dijo el contacto, en su hora local.
+                Formato ISO sin timezone: YYYY-MM-DDTHH:MM:SS
+                Ejemplo: si el contacto dice "a las 10 AM", enviar "2026-04-16T10:00:00".
+                ⚠️ NUNCA convertir a UTC. NUNCA sumar ni restar horas de offset.
+                El sistema lee la zona horaria del contacto y hace la conversión a UTC internamente.
             duracion_minutos: Duración en minutos (0 = mantener duración original)
             modalidad: "Virtual" o "Presencial"
         """
