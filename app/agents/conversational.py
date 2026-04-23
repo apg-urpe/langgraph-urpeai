@@ -175,12 +175,32 @@ _TOOL_LEAK_PATTERNS = re.compile(
     re.MULTILINE,
 )
 
+# Code fences (```json ... ``` o ```...```) que contienen dumps de tool calls.
+_TOOL_LEAK_FENCE = re.compile(
+    r"```[a-zA-Z]*[ \t]*\r?\n?"
+    r"[\s\S]*?"
+    r"(?:\"herramienta\"|human[-_]in[-_]the[-_]loop|\"tool[_-]?call\"|\"function[_-]?call\"|\"motivo\"|\"action\")"
+    r"[\s\S]*?"
+    r"```",
+    re.IGNORECASE,
+)
+
+# JSON crudo (sin fence) que contiene claves de tool call.
+_TOOL_LEAK_JSON = re.compile(
+    r"\{[^{}]*?"
+    r"\"(?:herramienta|motivo|tool[_-]?call|function[_-]?call|action|human[-_]in[-_]the[-_]loop)\""
+    r"[^{}]*?\}",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _clean_tool_leaks(text: str) -> str:
-    """Remove lines where the LLM leaked tool usage instructions into the response."""
+    """Remove lines/blocks where the LLM leaked tool usage instructions into the response."""
     if not text:
         return text
-    cleaned = _TOOL_LEAK_PATTERNS.sub("", text)
+    cleaned = _TOOL_LEAK_FENCE.sub("", text)
+    cleaned = _TOOL_LEAK_JSON.sub("", cleaned)
+    cleaned = _TOOL_LEAK_PATTERNS.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
 
