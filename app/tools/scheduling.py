@@ -8,23 +8,25 @@ Expone 4 herramientas al agente conversacional:
 """
 
 import logging
+from datetime import datetime, timezone as _tz
 
 import httpx
 from langchain_core.tools import tool
 
 from app.core.http_client import get_shared_http_client
 from app.db import queries as db
+from app.db.client import get_supabase
 from app.schemas.scheduling import (
     CrearEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     DisponibilidadRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     EliminarEventoRequest,
-    ReagendarEventoRequest,
+    ReagendarEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
 )
 from app.services.scheduling import (
     crear_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     disponibilidad_agenda_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     eliminar_evento_core,
-    reagendar_evento_core,
+    reagendar_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
 )
 
 logger = logging.getLogger(__name__)
@@ -34,7 +36,8 @@ logger = logging.getLogger(__name__)
 # ════════════════════════════════════════════════════════════
 _DISPONIBILIDAD_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas"
 _AGENDAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/crear-evento"
-_WEBHOOK_TIMEOUT_S = 60.0  # crear-evento puede tardar más por validaciones + Nylas + DB
+_REAGENDAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/reagendar-dashboard"
+_WEBHOOK_TIMEOUT_S = 60.0  # crear-evento/reagendar pueden tardar más por validaciones + Nylas + DB
 
 # Valores que indican timezone no configurado
 _TIMEZONE_NO_DEFINIDO = {"por definir", "", "none", "null"}
@@ -60,6 +63,38 @@ _MSG_SIN_TIMEZONE = (
     "Debes preguntarle en qué ciudad o país se encuentra ANTES de continuar con el agendamiento. "
     "Ejemplo: '¿En qué ciudad o país estás ubicado/a?'"
 )
+
+
+async def _get_event_id_pendiente(contacto_id: int) -> str | None:
+    """Devuelve el event_id de la próxima cita pendiente/confirmada futura del contacto.
+
+    Filtra:
+      - estado in ('pendiente', 'confirmada')
+      - fecha_hora >= ahora (UTC)
+    Toma la más próxima en el tiempo (order asc, limit 1).
+    """
+    try:
+        client = await get_supabase()
+        now_iso = datetime.now(_tz.utc).isoformat()
+        rows = await client.query(
+            "wp_citas",
+            select="event_id,fecha_hora,estado",
+            filters={"contacto_id": contacto_id},
+            raw_filters={
+                "estado": "in.(pendiente,confirmada)",
+                "fecha_hora": f"gte.{now_iso}",
+            },
+            order="fecha_hora",
+            order_desc=False,
+            limit=1,
+        )
+        if not isinstance(rows, list) or not rows:
+            return None
+        ev = (rows[0].get("event_id") or "").strip()
+        return ev or None
+    except Exception as exc:
+        logger.warning("No se pudo obtener event_id pendiente del contacto %s: %s", contacto_id, exc)
+        return None
 
 
 # ════════════════════════════════════════════════════════════
@@ -250,22 +285,21 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
 
     @tool
     async def reagendar_cita(
-        event_id: str,
         nuevo_inicio: str,
         duracion_minutos: int = 0,
         modalidad: str = "Virtual",
     ) -> str:
-        """📅 Reagendar cita — Cambia la fecha/hora de una cita existente.
+        """📅 Reagendar cita — Cambia la fecha/hora de la cita activa del contacto.
 
         CUÁNDO USARLA:
         - El contacto quiere cambiar la fecha u hora de su cita
         - Se necesita mover la cita a otro horario
 
-        El sistema selecciona automáticamente al mejor asesor disponible.
-        Si el asesor original no está disponible, asigna uno nuevo.
+        El sistema busca automáticamente la cita pendiente/confirmada futura del
+        contacto y la reagenda al nuevo horario. NO necesitas pasarle el event_id;
+        se resuelve internamente desde wp_citas.
 
         Args:
-            event_id: ID del evento a reagendar (obtenido de consultar_disponibilidad o agendar_cita)
             nuevo_inicio: Nueva fecha/hora EXACTAMENTE como la dijo el contacto, en su hora local.
                 Formato ISO sin timezone: YYYY-MM-DDTHH:MM:SS
                 Ejemplo: si el contacto dice "a las 10 AM", enviar "2026-04-16T10:00:00".
@@ -280,33 +314,67 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
             if not tz:
                 return _MSG_SIN_TIMEZONE
 
-            req = ReagendarEventoRequest(
-                event_id=event_id,
-                start=nuevo_inicio,
-                contacto_id=contacto_id,
-                empresa_id=empresa_id,
-                Virtual_presencial=modalidad,
-                Duracion_minutos=duracion_minutos if duracion_minutos > 0 else None,
-                time_zone_contacto=tz,
-            )
-            resp = await reagendar_evento_core(req)
+            # Resolver event_id desde wp_citas (próxima cita pendiente/confirmada)
+            event_id = await _get_event_id_pendiente(contacto_id)
+            if not event_id:
+                return (
+                    "No se encontró una cita pendiente para reagendar. "
+                    "Verifica con el contacto si efectivamente tiene una cita activa "
+                    "o si ya fue cancelada."
+                )
 
-            if resp.error:
-                return f"Error al reagendar: {resp.error}"
+            # ─────────────────────────────────────────────────────────────────
+            # CAMBIO TEMPORAL — Reagendamiento vía webhook n8n.
+            # La lógica original (reagendar_evento_core con Nylas directo) se
+            # conserva en app/services/scheduling.py como respaldo.
+            # Ver CAMBIOS_TEMPORALES.md.
+            # ─────────────────────────────────────────────────────────────────
+            payload: dict = {
+                "contacto_id": contacto_id,
+                "event_id": event_id,
+                "start": nuevo_inicio,
+                "Virtual-presencial": modalidad,
+                "time_zone_contacto": tz,
+            }
+            if duracion_minutos and duracion_minutos > 0:
+                payload["Duracion_minutos"] = duracion_minutos
 
-            msg = (
-                f"Cita reagendada exitosamente.\n"
-                f"  Asesor: {resp.asesor}\n"
-                f"  Nuevo horario: {resp.nuevo_inicio}\n"
-                f"  Duración: {resp.duracion_minutos} minutos\n"
-                f"  Modalidad: {resp.modalidad}\n"
-                f"  Event ID: {resp.event_id}"
-            )
-            if resp.cambio_asesor:
-                msg += f"\n  NOTA: El asesor cambió de {resp.asesor_anterior} a {resp.asesor}"
-            if resp.meet_link:
-                msg += f"\n  Link de reunión: {resp.meet_link}"
-            return msg
+            client = get_shared_http_client()
+            try:
+                r = await client.post(
+                    _REAGENDAR_WEBHOOK_URL,
+                    json=payload,
+                    timeout=_WEBHOOK_TIMEOUT_S,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Webhook reagendar-dashboard error de red: %s", exc)
+                return f"Error al reagendar: {exc}"
+
+            if r.status_code != 200:
+                logger.warning(
+                    "Webhook reagendar-dashboard status=%s body=%s",
+                    r.status_code, r.text[:300],
+                )
+                return f"Error al reagendar: status {r.status_code}"
+
+            try:
+                data = r.json()
+            except Exception:
+                logger.warning("Webhook reagendar-dashboard respuesta no-JSON: %s", r.text[:300])
+                return "Error al reagendar: respuesta no es JSON"
+
+            if not isinstance(data, dict) or not data:
+                logger.warning("Webhook reagendar-dashboard respuesta vacía: %s", str(data)[:300])
+                return "Error al reagendar: respuesta vacía del webhook"
+
+            # Mismo patrón que agendar_cita: distintos campos según rama del workflow.
+            for key in ("Respuesta", "Diseponibilidad", "contexto", "error", "message"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+
+            logger.warning("Webhook reagendar-dashboard sin campo conocido: %s", str(data)[:300])
+            return "No se pudo procesar la respuesta del reagendamiento."
         except Exception as exc:
             logger.error("reagendar_cita tool error: %s", exc, exc_info=True)
             return f"Error al reagendar cita: {exc}"
