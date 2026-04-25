@@ -17,6 +17,7 @@ from app.api.manychat_routes import router as manychat_router
 from app.api.routes import router
 from app.api.db_routes import router as db_router
 from app.api.debug_dashboard import router as debug_dashboard_router
+from app.api.debug_nylas_routes import router as debug_nylas_router
 from app.api.funnel_routes import router as funnel_router
 from app.api.graph_routes import router as graph_router
 from app.api.scheduling_routes import router as scheduling_router
@@ -134,6 +135,7 @@ app.include_router(manychat_router)
 app.include_router(ghl_router)
 app.include_router(db_router)
 app.include_router(debug_dashboard_router)
+app.include_router(debug_nylas_router)
 app.include_router(funnel_router)
 app.include_router(graph_router)
 app.include_router(scheduling_router)
