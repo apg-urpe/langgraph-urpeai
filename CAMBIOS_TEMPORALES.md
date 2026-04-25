@@ -17,7 +17,7 @@
 |---|-------------|---------|--------|
 | 1 | `consultar_disponibilidad` | `GET https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas` | ✅ Migrada |
 | 2 | `agendar_cita` | `POST https://marketia.app.n8n.cloud/webhook/crear-evento` | ✅ Migrada |
-| 3 | `reagendar_cita` | _pendiente_ | ⏳ Pendiente |
+| 3 | `reagendar_cita` | `POST https://marketia.app.n8n.cloud/webhook/reagendar-dashboard` | ✅ Migrada |
 | 4 | `cancelar_cita` | _pendiente_ | ⏳ Pendiente |
 
 ---
@@ -158,9 +158,62 @@ Content-Type: application/json
 2. Borrar la constante `_AGENDAR_WEBHOOK_URL` si ninguna otra tool la usa.
 3. Borrar los `# noqa: F401` de `CrearEventoRequest` y `crear_evento_core`.
 
-## 3. `reagendar_cita` ⏳
+## 3. `reagendar_cita` ✅
 
-_Pendiente._
+**Ubicación:** [`app/tools/scheduling.py`](app/tools/scheduling.py) — función `reagendar_cita` dentro de `_create_reagendar_cita_tool`.
+
+**Endpoint:**
+```
+POST https://marketia.app.n8n.cloud/webhook/reagendar-dashboard
+Content-Type: application/json
+```
+
+**Body enviado:**
+```json
+{
+  "contacto_id": <int>,
+  "event_id": "<de wp_citas>",
+  "start": "YYYY-MM-DDTHH:MM:SS",
+  "Virtual-presencial": "Virtual" | "Presencial",
+  "time_zone_contacto": "<IANA tz>",
+  "Duracion_minutos": <int, opcional>
+}
+```
+
+**Cambio importante en la signature de la tool:**
+
+Antes el agente debía pasar `event_id` como argumento. Ahora **el agente solo pasa**:
+- `nuevo_inicio` → `start`
+- `duracion_minutos` (opcional, 0 = mantener original)
+- `modalidad` → `Virtual-presencial`
+
+La tool resuelve internamente:
+- `contacto_id` (closure)
+- `time_zone_contacto` (de `wp_contactos.timezone`)
+- `event_id` (de `wp_citas` — próxima cita pendiente/confirmada futura del contacto)
+
+**Lógica para resolver `event_id`** (función helper `_get_event_id_pendiente`):
+```sql
+select event_id from wp_citas
+where contacto_id = $1
+  and estado in ('pendiente', 'confirmada')
+  and fecha_hora >= now()
+order by fecha_hora asc
+limit 1;
+```
+
+Si no hay cita activa → la tool devuelve al agente:
+> *"No se encontró una cita pendiente para reagendar. Verifica con el contacto si efectivamente tiene una cita activa o si ya fue cancelada."*
+
+**Respuesta esperada:** mismo patrón que `agendar_cita` — la tool busca el primer campo con valor en orden: `Respuesta`, `Diseponibilidad`, `contexto`, `error`, `message`.
+
+**Cómo revertir esta tool:**
+1. En `app/tools/scheduling.py`, dentro de `reagendar_cita`:
+   - Volver a agregar `event_id: str` como primer argumento de la signature.
+   - Restaurar la llamada a `reagendar_evento_core(req)` con `ReagendarEventoRequest`.
+2. Borrar `_REAGENDAR_WEBHOOK_URL`.
+3. Borrar el helper `_get_event_id_pendiente` si no lo usa otra tool.
+4. Borrar los `# noqa: F401` de `ReagendarEventoRequest` y `reagendar_evento_core`.
 
 ## 4. `cancelar_cita` ⏳
 
@@ -172,3 +225,4 @@ _Pendiente._
 
 - **2026-04-24** — Migrada `consultar_disponibilidad` a webhook n8n. Resto pendiente.
 - **2026-04-25** — Migrada `agendar_cita` a webhook n8n (`POST /webhook/crear-evento`). Restantes: `reagendar_cita`, `cancelar_cita`.
+- **2026-04-25** — Migrada `reagendar_cita` a webhook n8n (`POST /webhook/reagendar-dashboard`). El agente ya no pasa `event_id`; la tool lo resuelve desde `wp_citas`. Restante: `cancelar_cita`.
