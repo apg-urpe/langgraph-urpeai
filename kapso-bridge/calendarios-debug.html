@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Calendarios — debug Nylas</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,sans-serif;background:#1a1a1a;color:#eee}
+  header{padding:10px 14px;background:#222;border-bottom:1px solid #333}
+  header h1{margin:0 0 6px;font-size:14px}
+  nav{margin-bottom:8px;font-size:12px}
+  nav a{color:#93c5fd;text-decoration:none;margin-right:12px}
+  nav a:hover{text-decoration:underline}
+  form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px}
+  form input{background:#111;border:1px solid #333;color:#eee;padding:4px 8px;border-radius:4px}
+  form button{background:#2563eb;color:#fff;border:0;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+  form button:hover{background:#1e50c8}
+  .legend{font-size:11px;padding:6px 14px;background:#1f1f1f;border-bottom:1px solid #333;display:flex;flex-wrap:wrap;gap:6px}
+  .legend span{padding:2px 8px;border-radius:3px;color:#fff;font-weight:500;font-size:11px}
+  .nav-bar{padding:6px 14px;background:#1a1a1a;border-bottom:1px solid #333;display:flex;gap:8px;align-items:center;font-size:12px}
+  .nav-bar button{background:#333;color:#eee;border:0;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:12px}
+  .nav-bar button:hover{background:#444}
+  .layout{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 175px)}
+  .grid-wrap{overflow:auto;background:#111}
+  .grid{display:grid;grid-template-columns:50px repeat(7,1fr);position:relative;min-width:700px}
+  .col-hour{background:#1a1a1a;position:sticky;left:0;z-index:3}
+  .col-day{border-left:1px solid #2a2a2a;position:relative}
+  .day-header{position:sticky;top:0;background:#222;padding:6px 8px;font-size:11px;text-align:center;z-index:2;border-bottom:1px solid #333;height:28px}
+  .col-day.today .day-header{background:#1d4ed8}
+  .hour-row{height:40px;border-top:1px dashed #2a2a2a;padding:1px 4px;font-size:10px;color:#555}
+  .slot{position:absolute;left:2px;right:2px;padding:2px 4px;font-size:9px;border-radius:3px;overflow:hidden;opacity:.88;color:#fff;line-height:1.15;cursor:default}
+  .slot:hover{opacity:1;z-index:5}
+  .right{background:#161616;padding:10px;overflow:auto;border-left:1px solid #333}
+  .right pre{white-space:pre-wrap;font-size:11px;line-height:1.4;color:#ccc;margin:0;font-family:ui-monospace,monospace}
+  .right h3{margin:0 0 8px;font-size:12px}
+  details{margin-top:6px}
+  summary{cursor:pointer;color:#888;font-size:11px}
+  textarea{width:100%;min-height:90px;background:#111;color:#eee;border:1px solid #333;padding:6px;font-family:monospace;font-size:11px}
+  .err{color:#f87171;font-size:12px}
+  #status{font-size:11px;color:#888}
+  code{background:#000;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<header>
+  <h1>📅 Calendarios Nylas — vista debug (busy slots crudos del free-busy)</h1>
+  <nav>
+    <a id="nav-kapso" href="/debug/kapso">Kapso</a>
+    <a id="nav-manychat" href="/debug/manychat">ManyChat</a>
+    <a id="nav-ghl" href="/debug/ghl">GHL</a>
+    <a id="nav-canales" href="/debug/canales">Todos los canales</a>
+  </nav>
+  <form id="form">
+    <label>contacto_id <input id="contacto" value="196970" size="8"></label>
+    <label>tz <input id="tz" value="America/Mexico_City" size="22"></label>
+    <button type="submit">Cargar</button>
+    <span id="status"></span>
+  </form>
+  <details>
+    <summary>Pegar JSON manualmente (fallback si el proxy falla)</summary>
+    <textarea id="manual" placeholder='Output del webhook (curl o copy-paste)'></textarea>
+    <button type="button" onclick="loadManual()">Renderizar JSON</button>
+  </details>
+</header>
+<div class="legend" id="legend"></div>
+<div class="nav-bar">
+  <button onclick="prevWeek()">← Anterior</button>
+  <button onclick="thisWeek()">Hoy</button>
+  <button onclick="nextWeek()">Siguiente →</button>
+  <span id="weekLabel"></span>
+</div>
+<div class="layout">
+  <div class="grid-wrap"><div class="grid" id="grid"></div></div>
+  <div class="right">
+    <h3>availabilityText (lo que ve el bot)</h3>
+    <pre id="availability">Cargá los datos arriba…</pre>
+  </div>
+</div>
+<script>
+const COLORS = ['#2563eb','#dc2626','#16a34a','#ea580c','#9333ea','#0891b2','#ca8a04','#db2777'];
+const HOUR_PX = 40;
+const HEADER_PX = 28;
+const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+
+// Propagar token a links de navegación
+['nav-kapso','nav-manychat','nav-ghl','nav-canales'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el && TOKEN) el.href += '?token=' + encodeURIComponent(TOKEN);
+});
+
+let currentTz = 'America/Mexico_City';
+let advisors = [];
+let weekStart = new Date();
+
+document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); loadFromWebhook(); });
+
+async function loadFromWebhook() {
+  const c = document.getElementById('contacto').value.trim();
+  const tz = document.getElementById('tz').value.trim();
+  document.getElementById('status').textContent = ' cargando…';
+  try {
+    const params = new URLSearchParams({ contacto_id: c, tz });
+    if (TOKEN) params.set('token', TOKEN);
+    const r = await fetch('/debug/calendarios/data?' + params.toString());
+    if (!r.ok) {
+      document.getElementById('status').innerHTML = ` <span class="err">HTTP ${r.status}</span>`;
+      return;
+    }
+    const data = await r.json();
+    document.getElementById('status').textContent = ' OK';
+    apply(data, tz);
+  } catch (err) {
+    document.getElementById('status').innerHTML = ` <span class="err">error: ${err.message}</span>`;
+  }
+}
+
+function loadManual() {
+  const txt = document.getElementById('manual').value.trim();
+  if (!txt) return;
+  try {
+    const data = JSON.parse(txt);
+    const tz = document.getElementById('tz').value.trim() || 'America/Mexico_City';
+    apply(data, tz);
+    document.getElementById('status').textContent = ' OK (manual)';
+  } catch (err) {
+    document.getElementById('status').innerHTML = ` <span class="err">JSON inválido: ${err.message}</span>`;
+  }
+}
+
+function apply(data, tz) {
+  currentTz = tz;
+  document.getElementById('availability').textContent = data.availabilityText || '(sin availabilityText)';
+  advisors = Array.isArray(data.advisorsRaw) ? data.advisorsRaw : [];
+  buildLegend();
+  weekStart = startOfWeek(new Date(), tz);
+  render();
+}
+
+function buildLegend() {
+  const div = document.getElementById('legend');
+  if (!advisors.length) {
+    div.innerHTML = '<span style="background:#666">⚠️ no llegó <code>advisorsRaw</code> — agregá <code>out.advisorsRaw = advisors.map(a =&gt; ({ email: a.email, busySlots: a.busySlots }))</code> en el code node de n8n</span>';
+    return;
+  }
+  div.innerHTML = advisors.map((a, i) =>
+    '<span style="background:' + COLORS[i % COLORS.length] + '">' + (a.email || '(sin email)') + ' · ' + ((a.busySlots||[]).length) + ' busy</span>'
+  ).join('');
+}
+
+// ─── Helpers TZ ────────────────────────────────────────────────────
+function dayKey(d, tz) { return d.toLocaleDateString('en-CA', { timeZone: tz }); }
+function dowInTz(d, tz) {
+  const m = { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 };
+  return m[new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).format(d)] ?? 0;
+}
+function startOfWeek(date, tz) {
+  const dow = dowInTz(date, tz);
+  const diff = dow === 0 ? -6 : 1 - dow;
+  const d = new Date(date);
+  d.setDate(d.getDate() + diff);
+  return new Date(dayKey(d, tz) + 'T00:00:00');
+}
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function minutesInDay(d, tz) {
+  const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour:'2-digit', minute:'2-digit', hour12:false }).format(d).split(':').map(Number);
+  return h * 60 + m;
+}
+
+function prevWeek() { weekStart = addDays(weekStart, -7); render(); }
+function nextWeek() { weekStart = addDays(weekStart, 7); render(); }
+function thisWeek() { weekStart = startOfWeek(new Date(), currentTz); render(); }
+
+function render() {
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = addDays(weekStart, i);
+    days.push({ key: dayKey(d, currentTz), date: d });
+  }
+  document.getElementById('weekLabel').textContent =
+    days[0].date.toLocaleDateString('es-ES',{day:'numeric',month:'short',timeZone:currentTz}) + ' – ' +
+    days[6].date.toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric',timeZone:currentTz}) + '  ·  ' + currentTz;
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  const hourCol = document.createElement('div');
+  hourCol.className = 'col-hour';
+  hourCol.appendChild(mkHeader(''));
+  for (let h = 0; h < 24; h++) {
+    const r = document.createElement('div');
+    r.className = 'hour-row';
+    r.textContent = String(h).padStart(2,'0') + ':00';
+    hourCol.appendChild(r);
+  }
+  grid.appendChild(hourCol);
+
+  const todayKey = dayKey(new Date(), currentTz);
+  for (const day of days) {
+    const col = document.createElement('div');
+    col.className = 'col-day' + (day.key === todayKey ? ' today' : '');
+    col.appendChild(mkHeader(formatDayHeader(day.date, currentTz)));
+    for (let h = 0; h < 24; h++) {
+      const r = document.createElement('div');
+      r.className = 'hour-row';
+      col.appendChild(r);
+    }
+    advisors.forEach((a, idx) => {
+      const color = COLORS[idx % COLORS.length];
+      (a.busySlots || []).forEach(slot => {
+        const start = new Date(slot.start_time * 1000);
+        const end = new Date(slot.end_time * 1000);
+        const sKey = dayKey(start, currentTz);
+        const eKey = dayKey(end, currentTz);
+        if (sKey === day.key) {
+          const sMin = minutesInDay(start, currentTz);
+          const eMin = (sKey === eKey) ? minutesInDay(end, currentTz) : 1440;
+          const top = sMin * (HOUR_PX / 60) + HEADER_PX;
+          const height = Math.max(2, (eMin - sMin) * (HOUR_PX / 60));
+          col.appendChild(mkSlot(top, height, color, a.email, formatTimeRange(start, end, currentTz)));
+        } else if (eKey === day.key && sKey !== day.key) {
+          const eMin = minutesInDay(end, currentTz);
+          const top = HEADER_PX;
+          const height = Math.max(2, eMin * (HOUR_PX / 60));
+          col.appendChild(mkSlot(top, height, color, a.email, formatTimeRange(start, end, currentTz)));
+        }
+      });
+    });
+    grid.appendChild(col);
+  }
+}
+
+function mkHeader(text) {
+  const h = document.createElement('div');
+  h.className = 'day-header';
+  h.textContent = text;
+  return h;
+}
+function mkSlot(top, height, color, email, tooltip) {
+  const div = document.createElement('div');
+  div.className = 'slot';
+  div.style.top = top + 'px';
+  div.style.height = height + 'px';
+  div.style.background = color;
+  div.title = (email || '') + '\n' + tooltip;
+  div.textContent = email ? email.split('@')[0] : '';
+  return div;
+}
+function formatDayHeader(date, tz) {
+  return date.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', timeZone: tz });
+}
+function formatTimeRange(s, e, tz) {
+  const f = new Intl.DateTimeFormat('es-ES', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+  return f.format(s) + ' – ' + f.format(e);
+}
+
+// init
+buildLegend();
+render();
+loadFromWebhook();
+</script>
+</body>
+</html>

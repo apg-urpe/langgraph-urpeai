@@ -1,6 +1,7 @@
 ﻿import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 import 'dotenv/config';
 
@@ -9258,6 +9259,47 @@ app.get('/api/v1/debug/interactions', async (req, res) => {
     res.status(200).json(data);
   } catch (err) {
     res.status(500).json({ error: String(err) });
+  }
+});
+
+
+// ── Debug Calendarios Nylas (vista grid de busy slots) ──────────────────────
+const CALENDARIOS_DEBUG_HTML = (() => {
+  try {
+    return readFileSync(join(__dirname, 'calendarios-debug.html'), 'utf8');
+  } catch (err) {
+    console.warn('[KapsoBridge] no se pudo cargar calendarios-debug.html:', err.message);
+    return '<h1>calendarios-debug.html no encontrado</h1>';
+  }
+})();
+
+const N8N_DISPONIBILIDAD_WEBHOOK = 'https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas';
+
+app.get('/debug/calendarios', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.status(200).type('html').send(CALENDARIOS_DEBUG_HTML);
+});
+
+app.get('/debug/calendarios/data', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  const contactoId = String(req.query.contacto_id ?? '').trim();
+  const tz = String(req.query.tz ?? req.query.time_zone_contacto ?? '').trim();
+  if (!contactoId || !tz) {
+    res.status(400).json({ error: 'missing_params', detail: 'contacto_id y tz son requeridos' });
+    return;
+  }
+  try {
+    const url = `${N8N_DISPONIBILIDAD_WEBHOOK}?contacto_id=${encodeURIComponent(contactoId)}&time_zone_contacto=${encodeURIComponent(tz)}`;
+    const upstream = await fetch(url, { method: 'GET' });
+    const text = await upstream.text();
+    res.status(upstream.status);
+    const ct = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
+    res.set('Content-Type', ct);
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.send(text);
+  } catch (err) {
+    res.status(502).json({ error: 'n8n_proxy_error', message: String(err?.message || err) });
   }
 });
 
