@@ -15,13 +15,13 @@ from langchain_core.tools import tool
 from app.core.http_client import get_shared_http_client
 from app.db import queries as db
 from app.schemas.scheduling import (
-    CrearEventoRequest,
+    CrearEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     DisponibilidadRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     EliminarEventoRequest,
     ReagendarEventoRequest,
 )
 from app.services.scheduling import (
-    crear_evento_core,
+    crear_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     disponibilidad_agenda_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     eliminar_evento_core,
     reagendar_evento_core,
@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # CAMBIO TEMPORAL — Webhooks n8n (ver CAMBIOS_TEMPORALES.md)
 # ════════════════════════════════════════════════════════════
 _DISPONIBILIDAD_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas"
-_WEBHOOK_TIMEOUT_S = 30.0
+_AGENDAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/crear-evento"
+_WEBHOOK_TIMEOUT_S = 60.0  # crear-evento puede tardar más por validaciones + Nylas + DB
 
 # Valores que indican timezone no configurado
 _TIMEZONE_NO_DEFINIDO = {"por definir", "", "none", "null"}
@@ -178,32 +179,61 @@ def _create_agendar_cita_tool(contacto_id: int, empresa_id: int):
             if not tz:
                 return _MSG_SIN_TIMEZONE
 
-            req = CrearEventoRequest(
-                start=hora_local_contacto,
-                attendeeEmail=email_contacto,
-                summary=titulo,
-                description=descripcion or None,
-                contacto_id=contacto_id,
-                empresa_id=empresa_id,
-                Virtual_presencial=modalidad,
-                time_zone_contacto=tz,
-            )
-            resp = await crear_evento_core(req)
+            # ─────────────────────────────────────────────────────────────────
+            # CAMBIO TEMPORAL — Agendamiento vía webhook n8n.
+            # La lógica original (crear_evento_core con Nylas directo) se
+            # conserva en app/services/scheduling.py como respaldo.
+            # Ver CAMBIOS_TEMPORALES.md.
+            # ─────────────────────────────────────────────────────────────────
+            payload = {
+                "contacto_id": contacto_id,
+                "start": hora_local_contacto,
+                "attendeeEmail": email_contacto,
+                "summary": titulo,
+                "description": descripcion or "",
+                "Virtual-presencial": modalidad,
+                "time_zone_contacto": tz,
+            }
+            client = get_shared_http_client()
+            try:
+                r = await client.post(
+                    _AGENDAR_WEBHOOK_URL,
+                    json=payload,
+                    timeout=_WEBHOOK_TIMEOUT_S,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Webhook crear-evento error de red: %s", exc)
+                return f"Error al agendar cita: {exc}"
 
-            if resp.error:
-                return f"Error al agendar cita: {resp.error}"
+            if r.status_code != 200:
+                logger.warning(
+                    "Webhook crear-evento status=%s body=%s",
+                    r.status_code, r.text[:300],
+                )
+                return f"Error al agendar cita: status {r.status_code}"
 
-            msg = (
-                f"Cita agendada exitosamente.\n"
-                f"  Asesor: {resp.asesor}\n"
-                f"  Fecha/hora: {resp.inicio}\n"
-                f"  Duración: {resp.duracion_minutos} minutos\n"
-                f"  Modalidad: {resp.modalidad}\n"
-                f"  Event ID: {resp.event_id}"
-            )
-            if resp.meet_link:
-                msg += f"\n  Link de reunión: {resp.meet_link}"
-            return msg
+            try:
+                data = r.json()
+            except Exception:
+                logger.warning("Webhook crear-evento respuesta no-JSON: %s", r.text[:300])
+                return "Error al agendar cita: respuesta no es JSON"
+
+            if not isinstance(data, dict) or not data:
+                logger.warning("Webhook crear-evento respuesta vacía/inesperada: %s", str(data)[:300])
+                return "Error al agendar cita: respuesta vacía del webhook"
+
+            # El webhook devuelve la respuesta en distintos campos según la rama:
+            #   - "Respuesta": éxito (Edit Fields6) o error de email (Edit Fields7)
+            #   - "Diseponibilidad" (sic): horario no disponible (Edit Fields5)
+            #   - "contexto": ya tiene cita registrada hoy (contexto1)
+            #   - "error": asesor reasignado por grant_id inválido (Edit Fields8)
+            for key in ("Respuesta", "Diseponibilidad", "contexto", "error", "message"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+
+            logger.warning("Webhook crear-evento sin campo conocido: %s", str(data)[:300])
+            return "No se pudo procesar la respuesta del agendamiento."
         except Exception as exc:
             logger.error("agendar_cita tool error: %s", exc, exc_info=True)
             return f"Error al agendar cita: {exc}"
