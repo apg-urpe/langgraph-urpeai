@@ -18,7 +18,7 @@
 | 1 | `consultar_disponibilidad` | `GET https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas` | ✅ Migrada |
 | 2 | `agendar_cita` | `POST https://marketia.app.n8n.cloud/webhook/crear-evento` | ✅ Migrada |
 | 3 | `reagendar_cita` | `POST https://marketia.app.n8n.cloud/webhook/reagendar-dashboard` | ✅ Migrada |
-| 4 | `cancelar_cita` | _pendiente_ | ⏳ Pendiente |
+| 4 | `cancelar_cita` | `PUT https://marketia.app.n8n.cloud/webhook/cancelar-evento` | ✅ Migrada |
 
 ---
 
@@ -215,9 +215,50 @@ Si no hay cita activa → la tool devuelve al agente:
 3. Borrar el helper `_get_event_id_pendiente` si no lo usa otra tool.
 4. Borrar los `# noqa: F401` de `ReagendarEventoRequest` y `reagendar_evento_core`.
 
-## 4. `cancelar_cita` ⏳
+## 4. `cancelar_cita` ✅
 
-_Pendiente._
+**Ubicación:** [`app/tools/scheduling.py`](app/tools/scheduling.py) — función `cancelar_cita` dentro de `_create_cancelar_cita_tool`.
+
+**Endpoint:**
+```
+PUT https://marketia.app.n8n.cloud/webhook/cancelar-evento
+Content-Type: application/json
+```
+
+⚠️ Método **PUT** (no POST como las otras tools).
+
+**Body enviado:**
+```json
+{
+  "contacto_id": <int>,
+  "event_id": "<de wp_citas>"
+}
+```
+
+**Cambio en la signature de la tool:**
+
+Antes el agente debía pasar `event_id` como argumento. Ahora la tool **no recibe argumentos**:
+- `contacto_id` → del closure
+- `event_id` → resuelto internamente desde `wp_citas` (helper compartido `_get_event_id_pendiente`)
+
+**Refuerzo en el system prompt** ([`app/core/kapso_prompt.py`](app/core/kapso_prompt.py)):
+
+Se agregó la sección "🚫 POLÍTICA DE CANCELACIÓN (OBLIGATORIA)" para evitar
+alucinaciones del LLM (responder "cancelo tu cita" sin invocar la tool):
+
+> *Si el contacto dice que NO puede asistir, NO llegará, quiere cancelar, etc:*
+> *PASO 1 — INVOCAR LA TOOL `cancelar_cita` ANTES de cualquier respuesta.*
+> *PASO 2 — Esperar el resultado.*
+> *PASO 3 — Solo DESPUÉS responder al contacto.*
+> *PROHIBIDO escribir 'cancelo tu cita', 'queda cancelada', etc. SIN haber invocado primero la tool.*
+
+**Manejo de respuesta:** mismo patrón que las otras tools (lee `Respuesta` / `contexto` / `error` / `message`). Si status 200 y body vacío → asume éxito best-effort y devuelve mensaje de confirmación con `event_id`.
+
+**Cómo revertir esta tool:**
+1. En `app/tools/scheduling.py`, restaurar la signature `async def cancelar_cita(event_id: str)` y el llamado a `eliminar_evento_core(req)`.
+2. Borrar `_CANCELAR_WEBHOOK_URL`.
+3. Borrar los `# noqa: F401` de `EliminarEventoRequest` y `eliminar_evento_core`.
+4. Quitar la sección "🚫 POLÍTICA DE CANCELACIÓN" del system prompt si querés.
 
 ---
 
@@ -226,3 +267,4 @@ _Pendiente._
 - **2026-04-24** — Migrada `consultar_disponibilidad` a webhook n8n. Resto pendiente.
 - **2026-04-25** — Migrada `agendar_cita` a webhook n8n (`POST /webhook/crear-evento`). Restantes: `reagendar_cita`, `cancelar_cita`.
 - **2026-04-25** — Migrada `reagendar_cita` a webhook n8n (`POST /webhook/reagendar-dashboard`). El agente ya no pasa `event_id`; la tool lo resuelve desde `wp_citas`. Restante: `cancelar_cita`.
+- **2026-04-25** — Migrada `cancelar_cita` a webhook n8n (`PUT /webhook/cancelar-evento`). 4/4 ✅ migración completa. Agregada política explícita en el system prompt para evitar alucinaciones del LLM al cancelar.
