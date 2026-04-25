@@ -9303,6 +9303,37 @@ app.get('/debug/calendarios/data', async (req, res) => {
   }
 });
 
+// ── Debug Calendarios — vía Nylas directo (asesores activos) ─────────────────
+app.get('/debug/calendarios/asesores', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  try {
+    const data = await fetchFastApiDebugJson('/api/v1/debug/nylas/asesores');
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'fastapi_proxy_error', message: String(err?.message || err) });
+  }
+});
+
+app.get('/debug/calendarios/nylas', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  const emails = String(req.query.emails ?? '').trim();
+  const tz = String(req.query.tz ?? 'America/Mexico_City').trim();
+  const days = String(req.query.days ?? '14').trim();
+  if (!emails) {
+    res.status(400).json({ error: 'missing_emails', advisorsRaw: [] });
+    return;
+  }
+  try {
+    const params = new URLSearchParams({ emails, tz, days });
+    const data = await fetchFastApiDebugJson('/api/v1/debug/nylas/events?' + params.toString());
+    res.set('Cache-Control', 'no-store, max-age=0');
+    res.status(200).json(data);
+  } catch (err) {
+    res.status(502).json({ error: 'fastapi_proxy_error', message: String(err?.message || err) });
+  }
+});
+
 
 // ── Archivos estáticos: /public → ../docs ────────────────────────────────────
 app.use('/public', express.static(join(__dirname, '..', 'docs')));

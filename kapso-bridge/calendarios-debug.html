@@ -11,16 +11,25 @@
   nav{margin-bottom:8px;font-size:12px}
   nav a{color:#93c5fd;text-decoration:none;margin-right:12px}
   nav a:hover{text-decoration:underline}
-  form{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12px}
+  form{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;font-size:12px}
+  form label{display:flex;flex-direction:column;gap:2px}
   form input{background:#111;border:1px solid #333;color:#eee;padding:4px 8px;border-radius:4px}
-  form button{background:#2563eb;color:#fff;border:0;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px}
+  form button{background:#2563eb;color:#fff;border:0;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;align-self:flex-end}
   form button:hover{background:#1e50c8}
+  form button.secondary{background:#444}
+  form button.secondary:hover{background:#555}
+  .asesores-box{background:#111;border:1px solid #333;border-radius:4px;padding:6px 8px;max-height:140px;overflow:auto;min-width:340px}
+  .asesores-box .empresa-group{margin-bottom:6px}
+  .asesores-box .empresa-label{color:#888;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+  .asesores-box label{display:flex;flex-direction:row;align-items:center;gap:6px;font-size:11px;color:#ccc;padding:1px 0;cursor:pointer}
+  .asesores-box label:hover{color:#fff}
+  .asesores-box input[type=checkbox]{margin:0}
   .legend{font-size:11px;padding:6px 14px;background:#1f1f1f;border-bottom:1px solid #333;display:flex;flex-wrap:wrap;gap:6px}
   .legend span{padding:2px 8px;border-radius:3px;color:#fff;font-weight:500;font-size:11px}
   .nav-bar{padding:6px 14px;background:#1a1a1a;border-bottom:1px solid #333;display:flex;gap:8px;align-items:center;font-size:12px}
   .nav-bar button{background:#333;color:#eee;border:0;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:12px}
   .nav-bar button:hover{background:#444}
-  .layout{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 175px)}
+  .layout{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 200px)}
   .grid-wrap{overflow:auto;background:#111}
   .grid{display:grid;grid-template-columns:50px repeat(7,1fr);position:relative;min-width:700px}
   .col-hour{background:#1a1a1a;position:sticky;left:0;z-index:3}
@@ -29,21 +38,23 @@
   .col-day.today .day-header{background:#1d4ed8}
   .hour-row{height:40px;border-top:1px dashed #2a2a2a;padding:1px 4px;font-size:10px;color:#555}
   .slot{position:absolute;left:2px;right:2px;padding:2px 4px;font-size:9px;border-radius:3px;overflow:hidden;opacity:.88;color:#fff;line-height:1.15;cursor:default}
-  .slot:hover{opacity:1;z-index:5}
-  .right{background:#161616;padding:10px;overflow:auto;border-left:1px solid #333}
-  .right pre{white-space:pre-wrap;font-size:11px;line-height:1.4;color:#ccc;margin:0;font-family:ui-monospace,monospace}
+  .slot:hover{opacity:1;z-index:5;box-shadow:0 0 0 1px #fff inset}
+  .slot.cancelled{opacity:.4;text-decoration:line-through}
+  .right{background:#161616;padding:10px;overflow:auto;border-left:1px solid #333;font-size:11px}
   .right h3{margin:0 0 8px;font-size:12px}
-  details{margin-top:6px}
-  summary{cursor:pointer;color:#888;font-size:11px}
-  textarea{width:100%;min-height:90px;background:#111;color:#eee;border:1px solid #333;padding:6px;font-family:monospace;font-size:11px}
-  .err{color:#f87171;font-size:12px}
+  .right .advisor-section{margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #2a2a2a}
+  .right .advisor-section h4{margin:0 0 4px;font-size:11px;color:#eee}
+  .right .advisor-section .ev{font-size:10px;color:#bbb;padding:1px 0;line-height:1.3}
+  .right .advisor-section .ev .t{color:#fff}
+  .right .err{color:#f87171}
   #status{font-size:11px;color:#888}
   code{background:#000;padding:1px 4px;border-radius:3px}
+  .empty{color:#666;font-style:italic}
 </style>
 </head>
 <body>
 <header>
-  <h1>📅 Calendarios Nylas — vista debug (busy slots crudos del free-busy)</h1>
+  <h1>📅 Calendarios Nylas — vista debug (eventos crudos por asesor)</h1>
   <nav>
     <a id="nav-kapso" href="/debug/kapso">Kapso</a>
     <a id="nav-manychat" href="/debug/manychat">ManyChat</a>
@@ -51,16 +62,23 @@
     <a id="nav-canales" href="/debug/canales">Todos los canales</a>
   </nav>
   <form id="form">
-    <label>contacto_id <input id="contacto" value="196970" size="8"></label>
-    <label>tz <input id="tz" value="America/Mexico_City" size="22"></label>
+    <label>
+      Asesores <span style="color:#666">(activos · acepta_citas)</span>
+      <div class="asesores-box" id="asesores-box">cargando…</div>
+    </label>
+    <label>
+      Zona horaria
+      <input id="tz" value="America/Mexico_City" size="22">
+    </label>
+    <label>
+      Días
+      <input id="days" value="14" size="4" type="number" min="1" max="60">
+    </label>
     <button type="submit">Cargar</button>
+    <button type="button" class="secondary" onclick="toggleAll(true)">Todos</button>
+    <button type="button" class="secondary" onclick="toggleAll(false)">Ninguno</button>
     <span id="status"></span>
   </form>
-  <details>
-    <summary>Pegar JSON manualmente (fallback si el proxy falla)</summary>
-    <textarea id="manual" placeholder='Output del webhook (curl o copy-paste)'></textarea>
-    <button type="button" onclick="loadManual()">Renderizar JSON</button>
-  </details>
 </header>
 <div class="legend" id="legend"></div>
 <div class="nav-bar">
@@ -71,9 +89,9 @@
 </div>
 <div class="layout">
   <div class="grid-wrap"><div class="grid" id="grid"></div></div>
-  <div class="right">
-    <h3>availabilityText (lo que ve el bot)</h3>
-    <pre id="availability">Cargá los datos arriba…</pre>
+  <div class="right" id="right">
+    <h3>Eventos por asesor</h3>
+    <div class="empty">Seleccioná asesores y dale "Cargar".</div>
   </div>
 </div>
 <script>
@@ -82,56 +100,102 @@ const HOUR_PX = 40;
 const HEADER_PX = 28;
 const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
 
-// Propagar token a links de navegación
 ['nav-kapso','nav-manychat','nav-ghl','nav-canales'].forEach(id => {
   const el = document.getElementById(id);
   if (el && TOKEN) el.href += '?token=' + encodeURIComponent(TOKEN);
 });
 
 let currentTz = 'America/Mexico_City';
-let advisors = [];
+let advisors = [];          // [{ email, name, events: [...] }]
 let weekStart = new Date();
+let asesoresList = [];      // todos los asesores cargados desde DB
 
-document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); loadFromWebhook(); });
+document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); loadEvents(); });
 
-async function loadFromWebhook() {
-  const c = document.getElementById('contacto').value.trim();
-  const tz = document.getElementById('tz').value.trim();
-  document.getElementById('status').textContent = ' cargando…';
+// ─── Cargar dropdown de asesores ────────────────────────────────────────────
+async function loadAsesores() {
+  const box = document.getElementById('asesores-box');
   try {
-    const params = new URLSearchParams({ contacto_id: c, tz });
+    const params = new URLSearchParams();
     if (TOKEN) params.set('token', TOKEN);
-    const r = await fetch('/debug/calendarios/data?' + params.toString());
+    const r = await fetch('/debug/calendarios/asesores?' + params.toString());
     if (!r.ok) {
-      document.getElementById('status').innerHTML = ` <span class="err">HTTP ${r.status}</span>`;
+      box.innerHTML = '<span class="empty">error: HTTP ' + r.status + '</span>';
       return;
     }
     const data = await r.json();
-    document.getElementById('status').textContent = ' OK';
-    apply(data, tz);
+    asesoresList = data.asesores || [];
+    if (!asesoresList.length) {
+      box.innerHTML = '<span class="empty">sin asesores activos</span>';
+      return;
+    }
+    // Agrupar por empresa
+    const byEmpresa = new Map();
+    for (const a of asesoresList) {
+      const k = a.empresa_id || 0;
+      if (!byEmpresa.has(k)) byEmpresa.set(k, []);
+      byEmpresa.get(k).push(a);
+    }
+    const parts = [];
+    for (const [empresa, list] of [...byEmpresa.entries()].sort((a,b) => a[0]-b[0])) {
+      parts.push('<div class="empresa-group">');
+      parts.push('<div class="empresa-label">empresa ' + empresa + '</div>');
+      for (const a of list) {
+        const label = (a.nombre || '') + ' ' + (a.apellido || '');
+        parts.push(
+          '<label><input type="checkbox" data-email="' + a.email + '">' +
+          '<span>' + (label.trim() || a.email) + ' <span style="color:#666">' + a.email + '</span></span>' +
+          '</label>'
+        );
+      }
+      parts.push('</div>');
+    }
+    box.innerHTML = parts.join('');
   } catch (err) {
-    document.getElementById('status').innerHTML = ` <span class="err">error: ${err.message}</span>`;
+    box.innerHTML = '<span class="empty err">error: ' + err.message + '</span>';
   }
 }
 
-function loadManual() {
-  const txt = document.getElementById('manual').value.trim();
-  if (!txt) return;
+function getSelectedEmails() {
+  return [...document.querySelectorAll('#asesores-box input[type=checkbox]:checked')]
+    .map(el => el.dataset.email);
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('#asesores-box input[type=checkbox]').forEach(cb => { cb.checked = checked; });
+}
+
+// ─── Cargar eventos vía Nylas ───────────────────────────────────────────────
+async function loadEvents() {
+  const emails = getSelectedEmails();
+  const tz = document.getElementById('tz').value.trim();
+  const days = document.getElementById('days').value.trim() || '14';
+  if (!emails.length) {
+    document.getElementById('status').textContent = ' seleccioná al menos un asesor';
+    return;
+  }
+  document.getElementById('status').textContent = ' cargando…';
   try {
-    const data = JSON.parse(txt);
-    const tz = document.getElementById('tz').value.trim() || 'America/Mexico_City';
+    const params = new URLSearchParams({ emails: emails.join(','), tz, days });
+    if (TOKEN) params.set('token', TOKEN);
+    const r = await fetch('/debug/calendarios/nylas?' + params.toString());
+    if (!r.ok) {
+      document.getElementById('status').innerHTML = ' <span style="color:#f87171">HTTP ' + r.status + '</span>';
+      return;
+    }
+    const data = await r.json();
+    document.getElementById('status').textContent = ' OK · ' + (data.advisorsRaw || []).length + ' asesores · rango ' + (data.rangeDays || days) + 'd';
     apply(data, tz);
-    document.getElementById('status').textContent = ' OK (manual)';
   } catch (err) {
-    document.getElementById('status').innerHTML = ` <span class="err">JSON inválido: ${err.message}</span>`;
+    document.getElementById('status').innerHTML = ' <span style="color:#f87171">error: ' + err.message + '</span>';
   }
 }
 
 function apply(data, tz) {
   currentTz = tz;
-  document.getElementById('availability').textContent = data.availabilityText || '(sin availabilityText)';
   advisors = Array.isArray(data.advisorsRaw) ? data.advisorsRaw : [];
   buildLegend();
+  buildEventsList();
   weekStart = startOfWeek(new Date(), tz);
   render();
 }
@@ -139,12 +203,46 @@ function apply(data, tz) {
 function buildLegend() {
   const div = document.getElementById('legend');
   if (!advisors.length) {
-    div.innerHTML = '<span style="background:#666">⚠️ no llegó <code>advisorsRaw</code> — agregá <code>out.advisorsRaw = advisors.map(a =&gt; ({ email: a.email, busySlots: a.busySlots }))</code> en el code node de n8n</span>';
+    div.innerHTML = '<span class="empty" style="background:#333">sin datos</span>';
     return;
   }
-  div.innerHTML = advisors.map((a, i) =>
-    '<span style="background:' + COLORS[i % COLORS.length] + '">' + (a.email || '(sin email)') + ' · ' + ((a.busySlots||[]).length) + ' busy</span>'
-  ).join('');
+  div.innerHTML = advisors.map((a, i) => {
+    const evCount = (a.events || []).length;
+    const errSuffix = a.error ? ' · ⚠️ ' + a.error : '';
+    return '<span style="background:' + COLORS[i % COLORS.length] + '" title="' + (a.email || '') + errSuffix + '">' +
+      (a.name || a.email) + ' · ' + evCount + ' eventos' + errSuffix + '</span>';
+  }).join('');
+}
+
+function buildEventsList() {
+  const right = document.getElementById('right');
+  if (!advisors.length) { right.innerHTML = '<h3>Eventos por asesor</h3><div class="empty">sin datos</div>'; return; }
+  const parts = ['<h3>Eventos por asesor</h3>'];
+  advisors.forEach((a, i) => {
+    const color = COLORS[i % COLORS.length];
+    parts.push('<div class="advisor-section">');
+    parts.push('<h4 style="color:' + color + '">' + (a.name || a.email) + '</h4>');
+    parts.push('<div style="color:#666;font-size:10px">' + (a.email || '') + '</div>');
+    if (a.error) parts.push('<div class="err" style="margin-top:4px">' + a.error + '</div>');
+    const evs = (a.events || []).slice().sort((x, y) => x.start_time - y.start_time);
+    if (!evs.length) parts.push('<div class="empty" style="margin-top:4px">sin eventos en el rango</div>');
+    else {
+      for (const e of evs) {
+        const s = new Date(e.start_time * 1000);
+        const en = new Date(e.end_time * 1000);
+        const dateStr = s.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', timeZone: currentTz });
+        const tStr = e.all_day ? '(todo el día)' : formatTimeRange(s, en, currentTz);
+        const cancelled = e.status === 'cancelled' ? ' style="text-decoration:line-through;opacity:.5"' : '';
+        parts.push('<div class="ev"' + cancelled + '><span class="t">' + escapeHtml(e.title || '') + '</span> · ' + dateStr + ' ' + tStr + '</div>');
+      }
+    }
+    parts.push('</div>');
+  });
+  right.innerHTML = parts.join('');
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 }
 
 // ─── Helpers TZ ────────────────────────────────────────────────────
@@ -206,22 +304,24 @@ function render() {
     }
     advisors.forEach((a, idx) => {
       const color = COLORS[idx % COLORS.length];
-      (a.busySlots || []).forEach(slot => {
-        const start = new Date(slot.start_time * 1000);
-        const end = new Date(slot.end_time * 1000);
+      (a.events || []).forEach(ev => {
+        if (!ev.start_time || !ev.end_time) return;
+        const start = new Date(ev.start_time * 1000);
+        const end = new Date(ev.end_time * 1000);
         const sKey = dayKey(start, currentTz);
         const eKey = dayKey(end, currentTz);
+        const cancelled = ev.status === 'cancelled';
         if (sKey === day.key) {
           const sMin = minutesInDay(start, currentTz);
           const eMin = (sKey === eKey) ? minutesInDay(end, currentTz) : 1440;
           const top = sMin * (HOUR_PX / 60) + HEADER_PX;
           const height = Math.max(2, (eMin - sMin) * (HOUR_PX / 60));
-          col.appendChild(mkSlot(top, height, color, a.email, formatTimeRange(start, end, currentTz)));
+          col.appendChild(mkSlot(top, height, color, ev.title, a.email, formatTimeRange(start, end, currentTz), cancelled));
         } else if (eKey === day.key && sKey !== day.key) {
           const eMin = minutesInDay(end, currentTz);
           const top = HEADER_PX;
           const height = Math.max(2, eMin * (HOUR_PX / 60));
-          col.appendChild(mkSlot(top, height, color, a.email, formatTimeRange(start, end, currentTz)));
+          col.appendChild(mkSlot(top, height, color, ev.title, a.email, formatTimeRange(start, end, currentTz), cancelled));
         }
       });
     });
@@ -235,14 +335,14 @@ function mkHeader(text) {
   h.textContent = text;
   return h;
 }
-function mkSlot(top, height, color, email, tooltip) {
+function mkSlot(top, height, color, title, email, tooltip, cancelled) {
   const div = document.createElement('div');
-  div.className = 'slot';
+  div.className = 'slot' + (cancelled ? ' cancelled' : '');
   div.style.top = top + 'px';
   div.style.height = height + 'px';
   div.style.background = color;
-  div.title = (email || '') + '\n' + tooltip;
-  div.textContent = email ? email.split('@')[0] : '';
+  div.title = (title || '') + '\n' + (email || '') + '\n' + tooltip;
+  div.textContent = title || '';
   return div;
 }
 function formatDayHeader(date, tz) {
@@ -254,9 +354,9 @@ function formatTimeRange(s, e, tz) {
 }
 
 // init
+loadAsesores();
 buildLegend();
 render();
-loadFromWebhook();
 </script>
 </body>
 </html>
