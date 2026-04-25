@@ -19,13 +19,13 @@ from app.db.client import get_supabase
 from app.schemas.scheduling import (
     CrearEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     DisponibilidadRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
-    EliminarEventoRequest,
+    EliminarEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     ReagendarEventoRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
 )
 from app.services.scheduling import (
     crear_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     disponibilidad_agenda_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
-    eliminar_evento_core,
+    eliminar_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     reagendar_evento_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
 )
 
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 _DISPONIBILIDAD_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas"
 _AGENDAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/crear-evento"
 _REAGENDAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/reagendar-dashboard"
+_CANCELAR_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/cancelar-evento"
 _WEBHOOK_TIMEOUT_S = 60.0  # crear-evento/reagendar pueden tardar más por validaciones + Nylas + DB
 
 # Valores que indican timezone no configurado
@@ -390,38 +391,92 @@ def _create_reagendar_cita_tool(contacto_id: int, empresa_id: int):
 def _create_cancelar_cita_tool(contacto_id: int):
 
     @tool
-    async def cancelar_cita(event_id: str) -> str:
-        """🗑️ Cancelar cita — Elimina una cita del calendario y la marca como cancelada.
+    async def cancelar_cita() -> str:
+        """🗑️ Cancelar cita — Elimina la cita activa del contacto del calendario.
 
-        CUÁNDO USARLA:
-        - El contacto quiere cancelar su cita
-        - Se necesita eliminar una cita existente
+        CUÁNDO USARLA (OBLIGATORIO antes de cualquier mensaje de confirmación):
+        - El contacto dice que NO puede asistir o NO llegará
+        - El contacto quiere cancelar / anular / dar de baja la cita
+        - Le surgió un imprevisto o conflicto de horario
+        - Pide reagendar (en ese caso: primero cancelar, después agendar la nueva)
 
-        Args:
-            event_id: ID del evento a cancelar (obtenido de consultar_disponibilidad o agendar_cita)
+        El sistema busca automáticamente la cita pendiente/confirmada futura del
+        contacto y la cancela. NO necesitas pasarle el event_id; se resuelve
+        internamente desde wp_citas.
+
+        ⚠️ NUNCA confirmes al contacto que la cita "queda cancelada" sin antes
+        haber invocado esta tool y recibido confirmación de éxito. Si la tool
+        devuelve error, comunícale al contacto que hubo un problema y pídele
+        que confirme nuevamente.
         """
         try:
-            req = EliminarEventoRequest(
-                event_id=event_id,
-                contacto_id=contacto_id,
-            )
-            resp = await eliminar_evento_core(req)
-
-            if not resp.success:
-                # Incluir el error completo para que el agente lo comunique al contacto
-                detalle = resp.error or resp.mensaje or "Error desconocido"
+            # Resolver event_id desde wp_citas (próxima cita pendiente/confirmada)
+            event_id = await _get_event_id_pendiente(contacto_id)
+            if not event_id:
                 return (
-                    f"No se pudo cancelar la cita en el calendario.\n"
-                    f"  Detalle: {detalle}\n"
-                    f"  Comunica al contacto que la cancelación falló y que debe intentarlo de nuevo."
+                    "No se encontró una cita pendiente para cancelar. "
+                    "El contacto no tiene citas activas en este momento."
                 )
 
-            return (
-                f"Cita cancelada exitosamente y eliminada del calendario.\n"
-                f"  Asesor: {resp.asesor}\n"
-                f"  Event ID: {resp.event_id}\n"
-                f"  {resp.mensaje}"
-            )
+            # ─────────────────────────────────────────────────────────────────
+            # CAMBIO TEMPORAL — Cancelación vía webhook n8n.
+            # La lógica original (eliminar_evento_core con Nylas DELETE directo)
+            # se conserva en app/services/scheduling.py como respaldo.
+            # Ver CAMBIOS_TEMPORALES.md.
+            # ─────────────────────────────────────────────────────────────────
+            payload = {
+                "contacto_id": contacto_id,
+                "event_id": event_id,
+            }
+
+            client = get_shared_http_client()
+            try:
+                # OJO: el webhook usa PUT, no POST.
+                r = await client.request(
+                    "PUT",
+                    _CANCELAR_WEBHOOK_URL,
+                    json=payload,
+                    timeout=_WEBHOOK_TIMEOUT_S,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Webhook cancelar-evento error de red: %s", exc)
+                return f"Error al cancelar cita: {exc}"
+
+            if r.status_code != 200:
+                logger.warning(
+                    "Webhook cancelar-evento status=%s body=%s",
+                    r.status_code, r.text[:300],
+                )
+                return f"Error al cancelar cita: status {r.status_code}"
+
+            try:
+                data = r.json()
+            except Exception:
+                logger.warning("Webhook cancelar-evento respuesta no-JSON: %s", r.text[:300])
+                # Si el body es vacío pero el status es 200, asumimos OK best-effort
+                if not (r.text or "").strip():
+                    return (
+                        f"Cita cancelada (event_id: {event_id}). "
+                        "Confirma al contacto que su cita queda cancelada."
+                    )
+                return "Error al cancelar cita: respuesta no es JSON"
+
+            if not isinstance(data, dict) or not data:
+                logger.warning("Webhook cancelar-evento respuesta vacía: %s", str(data)[:300])
+                # Status 200 + JSON vacío → asumimos éxito best-effort
+                return (
+                    f"Cita cancelada (event_id: {event_id}). "
+                    "Confirma al contacto que su cita queda cancelada."
+                )
+
+            # Mismo patrón que las otras tools.
+            for key in ("Respuesta", "contexto", "error", "message"):
+                val = data.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+
+            logger.warning("Webhook cancelar-evento sin campo conocido: %s", str(data)[:300])
+            return f"Cita cancelada (event_id: {event_id})."
         except Exception as exc:
             logger.error("cancelar_cita tool error: %s", exc, exc_info=True)
             return f"Error al cancelar cita: {exc}"
