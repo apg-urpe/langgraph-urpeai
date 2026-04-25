@@ -9,23 +9,31 @@ Expone 4 herramientas al agente conversacional:
 
 import logging
 
+import httpx
 from langchain_core.tools import tool
 
+from app.core.http_client import get_shared_http_client
 from app.db import queries as db
 from app.schemas.scheduling import (
     CrearEventoRequest,
-    DisponibilidadRequest,
+    DisponibilidadRequest,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     EliminarEventoRequest,
     ReagendarEventoRequest,
 )
 from app.services.scheduling import (
     crear_evento_core,
-    disponibilidad_agenda_core,
+    disponibilidad_agenda_core,  # noqa: F401 — se conserva como respaldo (CAMBIO TEMPORAL: webhook n8n)
     eliminar_evento_core,
     reagendar_evento_core,
 )
 
 logger = logging.getLogger(__name__)
+
+# ════════════════════════════════════════════════════════════
+# CAMBIO TEMPORAL — Webhooks n8n (ver CAMBIOS_TEMPORALES.md)
+# ════════════════════════════════════════════════════════════
+_DISPONIBILIDAD_WEBHOOK_URL = "https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas"
+_WEBHOOK_TIMEOUT_S = 30.0
 
 # Valores que indican timezone no configurado
 _TIMEZONE_NO_DEFINIDO = {"por definir", "", "none", "null"}
@@ -85,21 +93,42 @@ def _create_consultar_disponibilidad_tool(contacto_id: int, empresa_id: int):
             if not tz or tz.lower() in _TIMEZONE_NO_DEFINIDO:
                 return _MSG_SIN_TIMEZONE
 
-            req = DisponibilidadRequest(
-                contacto_id=contacto_id,
-                empresa_id=empresa_id,
-                time_zone_contacto=tz,
-            )
-            resp = await disponibilidad_agenda_core(req)
+            # ─────────────────────────────────────────────────────────────────
+            # CAMBIO TEMPORAL — Disponibilidad vía webhook n8n.
+            # La lógica original (disponibilidad_agenda_core con Nylas directo)
+            # se conserva en app/services/scheduling.py como respaldo.
+            # Ver CAMBIOS_TEMPORALES.md.
+            # ─────────────────────────────────────────────────────────────────
+            client = get_shared_http_client()
+            try:
+                r = await client.get(
+                    _DISPONIBILIDAD_WEBHOOK_URL,
+                    params={"contacto_id": contacto_id, "time_zone_contacto": tz},
+                    timeout=_WEBHOOK_TIMEOUT_S,
+                )
+            except httpx.HTTPError as exc:
+                logger.warning("Webhook disponibilidad-nylas error de red: %s", exc)
+                return f"Error al consultar disponibilidad: {exc}"
 
-            if resp.error and not resp.calendario_texto:
-                return f"Error al consultar disponibilidad: {resp.error}"
+            if r.status_code != 200:
+                logger.warning(
+                    "Webhook disponibilidad-nylas status=%s body=%s",
+                    r.status_code, r.text[:300],
+                )
+                return f"Error al consultar disponibilidad: status {r.status_code}"
 
-            # Devolver el calendario completo formateado como texto
-            if resp.calendario_texto:
-                return resp.calendario_texto
+            try:
+                data = r.json()
+            except Exception:
+                logger.warning("Webhook disponibilidad-nylas respuesta no-JSON: %s", r.text[:300])
+                return "Error al consultar disponibilidad: respuesta no es JSON"
 
-            return "No se pudo obtener el calendario de los asesores."
+            texto = (data or {}).get("availabilityText", "").strip() if isinstance(data, dict) else ""
+            if not texto:
+                logger.warning("Webhook disponibilidad-nylas sin availabilityText: %s", str(data)[:300])
+                return "No se pudo obtener el calendario de los asesores."
+
+            return texto
         except Exception as exc:
             logger.error("consultar_disponibilidad tool error: %s", exc, exc_info=True)
             return f"Error al consultar disponibilidad: {exc}"
