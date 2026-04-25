@@ -25,9 +25,7 @@
     --now-line: #ef4444;
   }
   *{box-sizing:border-box}
-  html, body {
-    height: 100%;
-  }
+  html, body { height: 100%; }
   body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', system-ui, sans-serif;
@@ -37,16 +35,20 @@
     line-height: 1.4;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
-  }
-
-  /* ─── Header ─────────────────────────────────────────────────────────── */
-  header {
-    padding: 12px 18px;
-    background: var(--bg-1);
-    border-bottom: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    height: 100vh;
+  }
+
+  /* ─── Header — banda compacta ────────────────────────────────────────── */
+  header {
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
   }
   .top-row {
     display: flex;
@@ -56,55 +58,39 @@
   }
   header h1 {
     margin: 0;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     letter-spacing: -0.01em;
-    color: var(--text-1);
     display: flex;
     align-items: center;
     gap: 8px;
   }
   header h1 .pill {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 500;
     background: var(--bg-3);
     color: var(--text-2);
-    padding: 2px 8px;
+    padding: 2px 7px;
     border-radius: 10px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
-  nav {
-    display: flex;
-    gap: 4px;
-    font-size: 12px;
-  }
+  nav { display: flex; gap: 2px; font-size: 12px; }
   nav a {
-    color: var(--text-2);
-    text-decoration: none;
-    padding: 4px 10px;
-    border-radius: 6px;
+    color: var(--text-2); text-decoration: none;
+    padding: 4px 10px; border-radius: 6px;
     transition: background 0.12s, color 0.12s;
   }
   nav a:hover { background: var(--bg-2); color: var(--text-1); }
 
-  form {
+  .controls {
     display: flex;
-    gap: 14px;
-    align-items: flex-end;
+    align-items: center;
+    gap: 8px;
     flex-wrap: wrap;
   }
-  form label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 11px;
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-weight: 500;
-  }
-  form input {
+  .controls input,
+  .controls .btn-control {
     background: var(--bg-2);
     border: 1px solid var(--border);
     color: var(--text-1);
@@ -112,14 +98,22 @@
     border-radius: 6px;
     font-size: 12px;
     font-family: inherit;
-    text-transform: none;
-    letter-spacing: normal;
-    transition: border-color 0.12s, background 0.12s;
+    height: 30px;
   }
-  form input:focus {
+  .controls input:focus,
+  .controls .btn-control:focus {
     outline: none;
     border-color: var(--accent);
     background: var(--bg-3);
+  }
+  .controls input::placeholder { color: var(--text-3); }
+  .controls .label {
+    font-size: 10px;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-right: -4px;
   }
 
   .btn {
@@ -132,6 +126,7 @@
     font-size: 12px;
     font-weight: 500;
     font-family: inherit;
+    height: 30px;
     transition: background 0.12s;
   }
   .btn:hover { background: #2563eb; }
@@ -142,51 +137,110 @@
   }
   .btn.ghost:hover { background: var(--bg-3); color: var(--text-1); }
 
-  .asesores-box {
+  /* ─── Asesores popover ───────────────────────────────────────────────── */
+  .asesor-trigger { position: relative; }
+  .btn-control {
+    cursor: pointer;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+  }
+  .btn-control:hover { background: var(--bg-3); }
+  .btn-control .chev {
+    color: var(--text-3);
+    font-size: 10px;
+    margin-left: 4px;
+  }
+  .btn-control .num {
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 9px;
+    min-width: 18px;
+    text-align: center;
+  }
+  .btn-control .num.zero {
+    background: var(--bg-3);
+    color: var(--text-3);
+  }
+
+  .asesor-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 50;
     background: var(--bg-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px;
-    max-height: 150px;
-    overflow-y: auto;
-    min-width: 360px;
-    text-transform: none;
-    letter-spacing: normal;
+    border-radius: 8px;
+    width: 400px;
+    max-height: 460px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    overflow: hidden;
   }
-  .asesores-box::-webkit-scrollbar { width: 8px; }
-  .asesores-box::-webkit-scrollbar-track { background: transparent; }
-  .asesores-box::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-  .asesores-box::-webkit-scrollbar-thumb:hover { background: var(--bg-3); }
+  .asesor-popover.hidden { display: none; }
+  .asesor-popover .search-wrap {
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .asesor-popover .search-wrap input {
+    width: 100%;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text-1);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  .asesor-popover .search-wrap input:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .asesor-popover .list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+    min-height: 100px;
+  }
+  .asesor-popover .list::-webkit-scrollbar { width: 8px; }
+  .asesor-popover .list::-webkit-scrollbar-track { background: transparent; }
+  .asesor-popover .list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .asesor-popover .actions {
+    padding: 6px 8px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 6px;
+    background: var(--bg-1);
+  }
+  .asesor-popover .actions .btn { padding: 4px 10px; height: auto; font-size: 11px; }
+  .asesor-popover .actions .count {
+    margin-left: auto;
+    color: var(--text-3);
+    font-size: 11px;
+    align-self: center;
+  }
+
   .empresa-group { margin-bottom: 4px; }
   .empresa-label {
-    color: var(--text-3);
-    font-size: 9px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    padding: 4px 6px 2px;
+    color: var(--text-3); font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    font-weight: 600; padding: 4px 6px 2px;
   }
-  .asesores-box label.row {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    color: var(--text-2);
-    cursor: pointer;
+  label.row {
+    display: flex; flex-direction: row; align-items: center; gap: 8px;
+    padding: 5px 8px; border-radius: 4px; font-size: 12px;
+    color: var(--text-2); cursor: pointer;
     transition: background 0.1s, color 0.1s;
-    text-transform: none;
-    letter-spacing: normal;
   }
-  .asesores-box label.row:hover { background: var(--bg-3); color: var(--text-1); }
-  .asesores-box label.row input[type=checkbox] {
-    accent-color: var(--accent);
-    margin: 0;
-  }
-  .asesores-box label.row .name { color: var(--text-1); font-weight: 500; }
-  .asesores-box label.row .em { color: var(--text-3); font-size: 11px; }
+  label.row:hover { background: var(--bg-3); color: var(--text-1); }
+  label.row input[type=checkbox] { accent-color: var(--accent); margin: 0; flex-shrink: 0; }
+  label.row .name { color: var(--text-1); font-weight: 500; }
+  label.row .em { color: var(--text-3); font-size: 11px; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
 
   #status {
     font-size: 11px;
@@ -196,53 +250,43 @@
     border-radius: 6px;
     border: 1px solid var(--border);
     white-space: nowrap;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
   }
   #status.ok { color: var(--ok); border-color: rgba(16,185,129,0.3); }
   #status.err { color: var(--danger); border-color: rgba(239,68,68,0.3); }
 
   /* ─── Legend ─────────────────────────────────────────────────────────── */
   .legend {
-    padding: 10px 18px;
+    padding: 6px 18px;
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    min-height: 36px;
+    display: flex; flex-wrap: wrap; gap: 6px;
+    min-height: 32px;
     align-items: center;
+    flex-shrink: 0;
   }
   .legend .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px 4px 8px;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 9px 3px 7px;
     border-radius: 12px;
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 11px; font-weight: 500;
     color: var(--text-1);
     background: var(--bg-2);
     border: 1px solid var(--border);
   }
-  .legend .chip .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-  }
-  .legend .chip .count {
-    color: var(--text-3);
-    font-weight: 400;
-  }
+  .legend .chip .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .legend .chip .count { color: var(--text-3); font-weight: 400; }
   .legend .empty { color: var(--text-3); font-style: italic; font-size: 11px; }
 
-  /* ─── Nav bar (week navigation) ──────────────────────────────────────── */
+  /* ─── Nav semanal ────────────────────────────────────────────────────── */
   .nav-bar {
-    padding: 8px 18px;
+    padding: 6px 18px;
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
-    display: flex;
-    gap: 6px;
-    align-items: center;
+    display: flex; gap: 6px; align-items: center;
+    flex-shrink: 0;
   }
   .nav-bar .btn-icon {
     background: var(--bg-2);
@@ -272,23 +316,14 @@
   /* ─── Layout ─────────────────────────────────────────────────────────── */
   .layout {
     display: grid;
-    grid-template-columns: 1fr 360px;
+    grid-template-columns: 1fr 380px;
     flex: 1;
     min-height: 0;
     overflow: hidden;
   }
-  body {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-  }
 
   /* ─── Calendar grid ──────────────────────────────────────────────────── */
-  .grid-wrap {
-    overflow: auto;
-    background: var(--bg-0);
-    position: relative;
-  }
+  .grid-wrap { overflow: auto; background: var(--bg-0); position: relative; }
   .grid-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
   .grid-wrap::-webkit-scrollbar-track { background: var(--bg-0); }
   .grid-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
@@ -303,9 +338,7 @@
   }
   .col-hour {
     background: var(--bg-1);
-    position: sticky;
-    left: 0;
-    z-index: 4;
+    position: sticky; left: 0; z-index: 4;
     border-right: 1px solid var(--border);
   }
   .col-day {
@@ -314,8 +347,7 @@
     min-height: 100%;
   }
   .day-header {
-    position: sticky;
-    top: 0;
+    position: sticky; top: 0;
     background: var(--bg-1);
     padding: 8px 10px;
     font-size: 12px;
@@ -330,17 +362,10 @@
   }
   .col-hour .day-header { border-right: 1px solid var(--border); }
   .day-header .dow {
-    font-size: 10px;
-    color: var(--text-3);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
+    font-size: 10px; color: var(--text-3);
+    text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600;
   }
-  .day-header .dom {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-1);
-  }
+  .day-header .dom { font-size: 14px; font-weight: 600; color: var(--text-1); }
   .col-day.today .day-header { background: var(--today); }
   .col-day.today .day-header .dow { color: rgba(255,255,255,0.7); }
   .col-day.today .day-header .dom { color: white; }
@@ -359,23 +384,15 @@
   .col-day .hour-row { color: transparent; }
   .col-day .hour-row:nth-child(even) { background: rgba(255,255,255,0.012); }
 
-  /* ─── Now indicator ──────────────────────────────────────────────────── */
   .now-line {
-    position: absolute;
-    left: 0;
-    right: 0;
-    height: 0;
+    position: absolute; left: 0; right: 0; height: 0;
     border-top: 2px solid var(--now-line);
-    z-index: 5;
-    pointer-events: none;
+    z-index: 5; pointer-events: none;
   }
   .now-line::before {
-    content: '';
-    position: absolute;
-    left: -4px;
-    top: -5px;
-    width: 8px;
-    height: 8px;
+    content: ''; position: absolute;
+    left: -4px; top: -5px;
+    width: 8px; height: 8px;
     border-radius: 50%;
     background: var(--now-line);
     box-shadow: 0 0 6px var(--now-line);
@@ -384,8 +401,7 @@
   /* ─── Event slots ────────────────────────────────────────────────────── */
   .slot {
     position: absolute;
-    left: 3px;
-    right: 3px;
+    left: 3px; right: 3px;
     padding: 3px 6px;
     font-size: 10px;
     border-radius: 4px;
@@ -407,104 +423,84 @@
     z-index: 6;
     transition: transform 0.08s, box-shadow 0.08s;
   }
-  .slot .title {
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .slot .time {
-    font-size: 9px;
-    opacity: 0.85;
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
+  .slot .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slot .time { font-size: 9px; opacity: 0.85; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .slot.tiny { padding: 1px 6px; font-size: 9px; }
   .slot.tiny .time { display: none; }
   .slot.cancelled { opacity: 0.4; text-decoration: line-through; }
 
-  /* ─── Right panel ────────────────────────────────────────────────────── */
+  /* ─── Right panel — disponibilidad webhook ───────────────────────────── */
   .right {
     background: var(--bg-1);
     border-left: 1px solid var(--border);
     overflow-y: auto;
     padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .right::-webkit-scrollbar { width: 8px; }
   .right::-webkit-scrollbar-track { background: transparent; }
   .right::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
   .right h3 {
-    margin: 0 0 12px;
+    margin: 0;
     font-size: 11px;
     color: var(--text-3);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-weight: 600;
-  }
-  .advisor-section {
-    margin-bottom: 18px;
-    padding-bottom: 14px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .advisor-section:last-child { border-bottom: 0; }
-  .advisor-head {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 6px;
   }
-  .advisor-head .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
+  .right h3 .badge {
+    background: var(--bg-3);
+    color: var(--text-2);
+    padding: 2px 7px;
+    border-radius: 8px;
+    font-size: 9px;
+    text-transform: none;
+    letter-spacing: 0.02em;
+    font-weight: 500;
   }
-  .advisor-head .name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-1);
-  }
-  .advisor-head .em {
-    font-size: 11px;
+  .right .meta {
     color: var(--text-3);
-    margin-left: auto;
-  }
-  .advisor-section .err {
     font-size: 11px;
-    color: var(--danger);
-    background: rgba(239,68,68,0.08);
-    padding: 4px 8px;
-    border-radius: 4px;
-    margin-bottom: 6px;
-  }
-  .ev {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 6px 8px;
-    border-radius: 5px;
-    background: var(--bg-2);
-    font-size: 11px;
-    border-left: 2px solid var(--border);
-    margin-bottom: 4px;
-    transition: background 0.1s;
-  }
-  .ev:hover { background: var(--bg-3); }
-  .ev.cancelled { opacity: 0.4; }
-  .ev.cancelled .t { text-decoration: line-through; }
-  .ev .t { color: var(--text-1); font-weight: 500; }
-  .ev .meta {
-    color: var(--text-3);
-    font-size: 10px;
     font-variant-numeric: tabular-nums;
   }
-  .empty { color: var(--text-3); font-style: italic; font-size: 11px; }
-  .err-text { color: var(--danger); }
+  .right pre.availability {
+    white-space: pre-wrap;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-1);
+    background: var(--bg-2);
+    border: 1px solid var(--border-soft);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 0;
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    flex: 1;
+    overflow: auto;
+  }
+  .right .empty { color: var(--text-3); font-style: italic; font-size: 11px; }
+  .right .err-text { color: var(--danger); font-size: 11px; padding: 6px 10px; background: rgba(239,68,68,0.08); border-radius: 6px; }
+  .right .reload-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-3);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    margin-left: auto;
+    font-family: inherit;
+  }
+  .right .reload-btn:hover { background: var(--bg-3); color: var(--text-1); }
 </style>
 </head>
 <body>
+
 <header>
   <div class="top-row">
     <h1>📅 Calendarios Nylas <span class="pill">debug</span></h1>
@@ -515,24 +511,84 @@
       <a id="nav-canales" href="/debug/canales">Todos los canales</a>
     </nav>
   </div>
-  <form id="form">
-    <label>
-      Asesores activos
-      <div class="asesores-box" id="asesores-box">cargando…</div>
-    </label>
-    <label>
-      Zona horaria
-      <input id="tz" value="America/Mexico_City" size="22">
-    </label>
-    <label>
-      Días
-      <input id="days" value="14" size="3" type="number" min="1" max="60" style="width:60px">
-    </label>
-    <button type="submit" class="btn">Cargar</button>
-    <button type="button" class="btn ghost" onclick="toggleAll(true)">Todos</button>
-    <button type="button" class="btn ghost" onclick="toggleAll(false)">Ninguno</button>
+  <div class="controls">
+    <span class="label">Asesores</span>
+    <div class="asesor-trigger">
+      <button id="btn-asesores" class="btn-control" type="button">
+        <span id="asesores-text">Seleccionar…</span>
+        <span class="num zero" id="asesores-count">0</span>
+        <span class="chev">▾</span>
+      </button>
+      <div id="asesor-popover" class="asesor-popover hidden">
+        <div class="search-wrap">
+          <input type="search" id="asesor-search" placeholder="Buscar por nombre o email…" autocomplete="off">
+        </div>
+        <div class="list" id="asesores-box">cargando…</div>
+        <div class="actions">
+          <button class="btn ghost" type="button" onclick="toggleAll(true)">Todos</button>
+          <button class="btn ghost" type="button" onclick="toggleAll(false)">Ninguno</button>
+          <span class="count" id="popover-count">0 visibles</span>
+        </div>
+      </div>
+    </div>
+
+    <span class="label">TZ</span>
+    <input list="tz-list" id="tz" value="America/Mexico_City" autocomplete="off" placeholder="America/…" style="width:200px">
+    <datalist id="tz-list">
+      <option value="America/Mexico_City">
+      <option value="America/Bogota">
+      <option value="America/Lima">
+      <option value="America/Santiago">
+      <option value="America/Buenos_Aires">
+      <option value="America/Caracas">
+      <option value="America/Asuncion">
+      <option value="America/La_Paz">
+      <option value="America/Guayaquil">
+      <option value="America/Costa_Rica">
+      <option value="America/El_Salvador">
+      <option value="America/Guatemala">
+      <option value="America/Tegucigalpa">
+      <option value="America/Managua">
+      <option value="America/Panama">
+      <option value="America/Havana">
+      <option value="America/Santo_Domingo">
+      <option value="America/Puerto_Rico">
+      <option value="America/Sao_Paulo">
+      <option value="America/Montevideo">
+      <option value="America/New_York">
+      <option value="America/Chicago">
+      <option value="America/Denver">
+      <option value="America/Los_Angeles">
+      <option value="America/Phoenix">
+      <option value="America/Anchorage">
+      <option value="America/Honolulu">
+      <option value="America/Toronto">
+      <option value="America/Vancouver">
+      <option value="Europe/Madrid">
+      <option value="Europe/London">
+      <option value="Europe/Paris">
+      <option value="Europe/Berlin">
+      <option value="Europe/Amsterdam">
+      <option value="Europe/Rome">
+      <option value="Europe/Lisbon">
+      <option value="Europe/Moscow">
+      <option value="Asia/Tokyo">
+      <option value="Asia/Shanghai">
+      <option value="Asia/Singapore">
+      <option value="Asia/Dubai">
+      <option value="Australia/Sydney">
+      <option value="UTC">
+    </datalist>
+
+    <span class="label">Días</span>
+    <input id="days" type="number" value="14" min="1" max="60" style="width:60px">
+
+    <span class="label">Contacto ID</span>
+    <input id="contacto" type="number" value="196970" style="width:100px">
+
+    <button type="button" class="btn" onclick="loadAll()">Cargar</button>
     <span id="status">listo</span>
-  </form>
+  </div>
 </header>
 
 <div class="legend" id="legend"><span class="empty">seleccioná asesores y dale "Cargar" para empezar</span></div>
@@ -546,9 +602,13 @@
 
 <div class="layout">
   <div class="grid-wrap"><div class="grid" id="grid"></div></div>
-  <div class="right" id="right">
-    <h3>Eventos por asesor</h3>
-    <div class="empty">Sin datos cargados.</div>
+  <div class="right">
+    <h3>
+      Disponibilidad webhook
+      <span class="badge" id="webhook-meta">contacto · tz</span>
+      <button type="button" class="reload-btn" onclick="loadWebhook()">↻</button>
+    </h3>
+    <pre class="availability" id="availability">cargando…</pre>
   </div>
 </div>
 
@@ -568,15 +628,41 @@ let advisors = [];
 let weekStart = new Date();
 let asesoresList = [];
 
-document.getElementById('form').addEventListener('submit', e => { e.preventDefault(); loadEvents(); });
-
-// Auto-refresh "now" line every minute
 setInterval(() => { if (advisors.length) render(); }, 60000);
 
 function setStatus(text, kind) {
   const el = document.getElementById('status');
   el.textContent = text;
   el.className = kind || '';
+}
+
+function getSelectedEmails() {
+  return [...document.querySelectorAll('#asesores-box input[type=checkbox]:checked')]
+    .map(el => el.dataset.email);
+}
+
+function updateCount() {
+  const n = getSelectedEmails().length;
+  const totalVisible = [...document.querySelectorAll('#asesores-box label.row')]
+    .filter(r => r.style.display !== 'none').length;
+  const numEl = document.getElementById('asesores-count');
+  numEl.textContent = String(n);
+  numEl.classList.toggle('zero', n === 0);
+  document.getElementById('asesores-text').textContent = n === 0
+    ? 'Seleccionar…'
+    : (n === 1 ? '1 asesor' : n + ' asesores');
+  document.getElementById('popover-count').textContent = totalVisible + ' visibles';
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('#asesores-box label.row')
+    .forEach(row => {
+      if (row.style.display !== 'none') {
+        const cb = row.querySelector('input[type=checkbox]');
+        if (cb) cb.checked = checked;
+      }
+    });
+  updateCount();
 }
 
 // ─── Cargar dropdown de asesores ────────────────────────────────────────────
@@ -618,38 +704,70 @@ async function loadAsesores() {
       parts.push('</div>');
     }
     box.innerHTML = parts.join('');
+    updateCount();
   } catch (err) {
     box.innerHTML = '<span class="empty err-text">error: ' + err.message + '</span>';
   }
 }
 
-function getSelectedEmails() {
-  return [...document.querySelectorAll('#asesores-box input[type=checkbox]:checked')]
-    .map(el => el.dataset.email);
+// ─── Popover & search ───────────────────────────────────────────────────────
+const trigger = document.getElementById('btn-asesores');
+const popover = document.getElementById('asesor-popover');
+trigger.addEventListener('click', e => {
+  e.stopPropagation();
+  popover.classList.toggle('hidden');
+  if (!popover.classList.contains('hidden')) {
+    document.getElementById('asesor-search').focus();
+  }
+});
+document.addEventListener('click', e => {
+  if (!popover.contains(e.target) && !trigger.contains(e.target)) {
+    popover.classList.add('hidden');
+  }
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') popover.classList.add('hidden');
+});
+
+document.getElementById('asesores-box').addEventListener('change', updateCount);
+
+document.getElementById('asesor-search').addEventListener('input', e => {
+  const q = e.target.value.toLowerCase().trim();
+  document.querySelectorAll('#asesores-box label.row').forEach(row => {
+    const text = row.textContent.toLowerCase();
+    row.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+  // ocultar empresa-group si quedan sin filas visibles
+  document.querySelectorAll('#asesores-box .empresa-group').forEach(g => {
+    const hasVisible = [...g.querySelectorAll('label.row')].some(r => r.style.display !== 'none');
+    g.style.display = hasVisible ? '' : 'none';
+  });
+  updateCount();
+});
+
+// ─── Cargar todo ────────────────────────────────────────────────────────────
+async function loadAll() {
+  await Promise.all([loadEvents(), loadWebhook()]);
 }
 
-function toggleAll(checked) {
-  document.querySelectorAll('#asesores-box input[type=checkbox]').forEach(cb => { cb.checked = checked; });
-}
-
-// ─── Cargar eventos ─────────────────────────────────────────────────────────
 async function loadEvents() {
   const emails = getSelectedEmails();
   const tz = document.getElementById('tz').value.trim();
   const days = document.getElementById('days').value.trim() || '14';
   if (!emails.length) {
     setStatus('seleccioná al menos un asesor', 'err');
+    advisors = [];
+    buildLegend();
+    weekStart = startOfWeek(new Date(), tz);
+    render();
     return;
   }
-  setStatus('cargando…');
+  setStatus('cargando eventos…');
   try {
     const params = new URLSearchParams({ emails: emails.join(','), tz, days });
     if (TOKEN) params.set('token', TOKEN);
     const r = await fetch('/debug/calendarios/nylas?' + params.toString());
-    if (!r.ok) {
-      setStatus('HTTP ' + r.status, 'err');
-      return;
-    }
+    if (!r.ok) { setStatus('HTTP ' + r.status, 'err'); return; }
     const data = await r.json();
     const totalEvents = (data.advisorsRaw || []).reduce((s, a) => s + (a.events || []).length, 0);
     setStatus(`OK · ${(data.advisorsRaw || []).length} asesores · ${totalEvents} eventos · ${data.rangeDays || days}d`, 'ok');
@@ -659,11 +777,40 @@ async function loadEvents() {
   }
 }
 
+async function loadWebhook() {
+  const contacto = document.getElementById('contacto').value.trim();
+  const tz = document.getElementById('tz').value.trim();
+  const meta = document.getElementById('webhook-meta');
+  const pre = document.getElementById('availability');
+  if (!contacto || !tz) {
+    meta.textContent = '(sin contacto o tz)';
+    pre.textContent = 'completá contacto_id y tz';
+    return;
+  }
+  meta.textContent = `contacto ${contacto} · ${tz}`;
+  pre.textContent = 'cargando…';
+  try {
+    const params = new URLSearchParams({ contacto_id: contacto, tz });
+    if (TOKEN) params.set('token', TOKEN);
+    const r = await fetch('/debug/calendarios/data?' + params.toString());
+    if (!r.ok) {
+      pre.textContent = 'HTTP ' + r.status;
+      pre.classList.add('err-text');
+      return;
+    }
+    const data = await r.json();
+    pre.classList.remove('err-text');
+    pre.textContent = data.availabilityText || JSON.stringify(data, null, 2);
+  } catch (err) {
+    pre.textContent = 'error: ' + err.message;
+    pre.classList.add('err-text');
+  }
+}
+
 function apply(data, tz) {
   currentTz = tz;
   advisors = Array.isArray(data.advisorsRaw) ? data.advisorsRaw : [];
   buildLegend();
-  buildEventsList();
   weekStart = startOfWeek(new Date(), tz);
   render();
 }
@@ -671,7 +818,7 @@ function apply(data, tz) {
 function buildLegend() {
   const div = document.getElementById('legend');
   if (!advisors.length) {
-    div.innerHTML = '<span class="empty">sin datos</span>';
+    div.innerHTML = '<span class="empty">seleccioná asesores y dale "Cargar"</span>';
     return;
   }
   div.innerHTML = advisors.map((a, i) => {
@@ -684,46 +831,6 @@ function buildLegend() {
       ' <span class="count">' + evCount + '</span>' +
       '</span>';
   }).join('');
-}
-
-function buildEventsList() {
-  const right = document.getElementById('right');
-  if (!advisors.length) {
-    right.innerHTML = '<h3>Eventos por asesor</h3><div class="empty">sin datos</div>';
-    return;
-  }
-  const parts = ['<h3>Eventos por asesor</h3>'];
-  advisors.forEach((a, i) => {
-    const color = COLORS[i % COLORS.length];
-    parts.push('<div class="advisor-section">');
-    parts.push(
-      '<div class="advisor-head">' +
-        '<span class="dot" style="background:' + color + '"></span>' +
-        '<span class="name">' + escapeHtml(a.name || a.email || '') + '</span>' +
-        '<span class="em">' + escapeHtml(a.email || '') + '</span>' +
-      '</div>'
-    );
-    if (a.error) parts.push('<div class="err">' + escapeHtml(a.error) + '</div>');
-    const evs = (a.events || []).slice().sort((x, y) => x.start_time - y.start_time);
-    if (!evs.length) parts.push('<div class="empty">sin eventos en el rango</div>');
-    else {
-      for (const e of evs) {
-        const s = new Date(e.start_time * 1000);
-        const en = new Date(e.end_time * 1000);
-        const dateStr = s.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', timeZone: currentTz });
-        const tStr = e.all_day ? '(todo el día)' : formatTimeRange(s, en, currentTz);
-        const cancelClass = e.status === 'cancelled' ? ' cancelled' : '';
-        parts.push(
-          '<div class="ev' + cancelClass + '" style="border-left-color:' + color + '">' +
-            '<span class="t">' + escapeHtml(e.title || '(sin título)') + '</span>' +
-            '<span class="meta">' + dateStr + ' · ' + tStr + '</span>' +
-          '</div>'
-        );
-      }
-    }
-    parts.push('</div>');
-  });
-  right.innerHTML = parts.join('');
 }
 
 function escapeHtml(s) {
@@ -753,7 +860,6 @@ function prevWeek() { weekStart = addDays(weekStart, -7); render(); }
 function nextWeek() { weekStart = addDays(weekStart, 7); render(); }
 function thisWeek() { weekStart = startOfWeek(new Date(), currentTz); render(); }
 
-// ─── Render ─────────────────────────────────────────────────────────────────
 function render() {
   const days = [];
   for (let i = 0; i < 7; i++) {
@@ -769,7 +875,6 @@ function render() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
 
-  // Hour column
   const hourCol = document.createElement('div');
   hourCol.className = 'col-hour';
   hourCol.appendChild(mkHourHeader());
@@ -781,7 +886,6 @@ function render() {
   }
   grid.appendChild(hourCol);
 
-  // Day columns
   const todayKey = dayKey(new Date(), currentTz);
   const fmtDow = new Intl.DateTimeFormat('es-ES', { weekday: 'short', timeZone: currentTz });
   const fmtDom = new Intl.DateTimeFormat('es-ES', { day: 'numeric', timeZone: currentTz });
@@ -795,7 +899,6 @@ function render() {
       r.className = 'hour-row';
       col.appendChild(r);
     }
-    // Now indicator (only on today)
     if (day.key === todayKey) {
       const now = new Date();
       const nowMin = minutesInDay(now, currentTz);
@@ -805,7 +908,6 @@ function render() {
       line.style.top = top + 'px';
       col.appendChild(line);
     }
-    // Events
     advisors.forEach((a, idx) => {
       const color = COLORS[idx % COLORS.length];
       (a.events || []).forEach(ev => {
@@ -877,6 +979,7 @@ function formatTimeRange(s, e, tz) {
 
 // init
 loadAsesores();
+loadWebhook();   // llama al webhook al entrar
 buildLegend();
 render();
 </script>
