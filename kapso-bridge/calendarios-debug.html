@@ -586,6 +586,12 @@
     <span class="label">Contacto ID</span>
     <input id="contacto" type="number" value="196970" style="width:100px">
 
+    <span class="label">Vista</span>
+    <input id="viewFrom" type="time" value="00:00" style="width:90px" title="Hora desde">
+    <span style="color:var(--text-3);font-size:11px">–</span>
+    <input id="viewTo" type="time" value="23:59" style="width:90px" title="Hora hasta">
+    <button type="button" class="btn ghost" onclick="resetView()" title="Vista completa 00–24" style="padding:4px 8px;height:30px">⤢</button>
+
     <button type="button" class="btn" onclick="loadAll()">Cargar</button>
     <span id="status">listo</span>
   </div>
@@ -614,9 +620,28 @@
 
 <script>
 const COLORS = ['#3b82f6','#ef4444','#10b981','#f59e0b','#a855f7','#06b6d4','#eab308','#ec4899','#14b8a6','#f97316'];
-const HOUR_PX = 40;
+const MIN_HOUR_PX = 40;     // alto mínimo por hora (vista 00-24)
 const HEADER_PX = 44;
 const TOKEN = new URLSearchParams(window.location.search).get('token') || '';
+
+// rango visible (en minutos del día, 0..1440)
+function getViewBounds() {
+  const fromStr = (document.getElementById('viewFrom').value || '00:00');
+  const toStr   = (document.getElementById('viewTo').value   || '23:59');
+  const [fH, fM] = fromStr.split(':').map(Number);
+  const [tH, tM] = toStr.split(':').map(Number);
+  let from = (fH * 60) + (fM || 0);
+  let to   = (tH * 60) + (tM || 0);
+  if (!isFinite(from)) from = 0;
+  if (!isFinite(to)) to = 1440;
+  if (to <= from) { from = 0; to = 1440; }
+  return { from, to, fromHour: Math.floor(from/60), toHour: Math.ceil(to/60) };
+}
+function resetView() {
+  document.getElementById('viewFrom').value = '00:00';
+  document.getElementById('viewTo').value = '23:59';
+  render();
+}
 
 ['nav-kapso','nav-manychat','nav-ghl','nav-canales'].forEach(id => {
   const el = document.getElementById(id);
@@ -868,9 +893,23 @@ function render() {
   }
   const fmtDate = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', timeZone: currentTz });
   const fmtDateY = new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric', timeZone: currentTz });
+
+  const view = getViewBounds();
+  const hoursVisible = view.toHour - view.fromHour;
+  // calcular alto dinámico para que los hoursVisible llenen el viewport
+  const wrap = document.querySelector('.grid-wrap');
+  const wrapH = (wrap?.clientHeight || 600) - HEADER_PX - 8;
+  const hourPx = Math.max(MIN_HOUR_PX, Math.floor(wrapH / Math.max(1, hoursVisible)));
+  const pxPerMin = hourPx / 60;
+  const viewSpan = (view.toHour - view.fromHour) * 60; // minutos visibles totales (en hour-rows enteras)
+  const offsetTopMin = view.from - view.fromHour * 60; // recorte superior dentro de la primera row
+
+  const partialRange = (view.from !== 0 || view.to !== 1440 && view.to !== 1439);
   document.getElementById('weekLabel').innerHTML =
     fmtDate.format(days[0].date) + ' – ' + fmtDateY.format(days[6].date) +
-    '<span class="tz">' + currentTz + '</span>';
+    '<span class="tz">' + currentTz +
+      (partialRange ? ' · vista ' + fmtMin(view.from) + '–' + fmtMin(view.to) : '') +
+    '</span>';
 
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
@@ -878,9 +917,10 @@ function render() {
   const hourCol = document.createElement('div');
   hourCol.className = 'col-hour';
   hourCol.appendChild(mkHourHeader());
-  for (let h = 0; h < 24; h++) {
+  for (let h = view.fromHour; h < view.toHour; h++) {
     const r = document.createElement('div');
     r.className = 'hour-row';
+    r.style.height = hourPx + 'px';
     r.textContent = String(h).padStart(2, '0') + ':00';
     hourCol.appendChild(r);
   }
@@ -894,19 +934,22 @@ function render() {
     const col = document.createElement('div');
     col.className = 'col-day' + (day.key === todayKey ? ' today' : '');
     col.appendChild(mkDayHeader(fmtDow.format(day.date), fmtDom.format(day.date)));
-    for (let h = 0; h < 24; h++) {
+    for (let h = view.fromHour; h < view.toHour; h++) {
       const r = document.createElement('div');
       r.className = 'hour-row';
+      r.style.height = hourPx + 'px';
       col.appendChild(r);
     }
     if (day.key === todayKey) {
       const now = new Date();
       const nowMin = minutesInDay(now, currentTz);
-      const top = nowMin * (HOUR_PX / 60) + HEADER_PX;
-      const line = document.createElement('div');
-      line.className = 'now-line';
-      line.style.top = top + 'px';
-      col.appendChild(line);
+      if (nowMin >= view.from && nowMin <= view.to) {
+        const top = (nowMin - view.fromHour * 60) * pxPerMin + HEADER_PX;
+        const line = document.createElement('div');
+        line.className = 'now-line';
+        line.style.top = top + 'px';
+        col.appendChild(line);
+      }
     }
     advisors.forEach((a, idx) => {
       const color = COLORS[idx % COLORS.length];
@@ -917,22 +960,35 @@ function render() {
         const sKey = dayKey(start, currentTz);
         const eKey = dayKey(end, currentTz);
         const cancelled = ev.status === 'cancelled';
+
+        let sMin, eMin;
         if (sKey === day.key) {
-          const sMin = minutesInDay(start, currentTz);
-          const eMin = (sKey === eKey) ? minutesInDay(end, currentTz) : 1440;
-          const top = sMin * (HOUR_PX / 60) + HEADER_PX;
-          const height = Math.max(14, (eMin - sMin) * (HOUR_PX / 60));
-          col.appendChild(mkSlot(top, height, color, ev, a.email, formatTimeRange(start, end, currentTz), cancelled));
+          sMin = minutesInDay(start, currentTz);
+          eMin = (sKey === eKey) ? minutesInDay(end, currentTz) : 1440;
         } else if (eKey === day.key && sKey !== day.key) {
-          const eMin = minutesInDay(end, currentTz);
-          const top = HEADER_PX;
-          const height = Math.max(14, eMin * (HOUR_PX / 60));
-          col.appendChild(mkSlot(top, height, color, ev, a.email, formatTimeRange(start, end, currentTz), cancelled));
+          sMin = 0;
+          eMin = minutesInDay(end, currentTz);
+        } else {
+          return;
         }
+
+        // clip al rango de vista
+        const clippedStart = Math.max(sMin, view.from);
+        const clippedEnd = Math.min(eMin, view.to);
+        if (clippedEnd <= clippedStart) return;
+
+        const top = (clippedStart - view.fromHour * 60) * pxPerMin + HEADER_PX;
+        const height = Math.max(14, (clippedEnd - clippedStart) * pxPerMin);
+        col.appendChild(mkSlot(top, height, color, ev, a.email, formatTimeRange(start, end, currentTz), cancelled));
       });
     });
     grid.appendChild(col);
   }
+}
+
+function fmtMin(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
 
 function mkHourHeader() {
@@ -976,6 +1032,19 @@ function formatTimeRange(s, e, tz) {
   const f = new Intl.DateTimeFormat('es-ES', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
   return f.format(s) + ' – ' + f.format(e);
 }
+
+// hooks: re-render al cambiar el rango de vista
+['viewFrom', 'viewTo'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', () => render());
+});
+
+// re-render en resize (para recalcular hourPx dinámico)
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(render, 120);
+});
 
 // init
 loadAsesores();
