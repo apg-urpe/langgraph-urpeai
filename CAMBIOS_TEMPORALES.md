@@ -16,7 +16,7 @@
 | # | Herramienta | Webhook | Estado |
 |---|-------------|---------|--------|
 | 1 | `consultar_disponibilidad` | `GET https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas` | ✅ Migrada |
-| 2 | `agendar_cita` | _pendiente_ | ⏳ Pendiente |
+| 2 | `agendar_cita` | `POST https://marketia.app.n8n.cloud/webhook/crear-evento` | ✅ Migrada |
 | 3 | `reagendar_cita` | _pendiente_ | ⏳ Pendiente |
 | 4 | `cancelar_cita` | _pendiente_ | ⏳ Pendiente |
 
@@ -76,9 +76,87 @@ GET https://marketia.app.n8n.cloud/webhook/disponibilidad-nylas
 
 ---
 
-## 2. `agendar_cita` ⏳
+## 2. `agendar_cita` ✅
 
-_Pendiente. Se decidirá el endpoint y formato de body cuando se aborde._
+**Ubicación:** [`app/tools/scheduling.py`](app/tools/scheduling.py) — función `agendar_cita` dentro de `_create_agendar_cita_tool`.
+
+**Endpoint:**
+```
+POST https://marketia.app.n8n.cloud/webhook/crear-evento
+Content-Type: application/json
+```
+
+**Body enviado:**
+```json
+{
+  "contacto_id": <int>,
+  "start": "YYYY-MM-DDTHH:MM:SS",      // hora local del contacto, sin offset
+  "attendeeEmail": "<email contacto>",
+  "summary": "<título evento>",
+  "description": "<descripción>",
+  "Virtual-presencial": "Virtual" | "Presencial",
+  "time_zone_contacto": "<IANA tz>"
+}
+```
+
+**Argumentos del agente** (params LangGraph):
+- `hora_local_contacto` → `start`
+- `email_contacto` → `attendeeEmail`
+- `titulo` → `summary`
+- `descripcion` → `description`
+- `modalidad` → `Virtual-presencial`
+
+**Resueltos automáticamente por la tool:**
+- `contacto_id` (closure)
+- `time_zone_contacto` (de `wp_contactos.timezone` vía `_get_timezone_contacto`)
+
+**Respuesta esperada (200):** la tool busca el primer campo con valor de esta lista y lo devuelve tal cual al agente:
+
+| Campo | Significado |
+|---|---|
+| `Respuesta` | Éxito (Edit Fields6) o error de email faltante (Edit Fields7) |
+| `Diseponibilidad` (sic) | Horario no disponible (Edit Fields5) |
+| `contexto` | Contacto ya tiene cita registrada hoy (`contexto1`) |
+| `error` | Asesor reasignado por `grant_id` inválido (Edit Fields8) |
+| `message` | Otros mensajes genéricos |
+
+**Lógica de la tool:**
+1. Resolver `tz` desde `wp_contactos.timezone`. Si está vacío → devolver `_MSG_SIN_TIMEZONE` (sin llamar al webhook).
+2. POST al webhook con timeout 60s (más alto que disponibilidad porque incluye Nylas + DB writes).
+3. Si status != 200 o respuesta no-JSON → `"Error al agendar cita: …"`.
+4. Si respuesta vacía → `"Error al agendar cita: respuesta vacía del webhook"`.
+5. Buscar el primer campo conocido (`Respuesta`, `Diseponibilidad`, `contexto`, `error`, `message`) y devolver su contenido.
+
+**Cómo revertir esta tool:**
+1. En `app/tools/scheduling.py`, dentro de `agendar_cita`, reemplazar el bloque "CAMBIO TEMPORAL — Agendamiento vía webhook n8n" por la llamada original:
+   ```python
+   req = CrearEventoRequest(
+       start=hora_local_contacto,
+       attendeeEmail=email_contacto,
+       summary=titulo,
+       description=descripcion or None,
+       contacto_id=contacto_id,
+       empresa_id=empresa_id,
+       Virtual_presencial=modalidad,
+       time_zone_contacto=tz,
+   )
+   resp = await crear_evento_core(req)
+   if resp.error:
+       return f"Error al agendar cita: {resp.error}"
+   msg = (
+       f"Cita agendada exitosamente.\n"
+       f"  Asesor: {resp.asesor}\n"
+       f"  Fecha/hora: {resp.inicio}\n"
+       f"  Duración: {resp.duracion_minutos} minutos\n"
+       f"  Modalidad: {resp.modalidad}\n"
+       f"  Event ID: {resp.event_id}"
+   )
+   if resp.meet_link:
+       msg += f"\n  Link de reunión: {resp.meet_link}"
+   return msg
+   ```
+2. Borrar la constante `_AGENDAR_WEBHOOK_URL` si ninguna otra tool la usa.
+3. Borrar los `# noqa: F401` de `CrearEventoRequest` y `crear_evento_core`.
 
 ## 3. `reagendar_cita` ⏳
 
@@ -93,3 +171,4 @@ _Pendiente._
 ## Histórico
 
 - **2026-04-24** — Migrada `consultar_disponibilidad` a webhook n8n. Resto pendiente.
+- **2026-04-25** — Migrada `agendar_cita` a webhook n8n (`POST /webhook/crear-evento`). Restantes: `reagendar_cita`, `cancelar_cita`.
