@@ -9263,6 +9263,23 @@ app.get('/api/v1/debug/interactions', async (req, res) => {
 });
 
 
+// ── Debug Arquitectura (mapa interactivo del sistema) ───────────────────────
+const ARQUITECTURA_DEBUG_HTML = (() => {
+  try {
+    return readFileSync(join(__dirname, 'arquitectura-debug.html'), 'utf8');
+  } catch (err) {
+    console.warn('[KapsoBridge] no se pudo cargar arquitectura-debug.html:', err.message);
+    return '<h1>arquitectura-debug.html no encontrado</h1>';
+  }
+})();
+
+app.get('/debug/arquitectura', async (req, res) => {
+  if (!requireDebugAccess(req, res)) return;
+  res.set('Cache-Control', 'no-store, max-age=0');
+  res.status(200).type('html').send(ARQUITECTURA_DEBUG_HTML);
+});
+
+
 // ── Debug Calendarios Nylas (vista grid de busy slots) ──────────────────────
 const CALENDARIOS_DEBUG_HTML = (() => {
   try {
