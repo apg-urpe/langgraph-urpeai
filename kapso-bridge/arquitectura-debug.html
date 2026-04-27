@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>URPE — Arquitectura del sistema</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:#0f172a;color:#e2e8f0;font-family:Arial,sans-serif;min-height:100vh}
+    a{color:#93c5fd;text-decoration:none}
+    a:hover{text-decoration:underline}
+
+    /* Layout */
+    .layout{display:grid;grid-template-columns:280px 1fr;min-height:100vh}
+    @media (max-width:900px){.layout{grid-template-columns:1fr}.sidebar{position:static!important;height:auto!important}}
+
+    /* Sidebar */
+    .sidebar{position:sticky;top:0;height:100vh;overflow-y:auto;background:#0b1222;border-right:1px solid #334155;padding:18px 14px}
+    .sidebar h1{font-size:15px;margin:0 0 4px;color:#e2e8f0}
+    .sidebar .subtitle{color:#94a3b8;font-size:11px;margin-bottom:14px}
+    .sidebar input[type=text]{width:100%;padding:6px 8px;background:#111827;border:1px solid #334155;color:#e2e8f0;border-radius:6px;font-size:12px;margin-bottom:10px}
+    .toc{list-style:none;padding:0;margin:0}
+    .toc li{margin:0}
+    .toc a{display:block;padding:7px 10px;color:#cbd5e1;font-size:13px;border-left:2px solid transparent;border-radius:0 6px 6px 0}
+    .toc a:hover{background:#1e293b;text-decoration:none}
+    .toc a.active{background:#1e293b;border-left-color:#60a5fa;color:#fff}
+    .toc-num{display:inline-block;width:22px;color:#64748b;font-variant-numeric:tabular-nums}
+
+    /* Main */
+    main{padding:22px 32px 80px;max-width:1200px}
+    .top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px}
+    .top .title{font-size:22px;font-weight:700}
+    .top .actions a{margin-left:14px;font-size:13px}
+
+    .meta{background:#111827;border:1px solid #334155;border-radius:10px;padding:14px 16px;font-size:13px;color:#cbd5e1;margin-bottom:24px;line-height:1.6}
+    .meta strong{color:#fbbf24}
+
+    section.diagram{background:#111827;border:1px solid #334155;border-radius:12px;padding:20px;margin-bottom:22px;scroll-margin-top:8px}
+    section.diagram h2{margin:0 0 6px;font-size:18px;color:#fff}
+    section.diagram .lead{color:#94a3b8;font-size:13px;margin:0 0 16px;line-height:1.55}
+    section.diagram .diagram-box{position:relative;background:#0b1222;border:1px solid #1e293b;border-radius:8px;padding:18px;overflow:auto;cursor:zoom-in}
+    section.diagram .diagram-box:hover{border-color:#475569}
+    section.diagram .diagram-box .zoom-hint{position:absolute;top:8px;right:10px;font-size:10px;color:#64748b;background:rgba(15,23,42,.7);padding:2px 6px;border-radius:4px;pointer-events:none}
+
+    section.diagram .notes{margin-top:12px;font-size:12px;color:#cbd5e1;background:#0b1222;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:0 8px 8px 0;line-height:1.55}
+    section.diagram .notes code{background:#1e293b;padding:1px 5px;border-radius:3px;font-size:11px;color:#fbbf24}
+    section.diagram ul{padding-left:18px;margin:6px 0}
+    section.diagram li{margin:3px 0}
+
+    table.files{width:100%;border-collapse:collapse;font-size:12px;background:#0b1222;border:1px solid #334155;border-radius:8px;overflow:hidden}
+    table.files th,table.files td{padding:9px 12px;border-bottom:1px solid #1e293b;text-align:left;vertical-align:top}
+    table.files th{background:#1e293b;color:#93c5fd;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+    table.files tr:last-child td{border-bottom:none}
+    table.files code{font-size:11px;color:#fbbf24}
+
+    /* Mermaid container — let it size naturally so we can scroll/zoom */
+    .mermaid{display:flex;justify-content:center;align-items:center;min-height:120px}
+    .mermaid svg{max-width:100%;height:auto}
+
+    /* Modal */
+    .modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;justify-content:center;align-items:center;padding:24px}
+    .modal.open{display:flex}
+    .modal .modal-inner{background:#0b1222;border:1px solid #334155;border-radius:10px;max-width:96vw;max-height:94vh;overflow:auto;padding:24px;position:relative}
+    .modal .modal-close{position:absolute;top:10px;right:14px;background:#dc2626;color:#fff;border:none;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:14px;font-weight:700}
+    .modal .modal-content{min-width:60vw;min-height:50vh}
+    .modal .modal-content svg{width:100%;height:auto}
+    .modal .zoom-controls{position:absolute;top:10px;left:14px;display:flex;gap:6px}
+    .modal .zoom-controls button{background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}
+    .modal .zoom-controls button:hover{background:#334155}
+
+    /* Tags */
+    .tag{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600;margin-left:8px;vertical-align:middle}
+    .tag-fastapi{background:#1e3a5f;color:#7dd3fc}
+    .tag-bridge{background:#3b1f5e;color:#c4b5fd}
+    .tag-data{background:#14532d;color:#86efac}
+    .tag-ext{background:#7c2d12;color:#fdba74}
+    .tag-bg{background:#713f12;color:#fcd34d}
+
+    /* Loading */
+    .loading{padding:24px;text-align:center;color:#94a3b8;font-size:13px}
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <aside class="sidebar">
+    <h1>🏗️ URPE Arquitectura</h1>
+    <div class="subtitle">Mapa interactivo del sistema</div>
+    <input type="text" id="filter" placeholder="Filtrar secciones…" autocomplete="off">
+    <ul class="toc" id="toc">
+      <li><a href="#sec-1"><span class="toc-num">1.</span>Vista general</a></li>
+      <li><a href="#sec-2"><span class="toc-num">2.</span>Flujo end-to-end</a></li>
+      <li><a href="#sec-3"><span class="toc-num">3.</span>Grafo LangGraph</a></li>
+      <li><a href="#sec-4"><span class="toc-num">4.</span>Multi-canal</a></li>
+      <li><a href="#sec-5"><span class="toc-num">5.</span>Persistencia</a></li>
+      <li><a href="#sec-6"><span class="toc-num">6.</span>Observabilidad</a></li>
+      <li><a href="#sec-7"><span class="toc-num">7.</span>Retry stuck loop</a></li>
+      <li><a href="#sec-8"><span class="toc-num">8.</span>Scheduling n8n</a></li>
+      <li><a href="#sec-9"><span class="toc-num">9.</span>Manejo de errores</a></li>
+      <li><a href="#sec-10"><span class="toc-num">10.</span>Despliegue</a></li>
+      <li><a href="#sec-11"><span class="toc-num">11.</span>Archivos clave</a></li>
+    </ul>
+  </aside>
+
+  <main>
+    <div class="top">
+      <div class="title">URPE AI Lab — Arquitectura del sistema</div>
+      <div class="actions" id="navActions">
+        <a href="#" id="back-kapso">← Kapso</a>
+        <a href="#" id="back-canales">Todos los canales</a>
+      </div>
+    </div>
+
+    <div class="meta">
+      <strong>Stack:</strong> FastAPI + LangGraph + Supabase + Express bridge + n8n + OpenRouter (Grok 4.1 fast).<br>
+      <strong>Despliegue dual:</strong> Bridge Express en <code>:3001</code> + FastAPI Uvicorn en <code>:8000</code>, ambos en el mismo contenedor Docker.<br>
+      <strong>Cómo leerlo:</strong> click en cualquier diagrama para verlo grande con zoom. Usa el filtro lateral para saltar a secciones.
+    </div>
+
+    <!-- ─────────── 1. Vista general ─────────── -->
+    <section class="diagram" id="sec-1">
+      <h2>1. Vista general — Arquitectura de alto nivel <span class="tag tag-fastapi">macro</span></h2>
+      <p class="lead">Cómo se conectan los componentes principales: plataformas externas (Meta, Kapso, ManyChat, GHL) → contenedor (bridge + FastAPI) → servicios (Supabase, OpenRouter, n8n).</p>
+      <div class="diagram-box" data-mermaid-source="diag-1"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-1">
+flowchart TB
+    subgraph EXT["🌐 Plataformas externas"]
+        META["WhatsApp Cloud API<br/>(Meta)"]
+        IG_FB["Instagram / Facebook<br/>(Meta)"]
+        KAPSO_CLOUD["Kapso Cloud"]
+        MC_CLOUD["ManyChat Cloud"]
+        GHL_CLOUD["GHL / LeadConnector"]
+    end
+
+    subgraph DEPLOY["🐳 Contenedor Docker"]
+        subgraph BRIDGE["Express Bridge :3001"]
+            BR_WH["Webhook receiver<br/>server.mjs"]
+            BR_ENRICH["Enriquecimiento<br/>vision + transcripción"]
+            BR_QUEUE["threadQueues<br/>cola por phone_id"]
+            BR_DEBUG["bridgeDebugEvents<br/>buffer 200"]
+        end
+
+        subgraph FASTAPI["FastAPI / Uvicorn :8000"]
+            FA_INBOUND["Webhooks inbound<br/>kapso/manychat/ghl"]
+            FA_AGENT["Agent runner<br/>LangGraph"]
+            FA_OUTBOUND["Senders<br/>kapso/manychat/ghl"]
+            FA_DEBUG["Debug dashboard<br/>+ SSE"]
+            FA_RETRY["Retry stuck loop<br/>cada 5min"]
+            FA_SCHED["Scheduling routes<br/>proxy a n8n"]
+        end
+    end
+
+    subgraph DATA["💾 Persistencia & servicios"]
+        SUPA[("Supabase<br/>PostgREST")]
+        OR["OpenRouter<br/>Grok 4.1 fast"]
+        N8N["n8n cloud<br/>scheduling webhooks"]
+        ERR["Error webhook<br/>n8n"]
+        NYLAS["Nylas Calendar<br/>via n8n"]
+    end
+
+    META --> KAPSO_CLOUD --> BR_WH
+    IG_FB --> MC_CLOUD --> FA_INBOUND
+    IG_FB --> GHL_CLOUD --> FA_INBOUND
+    BR_WH --> BR_ENRICH --> BR_QUEUE --> FA_INBOUND
+    FA_INBOUND --> FA_AGENT
+    FA_AGENT <--> OR
+    FA_AGENT <--> SUPA
+    FA_AGENT --> N8N --> NYLAS
+    FA_AGENT --> FA_OUTBOUND
+    FA_OUTBOUND --> KAPSO_CLOUD
+    FA_OUTBOUND --> MC_CLOUD
+    FA_OUTBOUND --> GHL_CLOUD
+    FA_RETRY -.lee.-> SUPA
+    FA_RETRY -.reinyecta.-> FA_INBOUND
+    FA_DEBUG <-.SSE.-> SUPA
+    FASTAPI -.errores 500.-> ERR
+    FA_SCHED --> N8N
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Claves:</strong> el bridge sólo media WhatsApp; ManyChat y GHL llegan directo a FastAPI.
+        FastAPI nunca llama al bridge, sólo lo recibe — la comunicación es unidireccional bridge→FastAPI.
+      </div>
+    </section>
+
+    <!-- ─────────── 2. Flujo end-to-end ─────────── -->
+    <section class="diagram" id="sec-2">
+      <h2>2. Flujo end-to-end de un mensaje (WhatsApp) <span class="tag tag-bridge">sequence</span></h2>
+      <p class="lead">Recorrido completo de un mensaje desde que el usuario escribe en WhatsApp hasta que recibe respuesta. Las fases 1 (funnel + contact_update) corren en paralelo; la fase 2 (conversational) corre después con el resultado de la fase 1.</p>
+      <div class="diagram-box" data-mermaid-source="diag-2"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-2">
+sequenceDiagram
+    autonumber
+    actor U as Usuario
+    participant META as Meta Cloud
+    participant KP as Kapso
+    participant BR as Bridge :3001
+    participant FA as FastAPI<br/>/kapso/inbound
+    participant DBG as kapso_debug
+    participant SUP as Supabase
+    participant FN as Funnel Agent
+    participant CU as Contact Update
+    participant CA as Conversational
+    participant OR as OpenRouter
+    participant N8 as n8n / Nylas
+    participant SND as WhatsApp sender
+
+    U->>META: Mensaje
+    META->>KP: webhook
+    KP->>BR: POST + secret
+    BR->>BR: enriquece (vision/audio)
+    BR->>BR: encola (threadQueue)
+    BR->>FA: POST inbound
+
+    FA->>DBG: stage=inbound_received
+    DBG-)SUP: insert debug_events
+
+    par Phase 1 — paralelo (20–25s)
+        FA->>FN: run_funnel_agent
+        FN->>SUP: lee embudo + contacto
+        FN->>OR: identifica etapa
+        FN-->>FA: etapa
+    and
+        FA->>CU: run_contact_update
+        CU->>OR: extrae nombre/datos
+        CU->>SUP: update wp_contactos
+        CU-->>FA: ok
+    end
+
+    FA->>CA: run_agent (Phase 2)
+    loop hasta 4 iteraciones
+        CA->>OR: invoke + tools
+        OR-->>CA: tool_calls
+        opt scheduling
+            CA->>N8: webhook crear/reagendar/cancelar
+            N8-->>CA: resultado
+        end
+        opt CRM
+            CA->>SUP: update contactos/notas
+        end
+    end
+
+    CA-->>FA: respuesta + tools_used
+    FA->>SUP: insert wp_mensajes
+    FA->>DBG: stage=run_agent_done
+    FA->>SND: send_message
+    SND->>KP: WhatsAppClient
+    KP->>META: respuesta
+    META->>U: mensaje del bot
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Timeouts:</strong> funnel 25s · contact_update 20s · LLM por iteración 30s · hard cap 4 iteraciones.<br>
+        <strong>Si la fase 1 falla,</strong> la fase 2 corre igual con un prompt mínimo — no se pierde el mensaje.
+      </div>
+    </section>
+
+    <!-- ─────────── 3. Grafo LangGraph ─────────── -->
+    <section class="diagram" id="sec-3">
+      <h2>3. Grafo LangGraph — Conversational Agent <span class="tag tag-fastapi">core</span></h2>
+      <p class="lead">El nodo <code>agent_node</code> invoca al LLM con las herramientas. Si el LLM llama herramientas, pasa a <code>tool_execution_node</code> y vuelve. Hay un cap duro de 4 iteraciones para prevenir bucles infinitos.</p>
+      <div class="diagram-box" data-mermaid-source="diag-3"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-3">
+flowchart LR
+    START((START)) --> AG["agent_node<br/>LLM + tools bind"]
+    AG --> DEC{tool_calls?}
+    DEC -->|sí| TX["tool_execution_node"]
+    DEC -->|no| END((END))
+    TX --> CHK{iter < 4?}
+    CHK -->|sí| AG
+    CHK -->|no MAX| END
+
+    subgraph TOOLS["Tools disponibles"]
+        T1["consultar_disponibilidad<br/>→ webhook n8n"]
+        T2["agendar_cita<br/>→ webhook n8n"]
+        T3["reagendar_cita<br/>→ webhook n8n"]
+        T4["cancelar_cita<br/>→ webhook n8n"]
+        T5["guardar_nota<br/>→ Supabase"]
+        T6["marcar_calificado<br/>→ Supabase"]
+        T7["desactivar_spam<br/>→ Supabase"]
+        T8["enviar_reaccion<br/>WhatsApp emoji"]
+        T9["ejecutar_comando<br/>WhatsApp CLI"]
+    end
+
+    TX -.invoca.-> TOOLS
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Estado <code>AgentState</code>:</strong> messages, tools_used, reaction_emoji, métricas timing.<br>
+        <strong>LLM:</strong> ChatOpenAI apuntando a OpenRouter — instancias cacheadas por modelo+params en <code>_llm_cache</code>.
+      </div>
+    </section>
+
+    <!-- ─────────── 4. Multi-canal ─────────── -->
+    <section class="diagram" id="sec-4">
+      <h2>4. Multi-canal — adaptadores y senders <span class="tag tag-fastapi">routing</span></h2>
+      <p class="lead">Los 3 canales convergen en un núcleo común (<code>channel_adapter</code> + agentes) y divergen al enviar respuesta a través de su sender específico.</p>
+      <div class="diagram-box" data-mermaid-source="diag-4"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-4">
+flowchart LR
+    subgraph IN["Inbound webhooks"]
+        IK["/api/v1/kapso/inbound"]
+        IM["/api/v1/manychat/inbound"]
+        IG["/api/v1/ghl/inbound"]
+    end
+
+    subgraph CORE["Núcleo común"]
+        ADP["channel_adapter<br/>normaliza payload"]
+        DBG["kapso_debug<br/>stage events"]
+        AGENT["Funnel + ContactUpdate<br/>+ Conversational"]
+    end
+
+    subgraph OUT["Outbound senders"]
+        SK["WhatsAppClient<br/>Kapso /meta/whatsapp"]
+        SM["ManyChat sendContent<br/>api.manychat.com"]
+        SG["GHL Conversations API<br/>services.leadconnectorhq.com"]
+    end
+
+    IK --> ADP
+    IM --> ADP
+    IG --> ADP
+    ADP --> DBG --> AGENT
+    AGENT --> SK
+    AGENT --> SM
+    AGENT --> SG
+        </div>
+      </div>
+      <div class="notes">
+        El payload en <code>debug_events.payload._channel</code> guarda de qué canal viene la interacción
+        (no hay columna separada — se infiere desde ahí).
+      </div>
+    </section>
+
+    <!-- ─────────── 5. Persistencia ─────────── -->
+    <section class="diagram" id="sec-5">
+      <h2>5. Persistencia — tablas Supabase <span class="tag tag-data">data</span></h2>
+      <p class="lead">Modelo simplificado de las tablas más relevantes y sus relaciones. <code>debug_events</code> es la tabla de observabilidad; el resto es el modelo de negocio.</p>
+      <div class="diagram-box" data-mermaid-source="diag-5"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-5">
+erDiagram
+    wp_empresa_perfil ||--o{ wp_empresa_embudo : configura
+    wp_empresa_perfil ||--o{ wp_contactos : tiene
+    wp_empresa_perfil ||--o{ wp_agentes : posee
+    wp_agentes ||--o{ wp_agente_tools : usa
+    wp_contactos ||--o{ wp_conversaciones : abre
+    wp_conversaciones ||--o{ wp_mensajes : contiene
+    wp_contactos ||--o{ wp_contactos_nota : anota
+    wp_contactos ||--o{ wp_citas : agenda
+    debug_events }o--|| wp_contactos : refiere
+
+    wp_mensajes {
+        uuid id
+        timestamp timestamp "PK timing — NO created_at"
+        text contenido
+        text direccion
+    }
+    debug_events {
+        uuid id
+        text source "kapso/manychat/ghl"
+        text stage "inbound_received / run_agent_done"
+        jsonb payload "incluye _channel y timing.total_ms"
+        uuid empresa_id "puede ser NULL"
+    }
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Gotchas confirmados:</strong>
+        <ul>
+          <li><code>wp_mensajes.timestamp</code> ≠ resto de tablas que usan <code>created_at</code>.</li>
+          <li><code>debug_events.empresa_id</code> puede ser NULL aunque <code>payload.empresa_id</code> traiga valor.</li>
+          <li>Timing real vive en <code>payload.timing.total_ms</code>, no en <code>payload.total_ms</code>.</li>
+        </ul>
+        <strong>Cliente:</strong> <code>app/db/client.py</code> — httpx HTTP/2 pooled (20 max, 10 keepalive), 3 reintentos × 0.8s en 502/503/504/HTML.
+      </div>
+    </section>
+
+    <!-- ─────────── 6. Observabilidad ─────────── -->
+    <section class="diagram" id="sec-6">
+      <h2>6. Observabilidad — debug & SSE <span class="tag tag-fastapi">debug</span></h2>
+      <p class="lead">Cada stage del procesamiento emite un evento. Los eventos van a 3 destinos: buffer en memoria (recientes), Supabase (persistente), y SSE (clientes conectados al dashboard).</p>
+      <div class="diagram-box" data-mermaid-source="diag-6"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-6">
+flowchart LR
+    subgraph PROD["Eventos producidos"]
+        P1["inbound_received"]
+        P2["funnel_completed / funnel_error"]
+        P3["run_agent_done / run_agent_error"]
+        P4["retry_started"]
+    end
+
+    subgraph KD["app/core/kapso_debug.py"]
+        DEQ["deque(maxlen=200)<br/>buffer en memoria"]
+        SUBS["_sse_subscribers<br/>asyncio.Queue por cliente"]
+    end
+
+    subgraph SINK["Sinks"]
+        SUP[("debug_events<br/>Supabase")]
+        SSE["SSE stream<br/>/debug/kapso/stream"]
+    end
+
+    subgraph UI["Paneles bridge :3001"]
+        UK["/debug/kapso<br/>WhatsApp"]
+        UM["/debug/manychat"]
+        UG["/debug/ghl"]
+        UC["/debug/canales<br/>unificado"]
+        UV["/debug/kapso/visual<br/>diagrama"]
+    end
+
+    P1 & P2 & P3 & P4 --> DEQ
+    DEQ -.fire&forget.-> SUP
+    DEQ --> SUBS --> SSE
+    SSE --> UK & UM & UG & UC
+    SUP -.hidrata al boot.-> DEQ
+    UC -.fallback paginado.-> SUP
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Hidratación al startup</strong> (<code>main.py:62</code>): <code>hydrate_from_supabase()</code> carga últimos 200 eventos para que el dashboard no quede vacío post-restart.
+      </div>
+    </section>
+
+    <!-- ─────────── 7. Retry stuck ─────────── -->
+    <section class="diagram" id="sec-7">
+      <h2>7. Background loop — retry de mensajes "stuck" <span class="tag tag-bg">background</span></h2>
+      <p class="lead">Cada 5 minutos escanea <code>debug_events</code> buscando mensajes que entraron pero nunca se completaron, y los reintenta hasta 3 veces. Toggle: <code>RETRY_STUCK_ENABLED=false</code> lo desactiva.</p>
+      <div class="diagram-box" data-mermaid-source="diag-7"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-7">
+flowchart TB
+    BOOT["Startup main.py:64"] -->|delay 60s| LOOP{{"_retry_stuck_loop<br/>cada 5 min"}}
+    LOOP --> CYCLE["run_debug_retry_cycle"]
+
+    CYCLE --> Q1["Query debug_events<br/>últimas 2h: inbound_received"]
+    CYCLE --> Q2["Query debug_events<br/>últimas 24h: funnel_error"]
+
+    Q1 --> CHK1{¿hay run_agent_done<br/>correspondiente?}
+    CHK1 -->|no, > 5min| STUCK["Marcar stuck"]
+    CHK1 -->|sí| OK1["skip"]
+
+    Q2 --> CHK2{¿retries < 3?}
+    CHK2 -->|sí| STUCK
+    CHK2 -->|no| OK2["skip"]
+
+    STUCK --> DEDUP{¿retry_started<br/>ya emitido?}
+    DEDUP -->|sí| OK3["skip dedup"]
+    DEDUP -->|no| EMIT["emite retry_started<br/>+ reinyecta payload"]
+    EMIT --> LOOP
+
+    SHUTDOWN["Lifespan shutdown"] -.cancel.-> LOOP
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Max retries:</strong> 3 por <code>message_id</code>. La deduplicación por <code>retry_started</code> evita reintentos en cascada.
+      </div>
+    </section>
+
+    <!-- ─────────── 8. Scheduling ─────────── -->
+    <section class="diagram" id="sec-8">
+      <h2>8. Scheduling — integración n8n + Nylas <span class="tag tag-ext">external</span></h2>
+      <p class="lead">Las 4 herramientas de calendario (<code>consultar_disponibilidad</code>, <code>agendar_cita</code>, <code>reagendar_cita</code>, <code>cancelar_cita</code>) delegan en webhooks de n8n cloud. n8n actúa como orquestador entre Nylas Calendar y la tabla <code>wp_citas</code>.</p>
+      <div class="diagram-box" data-mermaid-source="diag-8"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-8">
+sequenceDiagram
+    autonumber
+    participant CA as Conversational Agent
+    participant TOOL as tools/scheduling.py
+    participant N8 as n8n cloud
+    participant NYLAS as Nylas Calendar
+    participant SUP as Supabase wp_citas
+
+    CA->>TOOL: consultar_disponibilidad(asesor, rango)
+    TOOL->>N8: POST /webhook/disponibilidad-nylas
+    N8->>NYLAS: free/busy query
+    NYLAS-->>N8: slots
+    N8-->>TOOL: huecos disponibles
+    TOOL-->>CA: lista de slots
+
+    CA->>TOOL: agendar_cita(slot, contacto)
+    TOOL->>N8: POST /webhook/crear-evento
+    N8->>NYLAS: create event
+    N8->>SUP: insert wp_citas
+    N8-->>TOOL: evento_id + confirmación
+    TOOL-->>CA: confirmado
+
+    note over CA,TOOL: reagendar_cita y cancelar_cita<br/>siguen el mismo patrón con sus<br/>webhooks respectivos.
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Webhooks n8n:</strong>
+        <ul>
+          <li><code>/webhook/disponibilidad-nylas</code></li>
+          <li><code>/webhook/crear-evento</code></li>
+          <li><code>/webhook/reagendar-dashboard</code></li>
+          <li><code>/webhook/cancelar-evento</code></li>
+        </ul>
+        <strong>Timeout:</strong> 60s. <strong>Política anti-alucinación:</strong> <code>cancelar_cita</code> usa estrictamente la respuesta del webhook como fuente de verdad — nunca inventa confirmaciones.
+      </div>
+    </section>
+
+    <!-- ─────────── 9. Manejo de errores ─────────── -->
+    <section class="diagram" id="sec-9">
+      <h2>9. Manejo de errores — error webhook <span class="tag tag-ext">monitoring</span></h2>
+      <p class="lead">Toda excepción no capturada y todo response 5xx (excepto rutas <code>/debug/*</code>) se notifica a un webhook de n8n. Las rutas debug se silencian para no generar ruido.</p>
+      <div class="diagram-box" data-mermaid-source="diag-9"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-9">
+flowchart TB
+    REQ["Request entrante"] --> MW["error_webhook_middleware<br/>main.py:98"]
+    MW --> HND["Route handler"]
+
+    HND -->|ok| RES["Response 2xx/4xx"]
+    HND -->|excepción| EXC["global_exception_handler<br/>main.py:145"]
+    HND -->|HTTPException 5xx| RES5["Response 5xx"]
+
+    EXC --> CHK1{¿es debug endpoint?}
+    RES5 --> CHK2{¿es debug endpoint?}
+
+    CHK1 -->|no| WH["send_error_to_webhook<br/>severity=critical"]
+    CHK2 -->|no| WH2["send_error_to_webhook<br/>severity=error"]
+    CHK1 -->|sí| SKIP1["skip (silencio)"]
+    CHK2 -->|sí| SKIP2["skip (silencio)"]
+
+    WH & WH2 --> ERRWH["ERROR_WEBHOOK_URL<br/>n8n — fire&forget"]
+        </div>
+      </div>
+      <div class="notes">
+        Prefijos silenciados: <code>/api/v1/debug/</code> · <code>/debug/</code> · <code>/api/v1/kapso/debug/</code> · <code>/api/v1/manychat/debug/</code> · <code>/api/v1/ghl/debug/</code>.
+      </div>
+    </section>
+
+    <!-- ─────────── 10. Despliegue ─────────── -->
+    <section class="diagram" id="sec-10">
+      <h2>10. Despliegue — dual proceso en un contenedor <span class="tag tag-bg">deploy</span></h2>
+      <p class="lead">Un solo Docker image (Node 22 + Python 3.11 venv) corre dos procesos: Express en <code>:3001</code> (bridge) y Uvicorn en <code>:8000</code> (FastAPI). El bridge llama al FastAPI por loopback.</p>
+      <div class="diagram-box" data-mermaid-source="diag-10"><span class="zoom-hint">click para zoom</span>
+        <div class="mermaid" id="diag-10">
+flowchart LR
+    subgraph IMG["Docker image (node:22-bookworm-slim)"]
+        PY["Python 3.11 venv<br/>/opt/venv"]
+        APP["/app<br/>FastAPI source"]
+        BR["/kapso-bridge<br/>Express source"]
+        DOCS["/docs<br/>static, /public mount"]
+    end
+
+    IMG --> ENTRY["docker-entrypoint.sh<br/>+ railway-start.sh"]
+    ENTRY --> N["Node Express :3001"]
+    ENTRY --> U["Uvicorn FastAPI :8000"]
+
+    N -.INTERNAL_AGENT_API_URL<br/>http://127.0.0.1:8000.-> U
+
+    subgraph TARGETS["Targets"]
+        RAIL["Railway<br/>branch test<br/>auto deploy"]
+        VPS["VPS Docker<br/>branch main<br/>GitHub Actions CI/CD"]
+    end
+
+    IMG --> RAIL
+    IMG --> VPS
+        </div>
+      </div>
+      <div class="notes">
+        <strong>Reglas operativas:</strong>
+        <ul>
+          <li>Trabajar siempre en <code>test</code> → merge a <code>main</code> para producción.</li>
+          <li>No mergear con estrategia <code>ort</code> sin verificar <code>debug_dashboard.py</code> y <code>server.mjs</code> (merges previos borraron imports).</li>
+          <li><code>docs/</code> se copia al image → cambios en docs requieren rebuild.</li>
+          <li>Si el bridge crashea, todos los endpoints de WhatsApp caen.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ─────────── 11. Archivos clave ─────────── -->
+    <section class="diagram" id="sec-11">
+      <h2>11. Mapa de archivos clave <span class="tag tag-fastapi">reference</span></h2>
+      <p class="lead">Tabla de los archivos que más se tocan al operar con cada componente. Útil cuando un nuevo dev se incorpora.</p>
+      <table class="files">
+        <thead>
+          <tr><th style="width:32%">Componente</th><th>Archivo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Entry FastAPI</td><td><code>main.py</code></td></tr>
+          <tr><td>Bridge Express</td><td><code>kapso-bridge/server.mjs</code></td></tr>
+          <tr><td>Webhook WhatsApp</td><td><code>app/api/kapso_routes.py</code></td></tr>
+          <tr><td>Webhook ManyChat (IG/FB)</td><td><code>app/api/manychat_routes.py</code></td></tr>
+          <tr><td>Webhook GHL (IG/FB)</td><td><code>app/api/ghl_routes.py</code></td></tr>
+          <tr><td>Scheduling routes</td><td><code>app/api/scheduling_routes.py</code></td></tr>
+          <tr><td>Conversational agent</td><td><code>app/agents/conversational.py</code></td></tr>
+          <tr><td>Funnel agent</td><td><code>app/agents/funnel.py</code></td></tr>
+          <tr><td>Contact update agent</td><td><code>app/agents/contact_update.py</code></td></tr>
+          <tr><td>Tool scheduling (n8n)</td><td><code>app/tools/scheduling.py</code></td></tr>
+          <tr><td>Tool CRM (Supabase)</td><td><code>app/tools/crm.py</code></td></tr>
+          <tr><td>Cliente Supabase</td><td><code>app/db/client.py</code></td></tr>
+          <tr><td>Debug + SSE</td><td><code>app/core/kapso_debug.py</code></td></tr>
+          <tr><td>Retry loop</td><td><code>app/core/debug_retry.py</code></td></tr>
+          <tr><td>Error webhook</td><td><code>app/core/error_webhook.py</code></td></tr>
+          <tr><td>Dashboard FastAPI</td><td><code>app/api/debug_dashboard.py</code></td></tr>
+          <tr><td>Channel adapter</td><td><code>app/services/channel_adapter.py</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+</div>
+
+<!-- Modal para zoom -->
+<div class="modal" id="modal" role="dialog" aria-modal="true">
+  <div class="modal-inner">
+    <div class="zoom-controls">
+      <button id="zoom-in">＋</button>
+      <button id="zoom-out">－</button>
+      <button id="zoom-reset">100%</button>
+    </div>
+    <button class="modal-close" id="modal-close">✕ Cerrar</button>
+    <div class="modal-content" id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+  // ── Mermaid init ─────────────────────────────────────────────
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#0b1222',
+      primaryColor: '#1e3a5f',
+      primaryTextColor: '#e2e8f0',
+      primaryBorderColor: '#475569',
+      lineColor: '#64748b',
+      secondaryColor: '#3b1f5e',
+      tertiaryColor: '#14532d',
+      fontSize: '13px'
+    },
+    flowchart: { htmlLabels: true, curve: 'basis' },
+    sequence: { actorMargin: 60, boxMargin: 10 },
+    er: { useMaxWidth: true }
+  });
+
+  // ── Token-aware nav links ────────────────────────────────────
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token') || '';
+  function withToken(path){
+    if(!token) return path;
+    const u = new URL(path, location.origin);
+    u.searchParams.set('token', token);
+    return u.pathname + u.search;
+  }
+  document.getElementById('back-kapso').href    = withToken('/debug/kapso');
+  document.getElementById('back-canales').href  = withToken('/debug/canales');
+
+  // ── TOC: highlight active section on scroll ─────────────────
+  const tocLinks = document.querySelectorAll('.toc a');
+  const sections = document.querySelectorAll('section.diagram');
+  const tocByHash = {};
+  tocLinks.forEach(a => { tocByHash[a.getAttribute('href')] = a; });
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = '#' + e.target.id;
+        tocLinks.forEach(a => a.classList.remove('active'));
+        if (tocByHash[id]) tocByHash[id].classList.add('active');
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px', threshold: 0 });
+  sections.forEach(s => observer.observe(s));
+
+  // ── Filter TOC ───────────────────────────────────────────────
+  const filter = document.getElementById('filter');
+  filter.addEventListener('input', () => {
+    const q = filter.value.toLowerCase().trim();
+    tocLinks.forEach(a => {
+      const t = a.textContent.toLowerCase();
+      a.parentElement.style.display = (!q || t.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // ── Modal zoom ───────────────────────────────────────────────
+  const modal       = document.getElementById('modal');
+  const modalContent= document.getElementById('modal-content');
+  const modalClose  = document.getElementById('modal-close');
+  let currentScale  = 1;
+
+  function applyScale() {
+    const svg = modalContent.querySelector('svg');
+    if (svg) svg.style.transform = `scale(${currentScale})`;
+    if (svg) svg.style.transformOrigin = 'top left';
+  }
+
+  function openModal(sourceId) {
+    const src = document.getElementById(sourceId);
+    if (!src) return;
+    // Clone the rendered SVG into the modal
+    const svg = src.querySelector('svg');
+    if (!svg) return;
+    modalContent.innerHTML = '';
+    const cloned = svg.cloneNode(true);
+    cloned.removeAttribute('width');
+    cloned.removeAttribute('height');
+    cloned.style.width = '100%';
+    cloned.style.height = 'auto';
+    modalContent.appendChild(cloned);
+    currentScale = 1;
+    applyScale();
+    modal.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+    modalContent.innerHTML = '';
+    document.body.style.overflow = '';
+  }
+
+  document.querySelectorAll('.diagram-box').forEach(box => {
+    box.addEventListener('click', () => {
+      openModal(box.getAttribute('data-mermaid-source'));
+    });
+  });
+  modalClose.addEventListener('click', closeModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+  document.getElementById('zoom-in').addEventListener('click', (e) => { e.stopPropagation(); currentScale = Math.min(4, currentScale + 0.25); applyScale(); });
+  document.getElementById('zoom-out').addEventListener('click', (e) => { e.stopPropagation(); currentScale = Math.max(0.25, currentScale - 0.25); applyScale(); });
+  document.getElementById('zoom-reset').addEventListener('click', (e) => { e.stopPropagation(); currentScale = 1; applyScale(); });
+</script>
+
+</body>
+</html>
