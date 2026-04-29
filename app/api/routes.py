@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.agents.conversational import run_agent
+from app.core.cache import response_cache
 from app.db import queries as db
 
 logger = logging.getLogger(__name__)
