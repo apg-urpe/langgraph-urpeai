@@ -600,11 +600,11 @@ async def debug_interactions(
 
             rows: list[dict] = []
             if cid_int is not None:
-                # Step 1a: rows whose payload->>contacto_id matches.
-                #          (The column `contacto_id` may not exist or may be unreliable —
-                #          PostgREST returns 500 on OR with non-existent column. The payload
-                #          field is the source of truth, populated by add_kapso_debug_event.)
-                #          Bring full payload + empresa_id + created_at to correlate later.
+                # Step 1a: rows whose contacto_id column matches (indexed → fast).
+                #          (Filtering by payload->>'contacto_id' triggers a full-table JSON
+                #          scan that hits the Supabase statement_timeout (57014). The column
+                #          is populated by add_kapso_debug_event from payload.contacto_id, so
+                #          stages with contacto_id in payload also have it in the column.)
                 cid_rows: list[dict] = []
                 offset = 0
                 while True:
@@ -613,7 +613,7 @@ async def debug_interactions(
                         select="message_id,empresa_id,created_at,payload",
                         raw_filters={
                             "created_at": f"gte.{cutoff}",
-                            "payload->>'contacto_id'": f"eq.{cid_int}",
+                            "contacto_id": f"eq.{cid_int}",
                             "offset": str(offset),
                         },
                         order="created_at",
@@ -626,6 +626,29 @@ async def debug_interactions(
                     offset += _PAGE
                     if offset >= 50_000:
                         break
+
+                # Step 1a-fallback: si la columna no encontró nada, intentar payload->> con
+                # un limit chico para evitar timeout (puede no encontrar todo, pero al menos
+                # responde si la columna no se popula correctamente para algunos rows).
+                if not cid_rows:
+                    try:
+                        cid_rows = await db.query(
+                            "debug_events",
+                            select="message_id,empresa_id,created_at,payload",
+                            raw_filters={
+                                "created_at": f"gte.{cutoff}",
+                                "payload->>'contacto_id'": f"eq.{cid_int}",
+                            },
+                            order="created_at",
+                            order_desc=True,
+                            limit=200,  # Low limit → avoids statement_timeout
+                        ) or []
+                    except Exception as fallback_exc:
+                        logger.warning(
+                            "debug_interactions: fallback payload->>contacto_id falló: %s",
+                            fallback_exc,
+                        )
+                        cid_rows = []
 
                 # Step 1b: extract message_ids directly from row or payload; collect (ts, empresa)
                 # for orphan rows (those carrying contacto_id but missing message_id).
