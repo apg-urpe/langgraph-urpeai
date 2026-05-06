@@ -138,7 +138,16 @@ class SupabaseClient:
 
         if r.status_code == 406 and single:
             return None
-        r.raise_for_status()
+        if r.status_code >= 400:
+            # Surface PostgREST error body for diagnosis (instead of just "500 Server error")
+            try:
+                body = r.text[:600]
+            except Exception:
+                body = "<no-body>"
+            raise httpx.HTTPStatusError(
+                f"Supabase {r.status_code} querying {table}: {body}",
+                request=r.request, response=r,
+            )
 
         if count:
             content_range = r.headers.get("content-range", "")
