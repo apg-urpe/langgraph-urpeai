@@ -589,7 +589,10 @@ async def debug_interactions(
 
         if contacto_id:
             # Two-step: find message_ids for this contact, then fetch ALL events for those IDs.
-            # This ensures stages like run_agent_done (which lack the contacto_id column) are included.
+            # IMPORTANT: stages with contacto_id (inbound_entities_resolved, prompt_context_built,
+            # memory_session_resolved) typically lack message_id in their payload, and stages with
+            # message_id (inbound_received, run_agent_done) lack contacto_id. So we cannot find
+            # message_ids by querying contacto_id rows alone. We match by (empresa_id, timestamp ±2min).
             try:
                 cid_int = int(contacto_id)
             except ValueError:
@@ -597,35 +600,105 @@ async def debug_interactions(
 
             rows: list[dict] = []
             if cid_int is not None:
-                # Step 1: collect all message_ids where contacto_id = cid_int
-                id_rows: list[dict] = []
+                # Step 1a: rows whose contacto_id matches (column OR payload->>contacto_id).
+                #          Bring full payload + empresa_id + created_at to correlate later.
+                cid_rows: list[dict] = []
                 offset = 0
                 while True:
                     batch = await db.query(
                         "debug_events",
-                        select="message_id",
+                        select="message_id,empresa_id,created_at,payload",
                         raw_filters={
                             "created_at": f"gte.{cutoff}",
-                            "contacto_id": f"eq.{cid_int}",
+                            "or": f"(contacto_id.eq.{cid_int},payload->>contacto_id.eq.{cid_int})",
                             "offset": str(offset),
                         },
+                        order="created_at",
+                        order_desc=True,
                         limit=_PAGE,
                     ) or []
-                    id_rows.extend(batch)
+                    cid_rows.extend(batch)
                     if len(batch) < _PAGE:
                         break
                     offset += _PAGE
                     if offset >= 50_000:
                         break
 
-                msg_ids = list({r.get("message_id") for r in id_rows if r.get("message_id")})
+                # Step 1b: extract message_ids directly from row or payload; collect (ts, empresa)
+                # for orphan rows (those carrying contacto_id but missing message_id).
+                msg_ids: set[str] = set()
+                orphan_timeline: list[tuple[datetime, int]] = []
+                for r in cid_rows:
+                    p = r.get("payload") or {}
+                    mid = (
+                        r.get("message_id")
+                        or p.get("message_id")
+                        or p.get("interaction_id")
+                    )
+                    if mid:
+                        msg_ids.add(mid)
+                    else:
+                        ts = r.get("created_at")
+                        emp = r.get("empresa_id") or p.get("empresa_id")
+                        if ts and emp:
+                            try:
+                                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                                orphan_timeline.append((dt, int(emp)))
+                            except Exception:
+                                pass
 
-                if msg_ids:
+                # Step 1c: for orphans, fetch a window of events around their timestamps in the
+                # same empresa, then collect message_ids that fall within ±2 minutes — these
+                # belong to the same interaction(s).
+                if orphan_timeline:
+                    by_emp: dict[int, list[datetime]] = {}
+                    for dt, emp in orphan_timeline:
+                        by_emp.setdefault(emp, []).append(dt)
+                    for emp, dts in by_emp.items():
+                        if not dts:
+                            continue
+                        win_start = (min(dts) - timedelta(minutes=2)).isoformat()
+                        win_end = (max(dts) + timedelta(minutes=2)).isoformat()
+                        try:
+                            wbatch = await db.query(
+                                "debug_events",
+                                select="message_id,created_at,payload",
+                                raw_filters={
+                                    "empresa_id": f"eq.{emp}",
+                                    "and": f"(created_at.gte.{win_start},created_at.lte.{win_end})",
+                                },
+                                limit=3000,
+                            ) or []
+                        except Exception as window_exc:
+                            logger.warning(
+                                "debug_interactions: ventana correlación falló empresa=%s: %s",
+                                emp, window_exc,
+                            )
+                            continue
+                        for w in wbatch:
+                            wp = w.get("payload") or {}
+                            wmid = (
+                                w.get("message_id")
+                                or wp.get("message_id")
+                                or wp.get("interaction_id")
+                            )
+                            wts = w.get("created_at")
+                            if not (wmid and wts):
+                                continue
+                            try:
+                                wdt = datetime.fromisoformat(wts.replace("Z", "+00:00"))
+                            except Exception:
+                                continue
+                            if any(abs((wdt - d).total_seconds()) <= 120 for d in dts):
+                                msg_ids.add(wmid)
+
+                msg_ids_list = list(msg_ids)
+                if msg_ids_list:
                     # Step 2: fetch ALL events for those message_ids (no contacto_id restriction)
-                    # Chunk to avoid URL length limits (~100 ids per request)
+                    # Chunk to avoid URL length limits (~100 ids per request).
                     chunk_size = 100
-                    for chunk_start in range(0, len(msg_ids), chunk_size):
-                        chunk = msg_ids[chunk_start:chunk_start + chunk_size]
+                    for chunk_start in range(0, len(msg_ids_list), chunk_size):
+                        chunk = msg_ids_list[chunk_start:chunk_start + chunk_size]
                         chunk_rows = await db.query(
                             "debug_events",
                             select=_select,
