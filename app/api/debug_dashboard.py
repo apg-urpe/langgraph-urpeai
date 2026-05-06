@@ -613,7 +613,7 @@ async def debug_interactions(
                         select="message_id,empresa_id,created_at,payload",
                         raw_filters={
                             "created_at": f"gte.{cutoff}",
-                            "payload->>contacto_id": f"eq.{cid_int}",
+                            "payload->>'contacto_id'": f"eq.{cid_int}",
                             "offset": str(offset),
                         },
                         order="created_at",
