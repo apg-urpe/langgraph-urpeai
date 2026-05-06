@@ -600,7 +600,10 @@ async def debug_interactions(
 
             rows: list[dict] = []
             if cid_int is not None:
-                # Step 1a: rows whose contacto_id matches (column OR payload->>contacto_id).
+                # Step 1a: rows whose payload->>contacto_id matches.
+                #          (The column `contacto_id` may not exist or may be unreliable —
+                #          PostgREST returns 500 on OR with non-existent column. The payload
+                #          field is the source of truth, populated by add_kapso_debug_event.)
                 #          Bring full payload + empresa_id + created_at to correlate later.
                 cid_rows: list[dict] = []
                 offset = 0
@@ -610,7 +613,7 @@ async def debug_interactions(
                         select="message_id,empresa_id,created_at,payload",
                         raw_filters={
                             "created_at": f"gte.{cutoff}",
-                            "or": f"(contacto_id.eq.{cid_int},payload->>contacto_id.eq.{cid_int})",
+                            "payload->>contacto_id": f"eq.{cid_int}",
                             "offset": str(offset),
                         },
                         order="created_at",
