@@ -674,9 +674,15 @@ async def debug_interactions(
                                 pass
 
                 # Step 1c: for orphans, fetch a window of events around their timestamps in the
-                # same empresa, then collect message_ids that fall within ±2 minutes — these
-                # belong to the same interaction(s).
-                if orphan_timeline:
+                # same empresa, then collect message_ids that fall within ±2 minutes.
+                #
+                # IMPORTANT: only run Step 1c when Step 1b found NO message_ids at all.
+                # If we already have message_ids from rows that carry both contacto_id AND
+                # message_id (e.g. inbound_entities_resolved, memory_session_resolved), those
+                # cover the full interactions. Adding orphan-correlation on top would pull in
+                # message_ids from OTHER contacts that happened to chat in the same empresa
+                # within the time window — high-volume empresas (e.g. "Natalia") get heavy noise.
+                if orphan_timeline and not msg_ids:
                     by_emp: dict[int, list[datetime]] = {}
                     for dt, emp in orphan_timeline:
                         by_emp.setdefault(emp, []).append(dt)
