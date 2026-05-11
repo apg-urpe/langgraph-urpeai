@@ -83,8 +83,9 @@ class AgentState(TypedDict):
 
 _llm_cache: dict[str, ChatOpenAI] = {}
 
-MAX_CONVERSATIONAL_LLM_ITERATIONS = 4
-AGENT_GRAPH_TIMEOUT_SECONDS = 90
+MAX_CONVERSATIONAL_LLM_ITERATIONS = 6
+AGENT_GRAPH_TIMEOUT_SECONDS = 120
+RECOVERY_LLM_TIMEOUT_SECONDS = 20
 
 
 # ── LLM factory ───────────────────────────────────────────────────────────────
@@ -202,6 +203,11 @@ def _clean_tool_leaks(text: str) -> str:
     cleaned = _TOOL_LEAK_JSON.sub("", cleaned)
     cleaned = _TOOL_LEAK_PATTERNS.sub("", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    # Safeguard: if the cleaner emptied a non-empty response, the regexes were
+    # over-aggressive. A raw reply with a visible tool-call leak is less broken
+    # than silently dropping the whole answer to the generic courtesy fallback.
+    if not cleaned and text.strip():
+        return text.strip()
     return cleaned
 
 
@@ -599,19 +605,101 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
 
     # ── Extract response ──────────────────────────────────────────────────────
     short_circuit_response = final_state.get("short_circuit_response")
+    last_message = final_state["messages"][-1] if final_state.get("messages") else None
     if short_circuit_response:
         response_text = short_circuit_response
     elif timed_out:
         response_text = ""
     else:
-        last_message = final_state["messages"][-1]
         response_text = str(last_message.content or "") if isinstance(last_message, AIMessage) else ""
 
+    # ── Recovery pass: force a text reply when the graph ended without one ────
+    # Triggered when the LLM kept calling tools until the iteration cap, or
+    # produced an AIMessage with empty content. We re-invoke the LLM WITHOUT
+    # tools and with an explicit nudge, so it has to summarise into text.
+    recovery_used = False
+    if (
+        not short_circuit_response
+        and not timed_out
+        and not response_text.strip()
+        and final_state.get("messages")
+    ):
+        try:
+            recovery_messages = list(final_state["messages"]) + [
+                HumanMessage(
+                    content=(
+                        "Responde ahora al usuario con un mensaje de texto claro y breve "
+                        "usando la información que ya obtuviste. NO llames más herramientas: "
+                        "solo redacta la respuesta final."
+                    )
+                )
+            ]
+            recovery_response = await asyncio.wait_for(
+                ainvoke_with_retry(llm, recovery_messages),
+                timeout=RECOVERY_LLM_TIMEOUT_SECONDS,
+            )
+            if isinstance(recovery_response, AIMessage):
+                recovered_text = str(recovery_response.content or "")
+                if recovered_text.strip():
+                    response_text = recovered_text
+                    recovery_used = True
+                    logger.info(
+                        "run_agent: recovery LLM produjo %d chars tras grafo vacío",
+                        len(recovered_text),
+                    )
+        except Exception:
+            logger.exception("run_agent.recovery_invocation_failed")
+
+    raw_response_text = response_text
     response_text = _clean_tool_leaks(response_text)
+
+    # ── Empty-reply detection: notify webhook with root cause ─────────────────
+    # The caller will fall back to a generic courtesy message; we surface the
+    # cause (timeout, iterations exhausted, empty AIMessage, or over-aggressive
+    # cleaner) so we can act on patterns instead of guessing from the symptom.
+    if not response_text.strip() and not short_circuit_response:
+        iters_final = int(final_state.get("llm_iterations", 0))
+        last_msg_type = type(last_message).__name__ if last_message is not None else "None"
+        last_msg_content_len = len(str(getattr(last_message, "content", "") or ""))
+        last_msg_tool_calls = (
+            len(getattr(last_message, "tool_calls", None) or [])
+            if isinstance(last_message, AIMessage)
+            else 0
+        )
+
+        if timed_out:
+            empty_reason = "timeout"
+        elif raw_response_text.strip():
+            empty_reason = "response_cleared_by_clean_tool_leaks"
+        elif iters_final > MAX_CONVERSATIONAL_LLM_ITERATIONS and last_msg_type == "ToolMessage":
+            empty_reason = "iterations_exhausted_with_pending_tools"
+        elif last_msg_type == "AIMessage" and last_msg_content_len == 0:
+            empty_reason = "llm_returned_empty_aimessage"
+        else:
+            empty_reason = "unknown_empty_response"
+
+        # Timeout ya fue notificado arriba; no duplicamos.
+        if not timed_out:
+            try:
+                empty_exc = RuntimeError(
+                    f"Conversational agent devolvió respuesta vacía ({empty_reason}). "
+                    f"iters={iters_final}, last_msg={last_msg_type}, "
+                    f"content_len={last_msg_content_len}, tool_calls={last_msg_tool_calls}, "
+                    f"raw_preview={raw_response_text[:200]!r}, "
+                    f"model={model}, conversation_id={conversation_id}, channel={channel_name}"
+                )
+                await send_error_to_webhook(
+                    empty_exc,
+                    context=f"conversational_agent_empty_reply:{empty_reason}",
+                    severity="warning",
+                    fallback="Se enviará mensaje genérico de cortesía al usuario.",
+                )
+            except Exception:
+                logger.exception("error_webhook.notify_failed_for_empty_reply")
 
     if memory_session_id:
         await _persist_memory_turn(memory_session_id, request.message, response_text, conversation_id, model)
-    if not memory_session_id:
+    if not memory_session_id and response_text.strip():
         response_cache.set(request.system_prompt, request.message, model, response_text)
 
     total_ms = (time.perf_counter() - t_start) * 1000
@@ -625,8 +713,8 @@ async def run_agent(request: ChatRequest) -> ChatResponse:
         tool_execution_ms=round(tool_execution_ms, 1),
     )
     logger.info(
-        "Timing - total: %sms | llm: %sms | mcp: %sms | graph: %sms",
-        timing.total_ms, timing.llm_ms, timing.mcp_discovery_ms, timing.graph_build_ms,
+        "Timing - total: %sms | llm: %sms | mcp: %sms | graph: %sms | recovery_used=%s",
+        timing.total_ms, timing.llm_ms, timing.mcp_discovery_ms, timing.graph_build_ms, recovery_used,
     )
 
     agent_runs = [
